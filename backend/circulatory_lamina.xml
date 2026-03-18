@@ -1,0 +1,321 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Circulatory Lamina - Attribute Definition File
+  
+  This XML file defines ALL attributes, their metadata, dependencies,
+  and mappings to function models. Domain experts can modify this file
+  to adjust the model without touching Python code.
+  
+  Structure:
+    <lamina>
+      <attributes>     - All measurable/computed values
+      <functions>       - All computational models
+      <composites>      - Logical groupings for vector space
+      <gates>           - Permeability gate conditions
+    </lamina>
+-->
+
+<lamina name="Circulatory" version="1.0">
+
+  <!-- ============================================================== -->
+  <!-- ATTRIBUTES: Each attribute is an object with full metadata      -->
+  <!-- source: SENSOR = external measurement, PRELIMINARY = computed   -->
+  <!-- ============================================================== -->
+  <attributes>
+
+    <!-- SENSOR ATTRIBUTES (external inputs) -->
+    <attribute id="SBP">
+      <name>Systolic Blood Pressure</name>
+      <unit>mmHg</unit>
+      <source>SENSOR</source>
+      <physio_min>90</physio_min>
+      <physio_max>180</physio_max>
+      <description>Peak pressure during ventricular contraction</description>
+    </attribute>
+
+    <attribute id="DBP">
+      <name>Diastolic Blood Pressure</name>
+      <unit>mmHg</unit>
+      <source>SENSOR</source>
+      <physio_min>60</physio_min>
+      <physio_max>120</physio_max>
+      <description>Minimum pressure during ventricular relaxation</description>
+    </attribute>
+
+    <attribute id="eta">
+      <name>Blood Viscosity</name>
+      <unit>mPa.s</unit>
+      <source>SENSOR</source>
+      <physio_min>3.0</physio_min>
+      <physio_max>4.0</physio_max>
+      <description>Dynamic viscosity of blood</description>
+    </attribute>
+
+    <attribute id="L">
+      <name>Vessel Length</name>
+      <unit>cm</unit>
+      <source>SENSOR</source>
+      <physio_min>1.0</physio_min>
+      <physio_max>100.0</physio_max>
+      <description>Length of the vessel segment being modelled</description>
+    </attribute>
+
+    <attribute id="r">
+      <name>Vessel Radius</name>
+      <unit>cm</unit>
+      <source>SENSOR</source>
+      <physio_min>0.01</physio_min>
+      <physio_max>1.5</physio_max>
+      <description>Internal radius of the vessel</description>
+    </attribute>
+
+    <attribute id="EDV">
+      <name>End-Diastolic Volume</name>
+      <unit>mL</unit>
+      <source>SENSOR</source>
+      <physio_min>50</physio_min>
+      <physio_max>250</physio_max>
+      <description>Volume of blood in ventricle before contraction</description>
+    </attribute>
+
+    <attribute id="HR">
+      <name>Heart Rate</name>
+      <unit>bpm</unit>
+      <source>SENSOR</source>
+      <physio_min>40</physio_min>
+      <physio_max>200</physio_max>
+      <description>Heart rate from Apple Watch</description>
+    </attribute>
+
+    <attribute id="r_m">
+      <name>Membrane Resistance</name>
+      <unit>ohm.cm</unit>
+      <source>SENSOR</source>
+      <physio_min>1000</physio_min>
+      <physio_max>10000</physio_max>
+      <description>Resistance of the cell membrane</description>
+    </attribute>
+
+    <attribute id="r_i">
+      <name>Intracellular Resistance</name>
+      <unit>ohm.cm</unit>
+      <source>SENSOR</source>
+      <physio_min>100</physio_min>
+      <physio_max>500</physio_max>
+      <description>Resistance inside the cell</description>
+    </attribute>
+
+    <attribute id="r_e">
+      <name>Extracellular Resistance</name>
+      <unit>ohm.cm</unit>
+      <source>SENSOR</source>
+      <physio_min>100</physio_min>
+      <physio_max>500</physio_max>
+      <description>Resistance of extracellular space</description>
+    </attribute>
+
+    <!-- PRELIMINARY ATTRIBUTES (computed internally) -->
+    <attribute id="MAP">
+      <name>Mean Arterial Pressure</name>
+      <unit>mmHg</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>60</physio_min>
+      <physio_max>110</physio_max>
+      <computed_by>pressure_regulation</computed_by>
+      <depends_on>SBP, DBP</depends_on>
+      <description>Average driving pressure across cardiac cycle</description>
+    </attribute>
+
+    <attribute id="R">
+      <name>Vascular Resistance</name>
+      <unit>mmHg.min/L</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>10</physio_min>
+      <physio_max>40</physio_max>
+      <computed_by>vascular_resistance</computed_by>
+      <depends_on>eta, L, r</depends_on>
+      <description>Resistance to blood flow from vessel properties</description>
+    </attribute>
+
+    <attribute id="SV">
+      <name>Stroke Volume</name>
+      <unit>mL</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>30</physio_min>
+      <physio_max>150</physio_max>
+      <computed_by>cardiac_filling</computed_by>
+      <depends_on>EDV</depends_on>
+      <description>Volume of blood pumped per heartbeat</description>
+    </attribute>
+
+    <attribute id="CO">
+      <name>Cardiac Output</name>
+      <unit>L/min</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>2</physio_min>
+      <physio_max>12</physio_max>
+      <computed_by>cardiac_pump</computed_by>
+      <depends_on>HR, SV</depends_on>
+      <description>Total blood output per minute</description>
+    </attribute>
+
+    <attribute id="Q">
+      <name>Blood Flow Rate</name>
+      <unit>L/min</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0.5</physio_min>
+      <physio_max>15</physio_max>
+      <computed_by>hemodynamic_flow</computed_by>
+      <depends_on>MAP, R</depends_on>
+      <description>Actual blood flow through circulation (primary output)</description>
+    </attribute>
+
+    <attribute id="lambda">
+      <name>Length Constant</name>
+      <unit>mm</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0.5</physio_min>
+      <physio_max>5.0</physio_max>
+      <computed_by>electrical_conduction</computed_by>
+      <depends_on>r_m, r_i, r_e</depends_on>
+      <description>Signal propagation distance before decay</description>
+    </attribute>
+
+  </attributes>
+
+  <!-- ============================================================== -->
+  <!-- FUNCTIONS: Computational models (mapped to Python methods)       -->
+  <!-- Domain experts can add new functions or modify step order here  -->
+  <!-- ============================================================== -->
+  <functions>
+
+    <function id="pressure_regulation" step="1">
+      <name>Pressure Regulation</name>
+      <formula>MAP = (1/3)*SBP + (2/3)*DBP</formula>
+      <inputs>SBP, DBP</inputs>
+      <output>MAP</output>
+      <description>Computes mean arterial pressure. DBP weighted 2/3 because diastole is ~2x longer than systole.</description>
+    </function>
+
+    <function id="vascular_resistance" step="2">
+      <name>Vascular Resistance</name>
+      <formula>R = 8*eta*L / (pi * r^4)</formula>
+      <inputs>eta, L, r</inputs>
+      <output>R</output>
+      <description>Poiseuille's Law. r^4 dependence: 50% radius reduction = 16x resistance increase.</description>
+    </function>
+
+    <function id="cardiac_filling" step="3a">
+      <name>Cardiac Filling</name>
+      <formula>SV = k * EDV (with Starling limit)</formula>
+      <inputs>EDV</inputs>
+      <output>SV</output>
+      <description>Frank-Starling Law. Heart pumps what it receives, capped at physiological limit.</description>
+    </function>
+
+    <function id="cardiac_pump" step="3b">
+      <name>Cardiac Pump</name>
+      <formula>CO = HR * SV / 1000</formula>
+      <inputs>HR, SV</inputs>
+      <output>CO</output>
+      <description>Primary pump output. HR from Apple Watch, SV from cardiac_filling.</description>
+    </function>
+
+    <function id="hemodynamic_flow" step="4">
+      <name>Hemodynamic Flow</name>
+      <formula>Q = delta_P / R</formula>
+      <inputs>MAP, R</inputs>
+      <output>Q</output>
+      <description>Ohm's Law for hemodynamics. Central formula resolving pressure and resistance into flow.</description>
+    </function>
+
+    <function id="electrical_conduction" step="5">
+      <name>Electrical Conduction</name>
+      <formula>lambda = sqrt(r_m / (r_i + r_e))</formula>
+      <inputs>r_m, r_i, r_e</inputs>
+      <output>lambda</output>
+      <description>Cable Theory. Models signal propagation distance. Links to ECG P-wave analysis.</description>
+    </function>
+
+  </functions>
+
+  <!-- ============================================================== -->
+  <!-- COMPOSITES: Logical groupings for vector space representation   -->
+  <!-- ============================================================== -->
+  <composites>
+
+    <composite id="pressure_state">
+      <name>Pressure State</name>
+      <attributes>SBP, DBP, MAP</attributes>
+      <description>Represents the lamina's pressure condition</description>
+    </composite>
+
+    <composite id="vessel_state">
+      <name>Vessel State</name>
+      <attributes>eta, L, r, R</attributes>
+      <description>Represents vessel geometry and resistance</description>
+    </composite>
+
+    <composite id="pump_state">
+      <name>Pump State</name>
+      <attributes>EDV, SV, HR, CO</attributes>
+      <description>Represents cardiac pump function</description>
+    </composite>
+
+    <composite id="flow_state">
+      <name>Flow State</name>
+      <attributes>Q</attributes>
+      <description>Primary output - circulatory flow</description>
+    </composite>
+
+    <composite id="conduction_state">
+      <name>Conduction State</name>
+      <attributes>r_m, r_i, r_e, lambda</attributes>
+      <description>Electrical signal propagation state</description>
+    </composite>
+
+  </composites>
+
+  <!-- ============================================================== -->
+  <!-- GATES: Permeability conditions for each attribute               -->
+  <!-- Domain experts can adjust thresholds here                       -->
+  <!-- ============================================================== -->
+  <gates>
+
+    <gate attribute="MAP" type="range">
+      <min>60</min>
+      <max>110</max>
+      <action_on_fail>hold_previous</action_on_fail>
+      <flag>hypo/hypertension alert</flag>
+    </gate>
+
+    <gate attribute="R" type="positive">
+      <min>0</min>
+      <action_on_fail>hold_previous</action_on_fail>
+      <flag>invalid resistance</flag>
+    </gate>
+
+    <gate attribute="CO" type="range">
+      <min>2</min>
+      <max>12</max>
+      <action_on_fail>hold_previous</action_on_fail>
+      <flag>abnormal cardiac output</flag>
+    </gate>
+
+    <gate attribute="Q" type="range">
+      <min>0.5</min>
+      <max>15</max>
+      <action_on_fail>hold_previous</action_on_fail>
+      <flag>abnormal flow rate</flag>
+    </gate>
+
+    <gate attribute="Q_CO_match" type="consistency">
+      <tolerance>0.10</tolerance>
+      <compare>Q, CO</compare>
+      <action_on_fail>recalibrate</action_on_fail>
+      <flag>Q != CO: model inconsistency</flag>
+    </gate>
+
+  </gates>
+
+</lamina>

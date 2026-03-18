@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<patient>
+  <metadata>
+    <name>Hypertension + Vasoconstriction</name>
+    <description>Patient with elevated blood pressure and narrowed vessels</description>
+  </metadata>
+  <sensor_data>
+    <SBP>160</SBP>
+    <DBP>100</DBP>
+    <HR>85</HR>
+    <eta>3.8</eta>
+    <L>20</L>
+    <r>0.3</r>
+    <EDV>130</EDV>
+    <r_m>5000</r_m>
+    <r_i>200</r_i>
+    <r_e>300</r_e>
+  </sensor_data>
+</patient>

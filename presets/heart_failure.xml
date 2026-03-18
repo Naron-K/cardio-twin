@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<patient>
+  <metadata>
+    <name>Heart Failure Patient</name>
+    <description>Cardiac dysfunction with compensatory tachycardia</description>
+  </metadata>
+  <sensor_data>
+    <SBP>100</SBP>
+    <DBP>65</DBP>
+    <HR>95</HR>
+    <eta>3.5</eta>
+    <L>20</L>
+    <r>0.35</r>
+    <EDV>180</EDV>
+    <r_m>3000</r_m>
+    <r_i>250</r_i>
+    <r_e>350</r_e>
+  </sensor_data>
+</patient>

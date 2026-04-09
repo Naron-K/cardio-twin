@@ -15,7 +15,27 @@
     </lamina>
 -->
 
-<lamina name="Circulatory" version="1.0">
+<lamina name="Circulatory" id="lamina_circulatory" version="2.0" level="1">
+
+  <upper_lamina id="none" />
+  <lower_lamina id="none" />
+
+  <!-- ============================================================== -->
+  <!-- CHANNEL MAPPINGS: Links sensor attributes to ingestion channels -->
+  <!-- Channel definitions live in ingestion_manifold.xml            -->
+  <!-- ============================================================== -->
+  <channel_mappings>
+    <mapping attribute_id="SBP"  channel_id="ch_manual_slider" />
+    <mapping attribute_id="DBP"  channel_id="ch_manual_slider" />
+    <mapping attribute_id="HR"   channel_id="ch_manual_slider" />
+    <mapping attribute_id="eta"  channel_id="ch_manual_slider" />
+    <mapping attribute_id="L"    channel_id="ch_manual_slider" />
+    <mapping attribute_id="r"    channel_id="ch_manual_slider" />
+    <mapping attribute_id="EDV"  channel_id="ch_manual_slider" />
+    <mapping attribute_id="r_m"  channel_id="ch_manual_slider" />
+    <mapping attribute_id="r_i"  channel_id="ch_manual_slider" />
+    <mapping attribute_id="r_e"  channel_id="ch_manual_slider" />
+  </channel_mappings>
 
   <!-- ============================================================== -->
   <!-- ATTRIBUTES: Each attribute is an object with full metadata      -->
@@ -244,34 +264,66 @@
   <!-- ============================================================== -->
   <composites>
 
+    <!--
+      absorption_vector: 1D seed weights, one per attribute in order.
+      Values are 1/N (equal) — the Auto Controller adjusts these dynamically
+      via W_new = W_old + (learning_rate × deviation) after each feedback cycle.
+    -->
+
     <composite id="pressure_state">
       <name>Pressure State</name>
       <attributes>SBP, DBP, MAP</attributes>
       <description>Represents the lamina's pressure condition</description>
+      <absorption_vector>
+        <weight attribute="SBP">0.3333</weight>
+        <weight attribute="DBP">0.3333</weight>
+        <weight attribute="MAP">0.3333</weight>
+      </absorption_vector>
     </composite>
 
     <composite id="vessel_state">
       <name>Vessel State</name>
       <attributes>eta, L, r, R</attributes>
       <description>Represents vessel geometry and resistance</description>
+      <absorption_vector>
+        <weight attribute="eta">0.25</weight>
+        <weight attribute="L">0.25</weight>
+        <weight attribute="r">0.25</weight>
+        <weight attribute="R">0.25</weight>
+      </absorption_vector>
     </composite>
 
     <composite id="pump_state">
       <name>Pump State</name>
       <attributes>EDV, SV, HR, CO</attributes>
       <description>Represents cardiac pump function</description>
+      <absorption_vector>
+        <weight attribute="EDV">0.25</weight>
+        <weight attribute="SV">0.25</weight>
+        <weight attribute="HR">0.25</weight>
+        <weight attribute="CO">0.25</weight>
+      </absorption_vector>
     </composite>
 
     <composite id="flow_state">
       <name>Flow State</name>
       <attributes>Q</attributes>
       <description>Primary output - circulatory flow</description>
+      <absorption_vector>
+        <weight attribute="Q">1.0</weight>
+      </absorption_vector>
     </composite>
 
     <composite id="conduction_state">
       <name>Conduction State</name>
       <attributes>r_m, r_i, r_e, lambda</attributes>
       <description>Electrical signal propagation state</description>
+      <absorption_vector>
+        <weight attribute="r_m">0.25</weight>
+        <weight attribute="r_i">0.25</weight>
+        <weight attribute="r_e">0.25</weight>
+        <weight attribute="lambda">0.25</weight>
+      </absorption_vector>
     </composite>
 
   </composites>
@@ -317,5 +369,69 @@
     </gate>
 
   </gates>
+
+  <!-- ============================================================== -->
+  <!-- SEGMENTS: Named sub-sections of this lamina                    -->
+  <!-- Each segment groups related attributes, composites, functions  -->
+  <!-- absorption_vector and behavioural_outcomes: PENDING definition -->
+  <!-- ============================================================== -->
+  <segments>
+
+    <!--
+      behavioural_outcomes: domain-expert defined numerical targets.
+      Each outcome produces a Feedback Object when evaluated:
+        { target, actual, deviation, deviation_pct, within_tolerance, status }
+      The Auto Controller reads deviation to compute ΔW for weight adjustment.
+      Target values are standard healthy resting ranges (clinical reference).
+    -->
+
+    <segment name="Arterial" id="seg_arterial">
+      <description>Systemic arterial circulation subsystem</description>
+      <attributes>SBP, DBP, MAP, R, Q</attributes>
+      <composites>pressure_state, vessel_state, flow_state</composites>
+      <functions>pressure_regulation, vascular_resistance, hemodynamic_flow</functions>
+      <behavioural_outcomes>
+        <outcome id="target_flow" attribute="Q" target="5.5" tolerance="1.5"
+                 name="Target Flow Rate" unit="L/min">
+          <description>Normal resting cardiac flow 4.0–7.0 L/min</description>
+        </outcome>
+        <outcome id="target_map" attribute="MAP" target="85" tolerance="15"
+                 name="Target Mean Arterial Pressure" unit="mmHg">
+          <description>Healthy MAP range 70–100 mmHg</description>
+        </outcome>
+      </behavioural_outcomes>
+    </segment>
+
+    <segment name="Cardiac" id="seg_cardiac">
+      <description>Cardiac pump subsystem</description>
+      <attributes>EDV, HR, SV, CO</attributes>
+      <composites>pump_state</composites>
+      <functions>cardiac_filling, cardiac_pump</functions>
+      <behavioural_outcomes>
+        <outcome id="target_co" attribute="CO" target="5.0" tolerance="1.5"
+                 name="Target Cardiac Output" unit="L/min">
+          <description>Normal resting cardiac output 4.0–8.0 L/min</description>
+        </outcome>
+        <outcome id="target_sv" attribute="SV" target="70" tolerance="15"
+                 name="Target Stroke Volume" unit="mL">
+          <description>Normal resting stroke volume 55–85 mL</description>
+        </outcome>
+      </behavioural_outcomes>
+    </segment>
+
+    <segment name="Conduction" id="seg_conduction">
+      <description>Electrical conduction subsystem</description>
+      <attributes>r_m, r_i, r_e, lambda</attributes>
+      <composites>conduction_state</composites>
+      <functions>electrical_conduction</functions>
+      <behavioural_outcomes>
+        <outcome id="target_lambda" attribute="lambda" target="2.0" tolerance="0.5"
+                 name="Target Length Constant" unit="mm">
+          <description>Normal propagation distance 1.5–2.5 mm; below 0.5 mm signals arrhythmia risk</description>
+        </outcome>
+      </behavioural_outcomes>
+    </segment>
+
+  </segments>
 
 </lamina>

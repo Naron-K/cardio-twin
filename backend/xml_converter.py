@@ -139,6 +139,15 @@ def results_to_xml(results: Dict[str, Any], name: str = "Computation Results") -
         for warning in results["warnings"]:
             ET.SubElement(warnings_el, "warning").text = warning
 
+    # Segments (if provided)
+    if "segments" in results:
+        segs_el = ET.SubElement(root, "segments")
+        for seg_id, seg in results["segments"].items():
+            seg_el = ET.SubElement(segs_el, "segment", id=seg_id, name=seg.get("name", seg_id))
+            ET.SubElement(seg_el, "attributes").text = ", ".join(seg.get("attribute_ids", []))
+            ET.SubElement(seg_el, "composites").text = ", ".join(seg.get("composite_ids", []))
+            ET.SubElement(seg_el, "functions").text = ", ".join(seg.get("function_ids", []))
+
     return _to_xml_string(root)
 
 

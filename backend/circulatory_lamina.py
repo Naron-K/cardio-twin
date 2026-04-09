@@ -62,24 +62,24 @@ class CirculatoryLamina(UniversalTwin):
 
     # ── Step 1: Pressure Regulation ──────────────────────────────────
 
-    def _calc_map(self) -> float:
+    def _calc_map(self, inputs: list) -> float:
         """
         MAP = (1/3) * SBP + (2/3) * DBP
 
         Mean Arterial Pressure: the average driving pressure.
         DBP weighted 2/3 because diastole is ~2× longer than systole.
+        inputs: [SBP, DBP]  — order defined in XML <inputs>
         """
-        sbp = self.attributes["SBP"].value
-        dbp = self.attributes["DBP"].value
+        sbp, dbp = inputs[0], inputs[1]
 
         if sbp is None or dbp is None:
-            raise ValueError("SBP and DBP must be set before computing MAP")
+            raise ValueError("inputs[0] (SBP) and inputs[1] (DBP) must be set before computing MAP")
 
         return (1/3) * sbp + (2/3) * dbp
 
     # ── Step 2: Vascular Resistance ──────────────────────────────────
 
-    def _calc_resistance(self) -> float:
+    def _calc_resistance(self, inputs: list) -> float:
         """
         R = 8ηL / (πr⁴)
 
@@ -87,13 +87,12 @@ class CirculatoryLamina(UniversalTwin):
         to vessel radius changes:
           - r ↓ 20% → R ↑ 2.44×
           - r ↓ 50% → R ↑ 16×
+        inputs: [eta, L, r]  — order defined in XML <inputs>
         """
-        eta = self.attributes["eta"].value
-        length = self.attributes["L"].value
-        radius = self.attributes["r"].value
+        eta, length, radius = inputs[0], inputs[1], inputs[2]
 
         if any(v is None for v in [eta, length, radius]):
-            raise ValueError("eta, L, r must be set before computing R")
+            raise ValueError("inputs[0] (eta), inputs[1] (L), inputs[2] (r) must be set before computing R")
         if radius <= 0:
             raise ValueError("Vessel radius must be positive")
 
@@ -108,7 +107,7 @@ class CirculatoryLamina(UniversalTwin):
 
     # ── Step 3a: Cardiac Filling (Frank-Starling) ────────────────────
 
-    def _calc_stroke_volume(self) -> float:
+    def _calc_stroke_volume(self, inputs: list) -> float:
         """
         SV ∝ EDV (Frank-Starling Law)
 
@@ -121,35 +120,36 @@ class CirculatoryLamina(UniversalTwin):
           - Normal: k=0.55, limit=200
           - Heart failure: k=0.30, limit=150
           - Athletic heart: k=0.65, limit=220
+        inputs: [EDV]  — order defined in XML <inputs>
         """
-        edv = self.attributes["EDV"].value
+        edv = inputs[0]
 
         if edv is None:
-            raise ValueError("EDV must be set before computing SV")
+            raise ValueError("inputs[0] (EDV) must be set before computing SV")
 
         effective_edv = min(edv, self.STARLING_LIMIT_EDV)
         return self.STARLING_K * effective_edv
 
     # ── Step 3b: Cardiac Pump ────────────────────────────────────────
 
-    def _calc_cardiac_output(self) -> float:
+    def _calc_cardiac_output(self, inputs: list) -> float:
         """
         CO = HR × SV / 1000
 
         Cardiac Output in L/min. HR from Apple Watch (bpm),
         SV from cardiac_filling (mL). Division by 1000 converts mL to L.
+        inputs: [HR, SV]  — order defined in XML <inputs>
         """
-        hr = self.attributes["HR"].value
-        sv = self.attributes["SV"].value
+        hr, sv = inputs[0], inputs[1]
 
         if hr is None or sv is None:
-            raise ValueError("HR and SV must be available before computing CO")
+            raise ValueError("inputs[0] (HR) and inputs[1] (SV) must be available before computing CO")
 
         return hr * sv / 1000
 
     # ── Step 4: Hemodynamic Flow ─────────────────────────────────────
 
-    def _calc_flow(self) -> float:
+    def _calc_flow(self, inputs: list) -> float:
         """
         Q = ΔP / R
 
@@ -158,12 +158,12 @@ class CirculatoryLamina(UniversalTwin):
 
         This is the central formula of the lamina.
         Q is the primary Behaviour Outcome.
+        inputs: [MAP, R]  — order defined in XML <inputs>
         """
-        delta_p = self.attributes["MAP"].value
-        resistance = self.attributes["R"].value
+        delta_p, resistance = inputs[0], inputs[1]
 
         if delta_p is None or resistance is None:
-            raise ValueError("MAP and R must be computed before computing Q")
+            raise ValueError("inputs[0] (MAP) and inputs[1] (R) must be computed before computing Q")
         if resistance <= 0:
             raise ValueError("Resistance must be positive to compute flow")
 
@@ -171,7 +171,7 @@ class CirculatoryLamina(UniversalTwin):
 
     # ── Step 5: Electrical Conduction ────────────────────────────────
 
-    def _calc_lambda(self) -> float:
+    def _calc_lambda(self, inputs: list) -> float:
         """
         λ = √(rₘ / (rᵢ + rₑ))
 
@@ -181,13 +181,12 @@ class CirculatoryLamina(UniversalTwin):
         Links to ECG P-wave analysis:
           - λ high → good conduction → regular HR
           - λ low → abnormal P-wave → arrhythmia risk
+        inputs: [r_m, r_i, r_e]  — order defined in XML <inputs>
         """
-        rm = self.attributes["r_m"].value
-        ri = self.attributes["r_i"].value
-        re = self.attributes["r_e"].value
+        rm, ri, re = inputs[0], inputs[1], inputs[2]
 
         if any(v is None for v in [rm, ri, re]):
-            raise ValueError("r_m, r_i, r_e must be set before computing lambda")
+            raise ValueError("inputs[0] (r_m), inputs[1] (r_i), inputs[2] (r_e) must be set before computing lambda")
         if (ri + re) <= 0:
             raise ValueError("Sum of intracellular and extracellular resistance must be positive")
 

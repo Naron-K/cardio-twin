@@ -13,6 +13,7 @@ Domain experts modify the XML file, not this code.
 Developers add new function models in child classes.
 """
 
+import numpy as np
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -109,11 +110,90 @@ class FunctionDef:
 # ──────────────────────────────────────────────────────────────────────
 @dataclass
 class Composite:
-    """Logical grouping of attributes for vector space."""
+    """
+    Logical grouping of attributes for vector space.
+
+    The absorption_vector is a 1D numpy array (shape: N,) where N equals
+    the number of attributes in this composite.  Seed values are 1/N
+    (equal weights) and are updated dynamically by the Auto Controller
+    via the feedback rule:  W_new = W_old + ΔW
+    """
     id: str
     name: str
     attribute_ids: list
     description: str = ""
+    absorption_vector: Optional[np.ndarray] = field(default=None, repr=False)
+
+    def update_weights(self, new_values):
+        """Set/replace the absorption vector. Called by the Auto Controller after each feedback cycle."""
+        self.absorption_vector = np.array(new_values, dtype=float)
+
+    def apply_absorption(self, attribute_values: list) -> np.ndarray:
+        """
+        Value_new = Attribute_existing × Weight_absorb  (element-wise).
+        Returns absorbed vector, same length as attribute_ids.
+        Falls back to unweighted values if no vector is initialised.
+        """
+        vals = np.array(attribute_values, dtype=float)
+        if self.absorption_vector is None or len(self.absorption_vector) != len(vals):
+            return vals
+        return vals * self.absorption_vector
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Behavioural Outcome Definition
+# ──────────────────────────────────────────────────────────────────────
+@dataclass
+class BehaviouralOutcome:
+    """
+    Domain-expert defined numerical target for a specific attribute.
+    Acts as the 'truth' metric that the Auto Controller compares against
+    real-world sensor data (e.g. Apple Watch readings) to compute the
+    error signal ΔW for weight adjustment.
+    """
+    id: str
+    name: str
+    attribute_id: str    # attribute being tracked, e.g. "Q", "CO"
+    target_value: float  # expected healthy value defined by domain expert
+    tolerance: float     # acceptable absolute deviation from target
+    unit: str = ""
+    description: str = ""
+
+    def evaluate(self, actual_value: float) -> dict:
+        """
+        Compare actual vs target and return a Feedback Object.
+        The deviation field is the ΔW input for auto_adjust_weights().
+        """
+        deviation = actual_value - self.target_value
+        deviation_pct = deviation / self.target_value if self.target_value != 0 else 0.0
+        within_tolerance = abs(deviation) <= self.tolerance
+        return {
+            "outcome_id":        self.id,
+            "name":              self.name,
+            "attribute_id":      self.attribute_id,
+            "unit":              self.unit,
+            "target":            self.target_value,
+            "actual":            round(actual_value, 4),
+            "deviation":         round(deviation, 4),
+            "deviation_pct":     round(deviation_pct, 4),
+            "within_tolerance":  within_tolerance,
+            "status":            "normal" if within_tolerance else ("above" if deviation > 0 else "below"),
+        }
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Segment Definition
+# ──────────────────────────────────────────────────────────────────────
+@dataclass
+class Segment:
+    """Named sub-section of a lamina, grouping related attributes/functions."""
+    id: str
+    name: str
+    attribute_ids: list
+    composite_ids: list
+    function_ids: list
+    description: str = ""
+    behavioural_outcomes: list = field(default_factory=list)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -136,9 +216,15 @@ class UniversalTwin:
     def __init__(self, xml_path: str):
         self.xml_path = xml_path
         self.lamina_name = ""
+        self.lamina_id = ""
+        self.lamina_level = 0
+        self.upper_lamina_id = "none"
+        self.lower_lamina_id = "none"
         self.attributes: dict[str, Attribute] = {}
         self.functions: dict[str, FunctionDef] = {}
         self.composites: dict[str, Composite] = {}
+        self.segments: dict[str, Segment] = {}
+        self.channel_mappings: dict[str, str] = {}  # attribute_id -> channel_id
         self.gates: list[Gate] = []
         self._function_registry: dict[str, callable] = {}
         self._computation_log: list[str] = []
@@ -155,7 +241,22 @@ class UniversalTwin:
         """Parse the XML definition file into internal structures."""
         tree = ET.parse(path)
         root = tree.getroot()
+
+        # Lamina-level metadata
         self.lamina_name = root.get("name", "Unknown")
+        self.lamina_id = root.get("id", "")
+        self.lamina_level = int(root.get("level", "0"))
+        upper_el = root.find("upper_lamina")
+        self.upper_lamina_id = upper_el.get("id", "none") if upper_el is not None else "none"
+        lower_el = root.find("lower_lamina")
+        self.lower_lamina_id = lower_el.get("id", "none") if lower_el is not None else "none"
+
+        # Channel mappings: attribute_id -> channel_id
+        for mapping_el in root.findall(".//channel_mappings/mapping"):
+            attr_id = mapping_el.get("attribute_id")
+            channel_id = mapping_el.get("channel_id")
+            if attr_id and channel_id:
+                self.channel_mappings[attr_id] = channel_id
 
         # Parse attributes
         for attr_el in root.findall(".//attributes/attribute"):
@@ -197,11 +298,58 @@ class UniversalTwin:
             attrs_text = comp_el.findtext("attributes", "")
             attrs = [a.strip() for a in attrs_text.split(",") if a.strip()]
 
-            self.composites[comp_id] = Composite(
+            comp = Composite(
                 id=comp_id,
                 name=comp_el.findtext("n", comp_el.findtext("name", comp_id)),
                 attribute_ids=attrs,
                 description=comp_el.findtext("description", ""),
+            )
+
+            # Build absorption vector: 1D numpy array ordered by attribute_ids.
+            # <weight attribute="X">value</weight> entries in XML define the seeds.
+            # Missing attributes fall back to equal weight 1/N.
+            av_el = comp_el.find("absorption_vector")
+            if av_el is not None:
+                seed = 1.0 / len(attrs) if attrs else 1.0
+                weight_map = {
+                    w.get("attribute"): float(w.text)
+                    for w in av_el.findall("weight")
+                    if w.get("attribute") and w.text
+                }
+                comp.update_weights([weight_map.get(a, seed) for a in attrs])
+
+            self.composites[comp_id] = comp
+
+        # Parse segments
+        for seg_el in root.findall(".//segments/segment"):
+            seg_id = seg_el.get("id")
+            attrs_text = seg_el.findtext("attributes", "")
+            comps_text = seg_el.findtext("composites", "")
+            funcs_text = seg_el.findtext("functions", "")
+
+            # Parse behavioural outcomes: domain-expert numerical targets
+            outcomes = []
+            bo_el = seg_el.find("behavioural_outcomes")
+            if bo_el is not None:
+                for oc_el in bo_el.findall("outcome"):
+                    outcomes.append(BehaviouralOutcome(
+                        id=oc_el.get("id", ""),
+                        name=oc_el.get("name", ""),
+                        attribute_id=oc_el.get("attribute", ""),
+                        target_value=float(oc_el.get("target", "0")),
+                        tolerance=float(oc_el.get("tolerance", "0")),
+                        unit=oc_el.get("unit", ""),
+                        description=oc_el.findtext("description", ""),
+                    ))
+
+            self.segments[seg_id] = Segment(
+                id=seg_id,
+                name=seg_el.get("name", seg_id),
+                attribute_ids=[a.strip() for a in attrs_text.split(",") if a.strip()],
+                composite_ids=[c.strip() for c in comps_text.split(",") if c.strip()],
+                function_ids=[f.strip() for f in funcs_text.split(",") if f.strip()],
+                description=seg_el.findtext("description", ""),
+                behavioural_outcomes=outcomes,
             )
 
         # Parse gates
@@ -229,6 +377,19 @@ class UniversalTwin:
             self._function_registry["pressure_regulation"] = self._calc_map
         """
         pass
+
+    def _resolve_inputs(self, func_id: str) -> list:
+        """
+        Read the <inputs> list from the XML function definition and resolve
+        current attribute values in that order.
+
+        Returns a plain list of values — functions receive generic positional
+        inputs and are not coupled to attribute names.
+        """
+        func_def = self.functions.get(func_id)
+        if not func_def:
+            return []
+        return [self.attributes[attr_id].value for attr_id in func_def.inputs]
 
     # ── Core Operations ──────────────────────────────────────────────
 
@@ -294,7 +455,8 @@ class UniversalTwin:
         func_id = attr.computed_by
         if func_id in self._function_registry:
             try:
-                result = self._function_registry[func_id]()
+                inputs = self._resolve_inputs(func_id)
+                result = self._function_registry[func_id](inputs)
                 attr.set_value(result, confidence=0.9)
                 self._log(f"COMPUTED: {attr_id} = {result:.4f} {attr.unit} (via {func_id})")
             except Exception as e:
@@ -396,6 +558,95 @@ class UniversalTwin:
         return {
             comp_id: self.get_composite_vector(comp_id)
             for comp_id in self.composites
+        }
+
+    # ── Absorption Vector ────────────────────────────────────────────
+
+    def get_absorbed_vector(self, composite_id: str) -> Optional[dict]:
+        """
+        Apply the absorption vector to the composite's normalised attribute values.
+        Returns {attr_id: absorbed_value} where absorbed_i = normalised_i × weight_i.
+        This is the dampened/amplified view of the composite state.
+        """
+        comp = self.composites.get(composite_id)
+        if not comp or comp.absorption_vector is None:
+            return None
+        normalised = [self.get(a).normalised or 0.0 for a in comp.attribute_ids]
+        absorbed = comp.apply_absorption(normalised)
+        return {
+            attr_id: round(float(absorbed[i]), 6)
+            for i, attr_id in enumerate(comp.attribute_ids)
+        }
+
+    def get_all_absorbed_vectors(self) -> dict:
+        """Get absorbed vectors for all composites."""
+        return {
+            comp_id: self.get_absorbed_vector(comp_id)
+            for comp_id in self.composites
+        }
+
+    def update_composite_weights(self, composite_id: str, new_weights: list):
+        """
+        Directly overwrite absorption vector weights for a composite.
+        Use when the Auto Controller wants to set weights explicitly
+        rather than applying an incremental ΔW step.
+        """
+        comp = self.composites.get(composite_id)
+        if not comp:
+            raise KeyError(f"Composite '{composite_id}' not found")
+        comp.update_weights(new_weights)
+        self._log(f"WEIGHTS SET: {composite_id} -> {new_weights}")
+
+    def auto_adjust_weights(self, composite_id: str, deviation: float,
+                            learning_rate: float = 0.01):
+        """
+        Implements  W_new = W_old + ΔW,  where  ΔW = learning_rate × deviation.
+
+        Called by the Auto Controller after comparing a Behavioural Outcome
+        against real-world sensor data (e.g. Apple Watch reading).
+
+        Args:
+            composite_id:  composite whose weights to adjust
+            deviation:     error signal — use BehaviouralOutcome.evaluate()["deviation"]
+            learning_rate: step size (default 0.01; tune per convergence needs)
+        """
+        comp = self.composites.get(composite_id)
+        if not comp:
+            raise KeyError(f"Composite '{composite_id}' not found")
+        if comp.absorption_vector is None:
+            raise ValueError(f"Composite '{composite_id}' has no absorption vector initialised")
+
+        delta_w = learning_rate * deviation
+        new_weights = np.clip(comp.absorption_vector + delta_w, 0.0, 1.0)
+        comp.update_weights(new_weights)
+        self._log(
+            f"WEIGHTS ADJUSTED: {composite_id} | "
+            f"deviation={deviation:.4f} | lr={learning_rate} | dW={delta_w:.6f}"
+        )
+
+    # ── Behavioural Outcomes ─────────────────────────────────────────
+
+    def evaluate_segment_outcomes(self, segment_id: str) -> list:
+        """
+        Evaluate all behavioural outcomes for a segment.
+        Returns a list of Feedback Objects (each a dict) comparing the
+        current computed value against the domain-expert target.
+        """
+        seg = self.segments.get(segment_id)
+        if not seg:
+            return []
+        results = []
+        for outcome in seg.behavioural_outcomes:
+            attr = self.attributes.get(outcome.attribute_id)
+            if attr and attr.value is not None:
+                results.append(outcome.evaluate(attr.value))
+        return results
+
+    def evaluate_all_outcomes(self) -> dict:
+        """Evaluate all segment behavioural outcomes. Returns {segment_id: [feedback_objects]}."""
+        return {
+            seg_id: self.evaluate_segment_outcomes(seg_id)
+            for seg_id in self.segments
         }
 
     # ── Introspection (for domain experts) ───────────────────────────

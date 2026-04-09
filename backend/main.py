@@ -122,11 +122,13 @@ def _run_simulation(sensor_data: Dict[str, float]) -> Dict[str, Any]:
     vectors = twin.get_all_vectors()
 
     return {
-        "sensors": sensors_out,
-        "computed": computed_out,
-        "vectors": vectors,
-        "warnings": warnings,
-        "log": twin.get_log(),
+        "sensors":    sensors_out,
+        "computed":   computed_out,
+        "vectors":    vectors,
+        "absorption": twin.get_all_absorbed_vectors(),
+        "outcomes":   twin.evaluate_all_outcomes(),
+        "warnings":   warnings,
+        "log":        twin.get_log(),
     }
 
 
@@ -180,6 +182,7 @@ def get_schema():
             "name": comp.name,
             "attribute_ids": comp.attribute_ids,
             "description": comp.description,
+            "absorption_vector": comp.absorption_vector.tolist() if comp.absorption_vector is not None else None,
         }
 
     functions = [
@@ -195,11 +198,40 @@ def get_schema():
         for f in sorted(twin.functions.values(), key=lambda fn: fn.step)
     ]
 
+    segments = {}
+    for seg_id, seg in twin.segments.items():
+        segments[seg_id] = {
+            "id": seg.id,
+            "name": seg.name,
+            "attribute_ids": seg.attribute_ids,
+            "composite_ids": seg.composite_ids,
+            "function_ids": seg.function_ids,
+            "description": seg.description,
+            "behavioural_outcomes": [
+                {
+                    "id":           o.id,
+                    "name":         o.name,
+                    "attribute_id": o.attribute_id,
+                    "target_value": o.target_value,
+                    "tolerance":    o.tolerance,
+                    "unit":         o.unit,
+                    "description":  o.description,
+                }
+                for o in seg.behavioural_outcomes
+            ],
+        }
+
     return {
         "lamina_name": twin.lamina_name,
+        "lamina_id": twin.lamina_id,
+        "lamina_level": twin.lamina_level,
+        "upper_lamina_id": twin.upper_lamina_id,
+        "lower_lamina_id": twin.lower_lamina_id,
         "attributes": attributes,
         "composites": composites,
         "functions": functions,
+        "segments": segments,
+        "channel_mappings": twin.channel_mappings,
     }
 
 

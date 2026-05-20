@@ -41,28 +41,32 @@ X = X' + X''
 Cho attribute *i* trong composite mục tiêu, tại cycle *t*:
 
 ```
-ΔOV_t   = actual - target                         (deviation)
-d_t     = ΔOV_t / tolerance                       (chuẩn hóa)
+ΔOV_t   = actual - target                                      (deviation)
+d_t     = ΔOV_t / tolerance                                    (chuẩn hóa)
 
-G(d)    = 1 / (1 + exp(-k · (|d| - 1)))           (sigmoid mở gate)
-raw     = -gain · w_i · G(d_t) · d_t · tolerance  (tín hiệu hấp thụ có dấu)
+G(d)    = 1 / (1 + exp(-k · (|d| - 1)))                        (sigmoid mở gate)
+raw     = polarity · gain · w_i · G(d_t) · d_t · tolerance     (tín hiệu hấp thụ)
 
 X''_i,t = A_max · tanh( ((1-λ) · X''_i,t-1 + raw) / A_max )
 ```
 
-Sau đó `value_i = X'_i + X''_i,t`, behaviour function chạy lại.
+Sau đó `value_i = X'_i + X''_i,t` (qua coupling kernel, mặc định additive), behaviour function chạy lại.
 
-**Ba thành phần:**
+**Bốn thành phần:**
 
 | Phần | Vai trò | Tham số |
 |---|---|---|
+| `polarity` | Hướng feedback. `-1.0` = negative (corrective, mặc định), `+1.0` = positive (amplifying). Float, hỗ trợ giá trị fractional (vd `0.5` = positive yếu) và `0` (monitor-only). Per-tag config. | `polarity` (mặc định -1.0) |
 | Sigmoid `G(d)` | Ngưỡng mở gate; chặn nhiễu nhỏ trong tolerance | `threshold_k` (mặc định 4.0) |
-| Leaky integrator `(1-λ)·X''` | Phasing-out, đảm bảo homeostasis | `decay` = λ (mặc định 0.10) |
+| Leaky integrator `(1-λ)·X''` | Phasing-out, đảm bảo homeostasis. **Nằm bên trong kernel** (mỗi kernel có luật decay riêng), không phải framework-level step. | `decay` = λ (mặc định 0.10) |
 | Tanh saturation | Chặn biên độ, đạo hàm liên tục | `saturation` = A_max (mặc định 0.3 × physio range) |
 
-**Bằng chứng hội tụ (sơ lược):** với `X' = 0`, target cố định:
+**`w_i` từ đâu:** đọc từ `Composite.distribution_vector` (vector mới, tách khỏi `absorption_vector` dùng cho learning loop — xem §3.3 và D2).
+
+**Bằng chứng hội tụ (sơ lược):** với `X' = 0`, target cố định, polarity = -1:
 - Tại `X'' = 0`: deviation = 0 → `G ≈ 0` → `raw ≈ 0` → decay kéo về 0 → fixed point.
 - Tanh đảm bảo quỹ đạo không thoát `[-A_max, A_max]`.
+- Polarity = +1 (positive feedback) **không đảm bảo hội tụ** — đặc tính sinh học của amplification. Domain expert phải chốt tolerance/saturation cẩn thận khi dùng.
 
 ### 2.4 Đơn vị correction
 
@@ -109,7 +113,30 @@ Mỗi registry có **1 default** đăng ký sẵn trong `UniversalTwin.__init__`
 
   <attributes>...</attributes>      <!-- giữ nguyên -->
   <functions>...</functions>        <!-- giữ nguyên -->
-  <composites>...</composites>      <!-- giữ nguyên -->
+
+  <!-- MỞ RỘNG: composite có thêm distribution_vector (optional) -->
+  <composites>
+    <composite id="pump_state">
+      <attributes>EDV, SV, HR, CO</attributes>
+
+      <!-- Learning weights (giữ nguyên, dùng cho auto_adjust_weights) -->
+      <absorption_vector>
+        <weight attribute="EDV">0.25</weight>
+        <weight attribute="SV">0.25</weight>
+        <weight attribute="HR">0.25</weight>
+        <weight attribute="CO">0.25</weight>
+      </absorption_vector>
+
+      <!-- MỚI: gate fanout weights (w_i trong §2.3). Optional, default 1/N -->
+      <distribution_vector>
+        <weight attribute="EDV">0.25</weight>
+        <weight attribute="SV">0.25</weight>
+        <weight attribute="HR">0.25</weight>
+        <weight attribute="CO">0.25</weight>
+      </distribution_vector>
+    </composite>
+  </composites>
+
   <gates>...</gates>                <!-- giữ nguyên (gate cũ = range/positive/consistency check) -->
   <segments>...</segments>          <!-- giữ nguyên -->
 
@@ -118,7 +145,8 @@ Mỗi registry có **1 default** đăng ký sẵn trong `UniversalTwin.__init__`
     <tag id="CO_DEVIATION" outcome="target_co"
          deviation_type="absolute"
          emitter="binary"
-         gate_kernel="sigmoid_leaky_tanh">
+         gate_kernel="sigmoid_leaky_tanh"
+         polarity="negative">         <!-- "negative"/"positive"/số. Default "negative" -->
 
       <!-- Multi-target: 1 tag có thể bơm vào nhiều composite -->
       <targets>
@@ -128,14 +156,35 @@ Mỗi registry có **1 default** đăng ký sẵn trong `UniversalTwin.__init__`
       </targets>
 
       <!-- Loose params: dict tự do, kernel tự interpret -->
-      <params gain="0.6" decay="0.10" threshold_k="4.0" saturation="0.3"/>
+      <params gain="0.6" decay="0.10" threshold_k="4.0" saturation="0.3"
+              epsilon_ratio="0.001"/>  <!-- override dead-zone per-tag, optional -->
     </tag>
   </tags>
 
 </lamina>
 ```
 
-**Tag address space:** `[<lamina_id>:]<composite_id>`. Bỏ qua prefix lamina = local. Schema đã chuẩn bị sẵn cho inter-lamina, không cần đổi sau.
+**Tag address space:** `[<lamina_id>:]<composite_id>`. Bỏ qua prefix lamina = local. **Validate lúc parse:** nếu bare composite_id khớp nhiều lamina → raise error, yêu cầu prefix rõ ràng (D5).
+
+**Hai vector trên composite — vì sao tách (D2):**
+
+| Vector | Dùng cho | Cập nhật bởi |
+|---|---|---|
+| `absorption_vector` | Learning loop (`auto_adjust_weights`) — đóng băng GĐ A-E, bật lại GĐ G | Auto Controller |
+| `distribution_vector` | Gate fanout (`w_i` trong §2.3) — feedback loop hiện tại | Domain expert (qua XML), framework không tự cập nhật |
+
+Tách hoàn toàn → 2 cơ chế độc lập, không giẫm chân nhau khi Auto Controller bật lại ở GĐ G.
+
+**Distribution vector rules (D2):**
+- Block vắng → default `1/N` đồng đều.
+- Weight của attribute vắng → default `1/N`.
+- Weight âm → raise error lúc parse (dấu do `polarity` carry).
+- Tổng weight ≠ 1: **không normalize** — distribution là multiplier, không phải probability.
+
+**Polarity rules (D7):**
+- XML chấp nhận `"negative"`, `"positive"`, hoặc số (vd `"0.5"`, `"-1.0"`).
+- Parser convert string → float lúc parse. Kernel chỉ thấy float.
+- `0` = monitor-only (tag phát ra, log được, nhưng không tạo `X''`).
 
 ### 3.4 Backward compatibility
 
@@ -156,24 +205,70 @@ Mỗi registry có **1 default** đăng ký sẵn trong `UniversalTwin.__init__`
 | 5 | Đơn vị correction | **Đơn vị gốc attribute**, không phải normalised |
 | 6 | `X' = 0` trong v1 | **Có** — cô lập feedback thuần để verify |
 | 7 | Lamina thí nghiệm đầu | **Circulatory** (đã có sẵn) |
+| 8 | Vị trí decay | **Trong kernel**, không phải framework step (D1) |
+| 9 | Composite vectors | **Tách 2 vector**: `absorption_vector` (learning) + `distribution_vector` (gate fanout) (D2) |
+| 10 | Epsilon dead-zone | **Tương đối**: `rho · (physio_max - physio_min)`, default `rho=0.001` (D3) |
+| 11 | Kernel state | **Lưu ở `FeedbackController`** với khóa `(tag_id, attr_id)` (D4) |
+| 12 | Snap behavior | Snap reset **cả** `value_feedback` lẫn kernel state về 0/neutral (D4 clarified) |
+| 13 | Tag address ambiguous | **Validate lúc parse**, bắt buộc prefix nếu trùng tên cross-lamina (D5) |
+| 14 | Coupling signature | `coupling(x_prime, x_pp, params) → float`. `x_prime=None` → trả `x_pp` (D6) |
+| 15 | Polarity | **Float trong dataclass**, XML chấp nhận string thân thiện. Default `-1.0` (D7) |
+| 16 | Multi-target fanout | Full deviation × `target_weight` (D8) |
+| 17 | Tag emission frequency | **Poll** mỗi cycle (D9) |
+| 18 | Multi-tag cùng target | **Sum** delta (D10) |
+| 19 | Multi-target apply order | Apply hết → recompute **một lần** ở cuối (D11) |
+| 20 | Rollback policy | Chỉ rollback `X''`, không bao giờ chạm `X'` (D12) |
+| 21 | Circuit breaker | Thêm `max_norm` + `max_iterations` ở GĐ D (D16) |
+| 22 | Trình tự cycle (7 bước) | Codified ở §5.0 (D18) |
 
 ---
 
 ## 5. Roadmap triển khai
 
+### 5.0 Trình tự thực thi một cycle feedback (D18)
+
+`FeedbackController.step()` chạy đúng 7 bước, theo thứ tự:
+
+```
+1. Tính deviation cho mọi outcome              (deviation_registry)
+2. Emit tags                                    (emitter_registry, poll toàn bộ — D9)
+3. Chạy gate kernel cho từng (tag, attr)       (lấy/lưu state ở controller — D4)
+4. Cộng dồn delta theo target                   (sum — D10)
+5. Apply X'' vào value_feedback                 (mọi target trước — D11)
+6. Dead-zone snap-to-zero                       (epsilon tương đối — D3)
+                                                (snap RESET cả X'' lẫn kernel state — D4)
+7. compute_all() MỘT lần                        (recompute cuối cycle — D11)
+```
+
+**Lưu ý:**
+- Decay **không** xuất hiện như bước riêng — nó nằm bên trong bước 3 (D1).
+- Mỗi kernel tự decay theo luật riêng; framework chỉ điều phối thứ tự.
+- Snap (bước 6) là numerical cleanup, **không phải** decay (D1 clarified).
+
+---
+
 ### Giai đoạn A — Phân rã `X = X' + X''`
 
-**Mục tiêu:** mỗi `Attribute` mang 2 vector độc lập.
+**Mục tiêu:** mỗi `Attribute` mang 2 vector độc lập + Composite có 2 vector tách riêng.
 
-- Thêm `value_external`, `value_feedback` vào dataclass `Attribute`.
-- `value` thành `@property` = `value_external + value_feedback` (qua coupling kernel).
+**Sửa `Attribute`:**
+- Thêm `value_external`, `value_feedback` vào dataclass.
+- `value` thành `@property` = `coupling(value_external, value_feedback, params)` (qua coupling kernel, mặc định additive).
 - `set_sensor()` chỉ ghi `value_external`.
 - Method `apply_feedback(delta)` chỉ ghi `value_feedback`.
-- API response trả cả 2 vector tách riêng.
+- `rollback()` **chỉ rollback `value_feedback`** (D12). `value_external` không bao giờ bị chạm — sensor là sacred.
 
-**Pluggable point:** coupling kernel (default = additive).
+**Sửa `Composite`:**
+- Thêm field `distribution_vector` song song với `absorption_vector` đã có (D2).
+- Parser: block `<distribution_vector>` optional; vắng → default `1/N`.
 
-**Test gate:** với feedback chưa chạy, output trùng 100% behavior cũ.
+**Sửa API response:** mỗi attribute trả cả 2 vector tách riêng (`value_external`, `value_feedback`) thay vì chỉ scalar `value`.
+
+**Comment cảnh báo** trong `universal_twin.py` chỗ `auto_adjust_weights()`: ghi rõ đóng băng trong GĐ A-E, chỉ chạm `absorption_vector`, không bao giờ chạm `distribution_vector` (D17).
+
+**Pluggable point:** coupling kernel (default = additive, signature `coupling(x_prime, x_pp, params) → float`; `x_prime=None` → trả `x_pp` — D6).
+
+**Test gate:** với feedback chưa chạy (`value_feedback = 0` toàn bộ), output trùng 100% behavior cũ.
 
 ---
 
@@ -181,37 +276,90 @@ Mỗi registry có **1 default** đăng ký sẵn trong `UniversalTwin.__init__`
 
 **Mục tiêu:** chuyển deviation thành tín hiệu rời rạc có địa chỉ.
 
-- Thêm dataclass `Tag` (id, outcome, deviation_type, emitter, gate_kernel, targets, params).
-- Parser cho `<tags>` block trong XML.
-- Address resolver `[<lamina>:]<composite>` (lamina prefix optional).
-- Multi-target support: 1 tag fanout vào N composite với weight riêng.
-- `Identifier.emit_tags(outcome_evaluations) → list[Tag]`.
-- `Metrix.lookup(tag) → params dict`.
+**Dataclass `Tag`:**
+```python
+@dataclass
+class Tag:
+    id: str
+    outcome: str
+    deviation_type: str = "absolute"
+    emitter: str = "binary"
+    gate_kernel: str = "sigmoid_leaky_tanh"
+    polarity: float = -1.0            # D7 — float, không phải string
+    targets: list[TagTarget] = ...    # list of (address, weight)
+    params: dict = ...                # loose dict
+```
+
+**Parser:**
+- Block `<tags>` trong XML.
+- Polarity converter: string `"negative"`/`"positive"` → float; chấp nhận luôn số (D7).
+  ```python
+  POLARITY_MAP = {"negative": -1.0, "positive": +1.0}
+  polarity = POLARITY_MAP.get(raw, float(raw))
+  ```
+- Address resolver `[<lamina>:]<composite>`:
+  - Local-first lookup.
+  - Validate lúc parse: nếu bare composite_id khớp nhiều lamina → raise lỗi rõ ràng yêu cầu prefix (D5).
+- Multi-target: 1 tag fanout vào N composite với `target_weight` riêng (D8).
+
+**Identifier + Metrix:**
+- `Identifier.emit_tags(outcome_evaluations) → list[Tag]` — poll toàn bộ outcome mỗi cycle (D9).
+- `Metrix.lookup(tag) → params dict` — chỉ là dict access.
 
 **Pluggable points:** deviation_type, emitter (defaults: `absolute`, `binary`).
 
 ---
 
-### Giai đoạn C — Registry framework + default gate kernel
+### Giai đoạn C — Registry framework + default gate kernel + FeedbackController
 
-**Mục tiêu:** framework các kernel pluggable + cài đặt 1 kernel chạy được.
+**Mục tiêu:** framework các kernel pluggable + cài đặt 1 kernel chạy được + controller điều phối cycle.
 
+**Registries:**
 - Thêm 5 registry vào `UniversalTwin` (xem 3.1).
-- Cài đặt `sigmoid_leaky_tanh` kernel theo công thức 2.3.
-- Cài đặt 4 default kernel đơn giản còn lại (`absolute`, `binary`, `additive`, `algebraic_chain` — phần lớn chỉ là wrapper code hiện có).
+- Cài đặt 5 default kernel:
+  - `sigmoid_leaky_tanh` theo công thức §2.3 (decay nằm trong kernel — D1).
+  - `absolute`, `binary`, `additive`, `algebraic_chain` — phần lớn là wrapper code hiện có.
 - Đăng ký interface cho `solver_registry` nhưng không cài ODE.
-- File mới: `backend/feedback_controller.py` chứa `FeedbackController.step()`.
+
+**`FeedbackController` (file mới `backend/feedback_controller.py`):**
+
+```python
+class FeedbackController:
+    def __init__(self, twin: UniversalTwin):
+        self.twin = twin
+        # State storage: D4 — khóa (tag_id, attr_id), không gắn vào domain object
+        self._kernel_state: dict[tuple[str, str], dict] = {}
+
+    def step(self) -> dict:
+        # Trình tự 7 bước theo §5.0 — D18
+        # ...
+```
+
+**State management (D4):**
+- State lưu ở `FeedbackController._kernel_state[(tag_id, attr_id)]`, không trên `Attribute`/`Tag`.
+- Persist qua các cycle. Tag fire lại = continue từ state cũ.
+- Khi snap (bước 6 cycle) → reset cả `attr.value_feedback = 0` **lẫn** `self._kernel_state[(tag_id, attr_id)] = {}` (D4 clarified).
+
+**Multi-target & multi-tag handling:**
+- Multi-target trong 1 tag: full deviation × `target_weight` cho mỗi target (D8).
+- Nhiều tag cùng target: sum delta (D10).
+- Apply hết delta → recompute `compute_all()` **một lần** ở cuối (D11).
 
 **Quan trọng:** interface `BehaviourSolver` phải khai báo từ đây, để khi cần `ode_rk4` sau không breaking.
 
 ---
 
-### Giai đoạn D — API endpoints
+### Giai đoạn D — API endpoints + Circuit breaker
 
 - `POST /api/feedback/step?lamina=circulatory` — chạy 1 cycle, trả tags + deltas + state mới.
 - `POST /api/feedback/run?lamina=circulatory&cycles=N` — batch N cycle.
 - Giữ nguyên `/api/compute` (snapshot `X'' = 0`).
 - `?lamina=` query param chuẩn bị sẵn cho multi-lamina.
+
+**Circuit breaker (D16):** bảo vệ trước sign convention sai gây phân kỳ âm thầm.
+- `max_norm` (default 10.0): nếu `feedback_norm > max_norm` → abort cycle, raise warning.
+- `max_iterations` (default 1000): cap cứng cho batch run.
+- Phát hiện sớm bug trước khi vào settling test (GĐ E).
 
 Response shape:
 ```json
@@ -229,11 +377,17 @@ Response shape:
 
 ### Giai đoạn E — Settling test (bằng chứng homeostasis)
 
-- Thêm method `UniversalTwin.feedback_norm()` — tổng `|X''|` trên tất cả attribute. **Generic, dùng cho mọi lamina.**
+- Thêm method `UniversalTwin.feedback_norm()` — normalize theo physio range (D13):
+  ```python
+  feedback_norm = Σ|X''_i| / Σ(physio_max_i - physio_min_i)
+  ```
+  **Generic, dùng cho mọi lamina.**
+- "Settled" definition (D14): `feedback_norm < threshold` trong **5 cycle liên tiếp**.
 - Test cardiac cụ thể:
   1. Set sensor đẩy CO ngoài tolerance (HR=110, EDV=180 → CO ≈ 10.9).
   2. Chạy 100 cycle với `X' = 0`.
-  3. Assert: `feedback_norm` giảm đơn điệu, CO hội tụ vào dải `target ± tolerance`, sau khi hội tụ không có tag mới và `X'' → 0`.
+  3. Assert: `feedback_norm` giảm đơn điệu, CO hội tụ vào dải `target ± tolerance`, sau khi hội tụ không có tag mới và `X'' → 0` trong 5 cycle liên tiếp.
+- **Test bổ sung (D10):** tạo 1 tag negative + 1 tag positive cùng target, verify sum delta hành xử đúng (không triệt tiêu ngoài ý muốn).
 
 ---
 
@@ -273,17 +427,21 @@ Response shape:
 
 ---
 
-## 7. Câu hỏi mở (cần làm rõ trước/trong khi triển khai)
+## 7. Câu hỏi mở (đã giải quyết qua decisions log §10)
 
-1. **Sign convention tag-level:** mặc định `delta = -gain · ... · d` là corrective (negative feedback). Có tag nào cần positive feedback (amplification) không? Nếu có → thêm field `polarity` per tag.
+1. ~~**Sign convention tag-level:**~~ → **Giải:** D7 — polarity là float per-tag, default `-1.0`. Công thức §2.3 thành `raw = polarity · gain · w · G · d · tolerance`.
 
-2. **Tag emission frequency:** mỗi cycle scan toàn bộ outcome, hay event-driven (chỉ emit khi crossing boundary)? V1 scan toàn bộ cho đơn giản.
+2. ~~**Tag emission frequency:**~~ → **Giải:** D9 — poll mỗi cycle.
 
-3. **Multiple tags cùng target cùng cycle:** 2 tag cùng bơm vào `pump_state` cùng lúc → sum delta hay max delta? V1 mặc định sum.
+3. ~~**Multiple tags cùng target:**~~ → **Giải:** D10 — sum delta. Test bổ sung positive×negative ở GĐ E.
 
-4. **Tolerance rebound:** sau khi value rơi vào tolerance, gate đóng. Nhưng decay vẫn tiếp tục kéo `X''` về 0, làm value drift ngược ra. ~~Có cần "memory anchor" giữ value tại tolerance edge không?~~ → **Đã có hướng giải:** dead-zone snap-to-zero ở framework level. Xem mục 9.2.
+4. ~~**Tolerance rebound:**~~ → **Giải:** dead-zone snap-to-zero (§9.2 + D3).
 
-5. **`feedback_norm` metric:** dùng raw `Σ|X''|` hay normalize theo physio range? Universal hơn nếu normalize. **Cần chốt khi vào giai đoạn E.**
+5. ~~**`feedback_norm` metric:**~~ → **Giải:** D13 — normalize theo physio range.
+
+**Câu hỏi mở còn lại (chỉ quan sát trong GĐ E, không blocker):**
+
+- **Edge case D4:** tag đóng gate, `X''` đang decay nhưng *chưa* chạm epsilon, rồi deviation mới xuất hiện → kernel tiếp tục từ `X''` còn dư. Có thể đúng (quán tính sinh học) hoặc sai (nhiễu cũ rò vào correction mới). Quan sát thực tế trong GĐ E test, ghi lại behavior, quyết sau nếu có vấn đề.
 
 ---
 
@@ -326,24 +484,31 @@ File: [`feedback_kernel_demo.py`](feedback_kernel_demo.py) — chạy 2 kernel d
 
 **Vì sao quan trọng:** trong test E (Giai đoạn E), bài kiểm tra settling cần `feedback_norm → 0` rõ ràng. Residual 1% sẽ làm assert flaky.
 
-**Phương án cải tiến — Dead-zone snap-to-zero ở framework level:**
+**Phương án cải tiến — Dead-zone snap-to-zero ở framework level (D3 + D4 clarified):**
 
 ```python
-# Trong FeedbackController.step(), SAU khi kernel chạy:
+# Trong FeedbackController.step() bước 6, SAU khi apply X''.
+# Epsilon TƯƠNG ĐỐI theo physio range (D3):
 for attr in twin.attributes.values():
-    if abs(attr.value_feedback) < EPSILON:
+    epsilon = rho * (attr.physio_max - attr.physio_min)  # rho default = 0.001
+    if abs(attr.value_feedback) < epsilon:
         attr.value_feedback = 0.0
+        # Snap RESET kernel state đồng thời (D4 clarified)
+        for key in [k for k in controller._kernel_state if k[1] == attr.id]:
+            controller._kernel_state[key] = {}
 ```
 
 **Lý do chọn cách này:**
 
-1. **Clean separation** — kernel chỉ lo dynamics, framework lo numerical cleanup. Không nhét logic snap vào trong kernel.
+1. **Clean separation** — kernel chỉ lo dynamics, framework lo numerical cleanup. Snap **không phải** decay (D1).
 2. **Universal** — mọi kernel hiện tại và tương lai tự động hưởng lợi, không cần code thêm.
 3. **Không phá interface** — không thêm field nào vào kernel state, không đổi signature.
-4. **Configurable per-tag nếu cần** — `<params epsilon="0.001"/>` cho phép tag-level override; mặc định framework dùng `1e-3`.
-5. **Math-friendly** — snap-to-zero ở biên độ rất nhỏ không thay đổi semantics động học, chỉ loại bỏ residual số học.
+4. **Configurable per-tag** — `<params epsilon_ratio="0.001"/>` override; mặc định framework dùng `rho=0.001`.
+5. **Math-friendly** — snap ở biên độ rất nhỏ không thay đổi semantics động học.
+6. **Epsilon tương đối** — đồng nhất về tỷ lệ trên mọi attribute (D3). Tránh trường hợp `1e-3` mmHg vs `1e-3` L/min lệch ý nghĩa.
+7. **Snap reset cả state** — đảm bảo Attribute và kernel state không drift khỏi nhau (D4 clarified).
 
-**Triển khai:** 3 dòng code trong `FeedbackController.step()` ở Giai đoạn C. Không sửa kernel nào.
+**Triển khai:** ~10 dòng code trong `FeedbackController.step()` ở Giai đoạn C. Không sửa kernel nào.
 
 ### 9.3 Phát hiện #2 — Discrete reset settle sạch hơn continuous decay
 
@@ -359,12 +524,228 @@ for attr in twin.attributes.values():
 |---|---|
 | §3.1 (extension points) | Không đổi |
 | §3.2 (default kernels) | Không đổi |
-| §5 Giai đoạn C | Thêm 3 dòng dead-zone snap-to-zero trong `FeedbackController.step()`. Mặc định `EPSILON = 1e-3`. Hỗ trợ per-tag override qua `params.epsilon`. |
-| §5 Giai đoạn E | Settling assert có thể dùng `feedback_norm < 1e-3` thay vì `< 1e-6` — phù hợp với epsilon framework. |
-| §7 câu hỏi mở | Q4 (tolerance rebound) → đã giải qua dead-zone snap (mục 9.2). |
+| §5 Giai đoạn C | Snap dead-zone với epsilon **tương đối** (D3), reset cả kernel state (D4). ~10 dòng code. |
+| §5 Giai đoạn E | Settling: `feedback_norm` normalize theo physio range; "settled" = dưới ngưỡng 5 cycle liên tiếp. |
+| §7 câu hỏi mở | Tất cả Q1-Q5 đã có quyết định trong decisions log §10. |
 
-**Không có breaking change.** Cấu trúc, interface, XML schema giữ nguyên 100%.
+**Không có breaking change.** Cấu trúc, interface, XML schema vẫn backward compatible 100%.
 
 ---
 
-*Cuối tài liệu. Bản này là spec để bắt đầu code giai đoạn A.*
+## 10. Decisions Log — Feedback Loop Audit Resolution
+
+> Bản chốt 22 quyết định (20 từ audit + 2 clarification thêm trong review). Nguyên
+> tắc: cân bằng — chọn phương án đơn giản nhất *không* tạo nợ kỹ thuật cho GĐ G.
+> Khi đơn giản và an toàn xung đột, ưu tiên an toàn.
+
+### Tầng 1 — Blocker, phải áp dụng trước khi code Giai đoạn A
+
+#### D1 — Vị trí của decay (audit #1)
+
+**Quyết định:** Decay là responsibility của **kernel**, không phải framework.
+
+**Lý do:** Mỗi kernel có luật decay riêng — `sigmoid_leaky_tanh` dùng `(1-λ)` tuyến tính, `refractory_threshold` dùng `e^(-1/τ)` mũ. Framework không có công thức decay generic áp được cho mọi kernel. Để decay ở cả hai chỗ sẽ chạy hai lần mỗi cycle `(1-λ)²`, làm sai bằng chứng hội tụ §2.3.
+
+**Tác động vào plan:**
+- §2.3: giữ nguyên — decay nằm trong công thức kernel.
+- §5.0 + §5 GĐ C: pseudocode chỉ gọi kernel; kernel tự lo decay nội bộ.
+- §9.2: dead-zone snap **không phải** decay, nó là numerical cleanup chạy *sau* kernel. Hai cơ chế cùng tồn tại, không xung đột.
+
+#### D2 — Tách absorption_vector (audit #2)
+
+**Quyết định:** Tách thành **hai vector** trên `Composite`:
+- `absorption_vector` — giữ nguyên vai trò cũ: trọng số cho learning loop (`auto_adjust_weights`).
+- `distribution_vector` — mới: `w_i` cho gate function fanout (công thức §2.3).
+
+**XML schema (chốt sau review):**
+- Block `<distribution_vector>` mới, optional.
+- Vắng → default `1/N` đồng đều. Backward compat 100%.
+- Weight vắng cho 1 attribute → `1/N`.
+- Weight âm → raise lỗi parse.
+- Tổng weight: **không normalize** — distribution là multiplier, không phải probability.
+- Weight cho attribute không thuộc composite → raise lỗi parse (typo bảo vệ).
+
+**Lý do tách:** Plan không bỏ learning, chỉ *đóng băng* trong GĐ A-E và bật lại ở GĐ G. Dùng chung một vector → đến G hai cơ chế giẫm chân nhau. Tách ngay chỉ tốn một field dataclass — rẻ hơn nhiều so với gỡ rối sau.
+
+**Tác động vào plan:**
+- §5 GĐ A: thêm `distribution_vector` vào `Composite`.
+- §3.3: XML example mở rộng có cả 2 vector.
+- §5 GĐ G (Auto Controller): learning chỉ động vào `absorption_vector`.
+
+#### D3 — EPSILON cho dead-zone là tương đối (audit #10)
+
+**Quyết định:** Epsilon **tương đối theo physio range**:
+```
+epsilon_i = rho · (physio_max_i - physio_min_i)
+```
+`rho` mặc định = `0.001`. Cho phép override per-tag qua `<params epsilon_ratio="..."/>`.
+
+**Lý do:** §2.4 chốt correction sống ở đơn vị gốc attribute. Epsilon tuyệt đối `1e-3` có nghĩa khác nhau cho mmHg (dải ~40–180) và L/min (dải ~4–8). Epsilon tương đối làm ngưỡng snap đồng nhất về mặt tỷ lệ trên mọi attribute.
+
+**Tác động vào plan:** §9.2 — thay "default 1e-3" bằng công thức tương đối.
+
+#### D4 — Vị trí và vòng đời của kernel state (audit #5 + #11)
+
+**Quyết định lưu ở đâu:** `FeedbackController` giữ dict `{(tag_id, attr_id): state}`. Domain object (`Attribute`, `Tag`) không mang state động học.
+
+**Quyết định vòng đời:** State persist qua các cycle. Tag fire lại = continue từ state cũ.
+
+**Quyết định snap (clarification sau review):** Khi snap kích hoạt (`X'' < epsilon`):
+- Reset `attr.value_feedback = 0`
+- **Đồng thời** reset `controller._kernel_state[(tag_id, attr_id)] = {}` cho mọi tag đang chạm attribute này
+- Lý do: nếu chỉ reset `X''` mà giữ kernel state cũ, cycle sau kernel sẽ tính từ x_pp dư, drift khỏi `value_feedback = 0`.
+
+**Lý do:** Khóa `(tag_id, attr_id)` xử lý đúng trường hợp hai tag cùng kernel trên cùng attribute. Tách state khỏi domain object giữ `Attribute`/`Tag` "thuần", dễ test. Continue (thay vì reset mỗi cycle) phản ánh quán tính sinh lý.
+
+**Edge case cần quan sát (không blocker):** Tag đóng gate, `X''` đang decay nhưng *chưa* chạm epsilon, deviation mới xuất hiện → kernel tiếp tục từ `X''` còn dư. Có thể đúng (quán tính) hoặc sai (nhiễu cũ rò vào correction mới). → Đưa vào câu hỏi mở để GĐ E quan sát.
+
+**Tác động vào plan:** §5 GĐ C — `FeedbackController` khai báo dict state với khóa cặp + snap reset logic.
+
+#### D5 — Quy tắc resolve tag address (audit #3)
+
+**Quyết định:** Local-first; **bắt buộc prefix `lamina_id:` nếu ambiguous**; validate ngay **lúc parse XML** (không lazy).
+
+**Lý do:** Fail sớm lúc parse tốt hơn fail âm thầm lúc runtime. Hiện chỉ có 1 lamina nên ambiguity chưa xảy ra, nhưng viết rule vào schema ngay để không phải đổi khi build lamina thứ hai.
+
+**Tác động vào plan:** §3.3 + §5 GĐ B — address resolver kiểm tra ambiguity lúc parse, raise lỗi rõ ràng.
+
+#### D6 — Coupling kernel signature (audit #6)
+
+**Quyết định:** Chốt signature:
+```python
+def coupling(x_prime: float | None, x_pp: float, params: dict) -> float
+```
+Khi `x_prime is None` (sensor chưa set) → trả `x_pp` thuần.
+
+**Về `multiplicative`:** v1 chỉ dùng `additive`. Kernel `multiplicative` (chưa triển khai) sẽ phải tự clamp — `x_prime · (1 + x_pp)` với `x_pp = -1` cho `value = 0` (tim ngừng đập) là biên sinh học không hợp lệ.
+
+**Tác động vào plan:** §3.1 — ghi rõ signature coupling. §3.2 — ghi chú cảnh báo clamp cho `multiplicative` (chưa triển khai v1).
+
+### Tầng 2 — Chốt được ngay, áp dụng khi vào đúng giai đoạn
+
+#### D7 — Polarity per tag (audit #7)
+
+**Quyết định (chốt sau review):** `polarity` là **float** trong dataclass `Tag`, default `-1.0`. XML chấp nhận string thân thiện hoặc số:
+- `polarity="negative"` → `-1.0`
+- `polarity="positive"` → `+1.0`
+- `polarity="0"` → monitor-only (phát tag, log, không tạo X'')
+- `polarity="0.5"` → positive yếu (fractional)
+- `polarity="-1.0"` → numeric trực tiếp
+
+Parser convert string → float lúc parse:
+```python
+POLARITY_MAP = {"negative": -1.0, "positive": +1.0}
+polarity = POLARITY_MAP.get(raw, float(raw))
+```
+
+**Lý do float thay vì string:**
+1. Semantic separation: `gain` = magnitude, `polarity` = direction.
+2. Tránh string branching ở layer math (kernel không phải `if polarity == "negative"`).
+3. Universal-ready: hỗ trợ fractional polarity, monitor-only (=0), advanced override mà không đổi schema.
+
+**Tác động vào plan:** §2.3 — công thức `raw = polarity · gain · w · G · d · tolerance`. §3.3 — schema `<tag polarity="...">`. §5 GĐ B — parser convert string → float.
+
+#### D8 — Multi-target fanout (audit #4)
+
+**Quyết định:** Full deviation × `target_weight`. Mỗi target nhận trọn deviation rồi nhân trọng số riêng. **Không** chia deviation theo tỷ lệ.
+
+**Lý do:** Mô hình điều khiển, không phải mô hình vật lý cần bảo toàn năng lượng. Full × weight đơn giản và trực quan.
+
+**Tác động vào plan:** §5 GĐ B — multi-target apply theo công thức này.
+
+#### D9 — Tần suất emit tag (audit #8)
+
+**Quyết định:** **Poll** — mỗi cycle quét toàn bộ outcome.
+
+**Lý do:** Event-driven tiết kiệm CPU nhưng phải lưu trạng thái lần trước để detect crossing edge — thêm phức tạp không cần cho v1. Sigmoid `G(d)` đã tự lọc nhiễu trong tolerance.
+
+**Tác động vào plan:** Xác nhận §7 Q2 — chốt poll cho v1.
+
+#### D10 — Nhiều tag cùng một target (audit #9)
+
+**Quyết định:** **Sum** — `delta_total = Σ delta_i`.
+
+**Cảnh báo tương tác với D7:** nếu một tag `polarity=negative` và một tag `polarity=positive` cùng bơm vào một target, sum sẽ bù trừ. Phần lớn trường hợp là hành vi đúng, nhưng **thêm test riêng ở GĐ E** cho kịch bản này.
+
+**Tác động vào plan:** Xác nhận §7 Q3 — chốt sum. §5 GĐ E — thêm test positive-vs-negative cùng target.
+
+#### D11 — Thứ tự apply multi-target (audit #12)
+
+**Quyết định:** Apply **tất cả** delta vào mọi attribute trước, rồi gọi `compute_all()` **một lần** ở cuối.
+
+**Lý do:** Deterministic, không phụ thuộc thứ tự khai báo `<target>` trong XML. Tránh việc attribute PRELIMINARY (MAP, R) cập nhật khác nhau tùy thứ tự.
+
+**Tác động vào plan:** §5 GĐ C — `FeedbackController.step()` apply rồi recompute một lần.
+
+#### D12 — Rollback policy (audit #13)
+
+**Quyết định:** Khi gate fail, **chỉ rollback `X''`**. `X'` (sensor) không bao giờ bị rollback.
+
+**Lý do:** Nhất quán với triết lý §2.1 — feedback không bao giờ ghi đè ground truth, và ngược lại ground truth không bị xóa bởi một cycle feedback hỏng.
+
+**Tác động vào plan:** §5 GĐ A — `Attribute.rollback()` chỉ tác động `value_feedback`.
+
+### Tầng 3 — Hoãn tới đúng giai đoạn
+
+#### D13 — feedback_norm metric (audit #14)
+
+**Quyết định:** Normalize theo physio range để nhất quán với D3:
+```
+feedback_norm = Σ|X''_i| / Σ(physio_max_i - physio_min_i)
+```
+
+#### D14 — Định nghĩa "settled" (audit #15)
+
+**Quyết định:** `feedback_norm` dưới ngưỡng trong **5 cycle liên tiếp**.
+
+#### D15 — Hoãn không cần quyết v1 (audit #16, #17, #18)
+
+- #16 graded_sigmoid emitter: định nghĩa công thức khi thực sự cần (không phải v1).
+- #17 dt semantics: với `algebraic_chain`, `dt` vô nghĩa (steady-state). Hoãn tới khi có ODE solver.
+- #18 deviation_type rate: định nghĩa nơi lưu `prev_actual` khi thực sự cần.
+
+#### D16 — Circuit breaker (audit #19)
+
+**Quyết định:** **Nâng nhẹ ưu tiên** — thêm guard `max_norm` (default 10.0) và `max_iterations` (default 1000) ngay ở GĐ D, không hoãn.
+
+**Lý do:** GĐ C rủi ro cao nhất vì sign convention cần tune. Nếu lỡ sai dấu, vòng lặp phân kỳ âm thầm. Guard rất rẻ, nên có sẵn trước khi chạy settling test.
+
+#### D17 — Boundary với auto_adjust_weights() cũ (audit #20)
+
+**Quyết định:** Sau khi tách vector (D2), xung đột giảm hẳn. Chỉ cần **comment cảnh báo** trong code tại `universal_twin.py` chỗ `auto_adjust_weights()`, ghi rõ nó đóng băng trong GĐ A-E. Không cần throw.
+
+### Bổ sung — D18
+
+#### D18 — Trình tự thực thi trong một cycle
+
+**Quyết định:** Codified thành §5.0 — 7 bước chuẩn của `FeedbackController.step()`.
+
+**Lý do:** Audit không nêu, nhưng plan thiếu một chỗ duy nhất viết rõ trình tự một cycle. Developer GĐ C cần nhất điều này.
+
+### Bảng tổng hợp nhanh
+
+| # audit | Quyết định | Tầng | Giai đoạn áp dụng |
+|---|---|---|---|
+| 1 | Decay thuộc kernel | 1 | A (sửa doc trước) |
+| 2 | Tách 2 vector + XML schema | 1 | A |
+| 3 | Local-first, prefix nếu ambiguous, validate lúc parse | 1 | B |
+| 4 | Full deviation × target_weight | 2 | B |
+| 5 | State ở FeedbackController, khóa (tag,attr) | 1 | C |
+| 6 | Signature chốt; x_prime None → x_pp thuần | 1 | A/C |
+| 7 | Polarity là float trong dataclass; XML accept string/số | 2 | B |
+| 8 | Poll | 2 | C |
+| 9 | Sum | 2 | C |
+| 10 | Epsilon tương đối theo physio range | 1 | C (sửa §9.2) |
+| 11 | State persist; snap reset cả X'' lẫn kernel state | 1 | C |
+| 12 | Apply hết → recompute 1 lần | 2 | C |
+| 13 | Chỉ rollback X'' | 2 | A |
+| 14 | Normalize feedback_norm | 3 | E |
+| 15 | Settled = 5 cycle liên tiếp | 3 | E |
+| 16-18 | Hoãn | 3 | — |
+| 19 | Circuit breaker, nâng ưu tiên | 3→2 | D |
+| 20 | Comment cảnh báo, không throw | 3 | A-E |
+| D18 | Trình tự cycle 7 bước | 1 | C (§5.0) |
+
+---
+
+*Cuối tài liệu. Tất cả Tầng 1 đã áp vào plan. Sẵn sàng code Giai đoạn A.*

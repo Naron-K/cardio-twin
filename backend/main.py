@@ -94,11 +94,21 @@ def _run_simulation(sensor_data: Dict[str, float]) -> Dict[str, Any]:
     twin.compute_all()
 
     # Collect sensor values (with normalised)
+    #
+    # Phase A response shape: every attribute now exposes the X = X' + X''
+    # decomposition.  `value` stays as the combined view for back-compat
+    # with the frontend; `value_external` and `value_feedback` are the
+    # two channels per FEEDBACK_LOOP_PLAN.md §2.1.  In Phase A
+    # value_feedback is always 0.0 (no kernel runs yet), so the frontend
+    # sees identical numbers but can already plan stacked-bar rendering
+    # for Phase F.
     sensors_out: Dict[str, Any] = {}
     for attr_id in twin.list_attributes("SENSOR"):
         attr = twin.attributes[attr_id]
         sensors_out[attr_id] = {
             "value": attr.value,
+            "value_external": attr.value_external,
+            "value_feedback": attr.value_feedback,
             "normalised": attr.normalised,
             "unit": attr.unit,
             "name": attr.name,
@@ -110,6 +120,8 @@ def _run_simulation(sensor_data: Dict[str, float]) -> Dict[str, Any]:
         attr = twin.attributes[attr_id]
         computed_out[attr_id] = {
             "value": attr.value,
+            "value_external": attr.value_external,
+            "value_feedback": attr.value_feedback,
             "normalised": attr.normalised,
             "unit": attr.unit,
             "name": attr.name,
@@ -182,7 +194,11 @@ def get_schema():
             "name": comp.name,
             "attribute_ids": comp.attribute_ids,
             "description": comp.description,
+            # Two parallel vectors (D2).  absorption_vector drives the
+            # frozen learning loop; distribution_vector is the gate
+            # fanout multiplier read by the Phase C feedback kernel.
             "absorption_vector": comp.absorption_vector.tolist() if comp.absorption_vector is not None else None,
+            "distribution_vector": comp.distribution_vector.tolist() if comp.distribution_vector is not None else None,
         }
 
     functions = [
@@ -221,6 +237,25 @@ def get_schema():
             ],
         }
 
+    # Phase B: expose feedback tag bindings so the frontend (Phase F)
+    # can list them.  Polarity is serialised as a float per D7 — the
+    # frontend can derive the friendly label client-side if it wants.
+    tags = {}
+    for tag_id, tag in twin.tags.items():
+        tags[tag_id] = {
+            "id":             tag.id,
+            "outcome":        tag.outcome,
+            "deviation_type": tag.deviation_type,
+            "emitter":        tag.emitter,
+            "gate_kernel":    tag.gate_kernel,
+            "polarity":       tag.polarity,
+            "targets": [
+                {"address": t.address, "weight": t.weight}
+                for t in tag.targets
+            ],
+            "params":         tag.params,
+        }
+
     return {
         "lamina_name": twin.lamina_name,
         "lamina_id": twin.lamina_id,
@@ -232,6 +267,17 @@ def get_schema():
         "functions": functions,
         "segments": segments,
         "channel_mappings": twin.channel_mappings,
+        # Phase A: expose the feedback loop selection so the frontend
+        # (Phase F) knows which coupling/solver to render.  Defaults
+        # apply when the XML omits the optional blocks.
+        "feedback_config": {
+            "coupling_type": twin.coupling_type,
+            "behaviour_solver_type": twin.behaviour_solver_type,
+            "behaviour_solver_dt": twin.behaviour_solver_dt,
+            "behaviour_solver_unit": twin.behaviour_solver_unit,
+        },
+        # Phase B: tag registry for the feedback pipeline.
+        "tags": tags,
     }
 
 

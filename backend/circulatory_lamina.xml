@@ -21,6 +21,21 @@
   <lower_lamina id="none" />
 
   <!-- ============================================================== -->
+  <!-- FEEDBACK LOOP CONFIGURATION (Phase A scaffolding)              -->
+  <!-- Both blocks are optional; UniversalTwin defaults apply when    -->
+  <!-- omitted.  Declared here so Phase C (FeedbackController) can    -->
+  <!-- read them without an XML migration.                            -->
+  <!-- ============================================================== -->
+
+  <!-- How X' and X'' combine into the visible attribute value.        -->
+  <!-- v1 only ships "additive".  See FEEDBACK_LOOP_PLAN.md §3.2 + D6. -->
+  <coupling type="additive" />
+
+  <!-- Behaviour function timescale + solver.  algebraic_chain matches -->
+  <!-- the existing compute_all() pipeline (steady-state, no dt).      -->
+  <behaviour_solver type="algebraic_chain" dt="1.0" unit="second" />
+
+  <!-- ============================================================== -->
   <!-- CHANNEL MAPPINGS: Links sensor attributes to ingestion channels -->
   <!-- Channel definitions live in ingestion_manifold.xml            -->
   <!-- ============================================================== -->
@@ -265,9 +280,23 @@
   <composites>
 
     <!--
-      absorption_vector: 1D seed weights, one per attribute in order.
-      Values are 1/N (equal) — the Auto Controller adjusts these dynamically
-      via W_new = W_old + (learning_rate × deviation) after each feedback cycle.
+      Two parallel 1D weight vectors per composite (D2 of the audit):
+
+      absorption_vector
+        Seeds the Auto Controller's learning step
+            W_new = W_old + (learning_rate × deviation)
+        FROZEN during Phases A–E (D17).  Re-enabled in Phase G.
+
+      distribution_vector
+        Gate-fanout multiplier (w_i in FEEDBACK_LOOP_PLAN.md §2.3).
+        Read by the Phase C feedback kernel, NEVER auto-mutated.
+        Domain experts edit this vector directly in XML when they
+        want to bias the kernel towards a particular attribute.
+
+      Both blocks are optional.  Missing block → equal 1/N defaults.
+      Sums are NOT normalised — these are multipliers, not
+      probabilities.  Negative weights raise a parse error
+      (direction is carried by polarity at the tag level, D7).
     -->
 
     <composite id="pressure_state">
@@ -279,6 +308,11 @@
         <weight attribute="DBP">0.3333</weight>
         <weight attribute="MAP">0.3333</weight>
       </absorption_vector>
+      <distribution_vector>
+        <weight attribute="SBP">0.3333</weight>
+        <weight attribute="DBP">0.3333</weight>
+        <weight attribute="MAP">0.3333</weight>
+      </distribution_vector>
     </composite>
 
     <composite id="vessel_state">
@@ -291,6 +325,12 @@
         <weight attribute="r">0.25</weight>
         <weight attribute="R">0.25</weight>
       </absorption_vector>
+      <distribution_vector>
+        <weight attribute="eta">0.25</weight>
+        <weight attribute="L">0.25</weight>
+        <weight attribute="r">0.25</weight>
+        <weight attribute="R">0.25</weight>
+      </distribution_vector>
     </composite>
 
     <composite id="pump_state">
@@ -303,6 +343,12 @@
         <weight attribute="HR">0.25</weight>
         <weight attribute="CO">0.25</weight>
       </absorption_vector>
+      <distribution_vector>
+        <weight attribute="EDV">0.25</weight>
+        <weight attribute="SV">0.25</weight>
+        <weight attribute="HR">0.25</weight>
+        <weight attribute="CO">0.25</weight>
+      </distribution_vector>
     </composite>
 
     <composite id="flow_state">
@@ -312,6 +358,9 @@
       <absorption_vector>
         <weight attribute="Q">1.0</weight>
       </absorption_vector>
+      <distribution_vector>
+        <weight attribute="Q">1.0</weight>
+      </distribution_vector>
     </composite>
 
     <composite id="conduction_state">
@@ -324,6 +373,12 @@
         <weight attribute="r_e">0.25</weight>
         <weight attribute="lambda">0.25</weight>
       </absorption_vector>
+      <distribution_vector>
+        <weight attribute="r_m">0.25</weight>
+        <weight attribute="r_i">0.25</weight>
+        <weight attribute="r_e">0.25</weight>
+        <weight attribute="lambda">0.25</weight>
+      </distribution_vector>
     </composite>
 
   </composites>
@@ -433,5 +488,62 @@
     </segment>
 
   </segments>
+
+  <!-- ============================================================== -->
+  <!-- TAGS: Feedback loop bindings (Phase B)                         -->
+  <!--                                                                -->
+  <!-- Each <tag> binds a BehaviouralOutcome to a gate kernel and one -->
+  <!-- or more composite targets that should receive corrective       -->
+  <!-- signal when the outcome leaves its tolerance band.             -->
+  <!--                                                                -->
+  <!-- Attributes:                                                    -->
+  <!--   id              — unique within this lamina                  -->
+  <!--   outcome         — references <outcome id="..."> in a segment -->
+  <!--   deviation_type  — key in _deviation_registry (default "absolute") -->
+  <!--   emitter         — key in _emitter_registry  (default "binary")    -->
+  <!--   gate_kernel     — key in _gate_kernel_registry                    -->
+  <!--                     (default "sigmoid_leaky_tanh")                  -->
+  <!--   polarity        — "negative" / "positive" / number              -->
+  <!--                     • -1.0 = corrective (default)                -->
+  <!--                     • +1.0 = amplifying                          -->
+  <!--                     •  0   = monitor-only (log, no X'')          -->
+  <!--                                                                -->
+  <!-- Children:                                                      -->
+  <!--   <targets>  — list of composites this tag fans into            -->
+  <!--   <params>   — loose dict consumed by the gate kernel           -->
+  <!-- ============================================================== -->
+  <tags>
+
+    <tag id="CO_DEVIATION" outcome="target_co"
+         deviation_type="absolute" emitter="binary"
+         gate_kernel="sigmoid_leaky_tanh" polarity="negative">
+      <targets>
+        <target address="pump_state" weight="1.0" />
+      </targets>
+      <params gain="0.6" decay="0.10" threshold_k="4.0"
+              saturation="0.3" epsilon_ratio="0.001" />
+    </tag>
+
+    <tag id="Q_DEVIATION" outcome="target_flow"
+         deviation_type="absolute" emitter="binary"
+         gate_kernel="sigmoid_leaky_tanh" polarity="negative">
+      <targets>
+        <target address="flow_state" weight="1.0" />
+      </targets>
+      <params gain="0.6" decay="0.10" threshold_k="4.0"
+              saturation="0.3" epsilon_ratio="0.001" />
+    </tag>
+
+    <tag id="MAP_DEVIATION" outcome="target_map"
+         deviation_type="absolute" emitter="binary"
+         gate_kernel="sigmoid_leaky_tanh" polarity="negative">
+      <targets>
+        <target address="pressure_state" weight="1.0" />
+      </targets>
+      <params gain="0.6" decay="0.10" threshold_k="4.0"
+              saturation="0.3" epsilon_ratio="0.001" />
+    </tag>
+
+  </tags>
 
 </lamina>

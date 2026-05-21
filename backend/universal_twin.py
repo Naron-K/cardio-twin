@@ -23,6 +23,34 @@ from datetime import datetime
 # ──────────────────────────────────────────────────────────────────────
 # Attribute Object (Wrapper)
 # ──────────────────────────────────────────────────────────────────────
+#
+# Phase A of the feedback loop rollout splits the attribute's value into
+# two independent vectors per FEEDBACK_LOOP_PLAN.md §2.1:
+#
+#     X = X' + X''
+#
+#     value_external (X')  — external ingestion: sensor reads and
+#                            computed-from-external results.  Written by
+#                            set_value() / set_sensor() / the function
+#                            chain.  NEVER touched by the feedback loop
+#                            (sensor is sacred, D12).
+#
+#     value_feedback (X'') — internal feedback: corrective delta produced
+#                            by FeedbackController in Phase C.  Written
+#                            only by apply_feedback().  Rolled back by
+#                            rollback_feedback() when the feedback gate
+#                            rejects.
+#
+# .value is now a read-only @property that combines the two via the
+# coupling kernel (default = additive).  In Phase A no feedback ever
+# fires, so value_feedback stays 0.0 everywhere and the additive coupling
+# yields .value == value_external — exact byte-for-byte compatibility
+# with the pre-Phase-A behaviour (this is the Phase A test gate).
+#
+# The legacy `rollback()` method is preserved as-is so that the existing
+# validate_gates() flow keeps working unchanged.  Feedback-side rollback
+# uses the new `rollback_feedback()` method.
+# ──────────────────────────────────────────────────────────────────────
 @dataclass
 class Attribute:
     """
@@ -39,13 +67,50 @@ class Attribute:
     physio_min: float                # lower physiological bound
     physio_max: float                # upper physiological bound
     description: str = ""            # human-readable description
-    value: Optional[float] = None    # current raw value
+    value_external: Optional[float] = None  # X' — external/computed input
+    value_feedback: float = 0.0             # X'' — feedback-loop delta
     normalised: Optional[float] = None  # value in [0, 1] vector space
     timestamp: Optional[datetime] = None
     confidence: float = 1.0          # 1.0 for sensor, lower for estimated
     computed_by: Optional[str] = None   # function id (for PRELIMINARY)
     depends_on: list = field(default_factory=list)  # dependency attribute ids
-    _previous_value: Optional[float] = None  # for gate fallback
+    _previous_value: Optional[float] = None  # for legacy validate_gates rollback
+
+    @property
+    def value(self) -> Optional[float]:
+        """
+        Combined value:  value_external (X') + value_feedback (X'').
+
+        Uses the default additive coupling kernel inline.  When the
+        coupling registry on UniversalTwin holds a non-default kernel
+        the controller is responsible for invoking it explicitly; the
+        Attribute property always returns the additive view, which is
+        sufficient for normalisation and downstream reads.
+
+        Returns None if value_external has never been set — preserves
+        the pre-Phase-A semantics where an uninitialised sensor reads
+        as None.
+        """
+        if self.value_external is None:
+            # Sensor never set / PRELIMINARY never computed.  Feedback
+            # alone is meaningless without an external anchor in v1
+            # (X' = 0 invariant applies after initial set).
+            return None
+        return self.value_external + self.value_feedback
+
+    @value.setter
+    def value(self, new_value: Optional[float]):
+        """
+        Back-compat shim: writing to .value updates the external channel
+        only.  Pre-Phase-A code that did `attr.value = x` keeps working.
+
+        Direct callers should prefer set_value() (which also stamps
+        timestamp + confidence + normalised) or apply_feedback() for the
+        X'' channel.
+        """
+        self._previous_value = self.value_external
+        self.value_external = new_value
+        self.normalise()
 
     def normalise(self) -> Optional[float]:
         """Convert raw value to [0, 1] using physiological range."""
@@ -60,18 +125,61 @@ class Attribute:
         return self.normalised
 
     def set_value(self, value: float, confidence: float = 1.0):
-        """Update value, store previous for gate fallback."""
-        self._previous_value = self.value
-        self.value = value
+        """
+        Update X' (external channel).  Stores previous external value
+        for the legacy validate_gates rollback path.
+
+        Phase A note: this writes to value_external only, never to
+        value_feedback.  X' is sacred — feedback machinery uses
+        apply_feedback() for the X'' channel.
+        """
+        self._previous_value = self.value_external
+        self.value_external = value
         self.confidence = confidence
         self.timestamp = datetime.now()
         self.normalise()
 
+    def apply_feedback(self, delta: float):
+        """
+        Phase A primitive for the feedback loop (D2 / D12).
+
+        Writes the X'' channel ONLY.  value_external is never touched
+        here.  Phase C's FeedbackController.step() calls this once per
+        (tag, attribute) target after summing all kernel deltas.
+
+        In Phase A nothing calls this method during normal compute_all()
+        runs — it is provided so Phase B/C code can land without
+        reshaping the Attribute again.
+        """
+        self.value_feedback = float(delta)
+        self.normalise()
+
     def rollback(self):
-        """Revert to previous value (used when gate rejects)."""
+        """
+        Legacy rollback used by validate_gates() when a computed value
+        leaves its physiological range.  Restores value_external from
+        the previously-recorded snapshot.
+
+        Phase A keeps this exact behaviour for backward compatibility.
+        Feedback-side rollback (D12 — X'' only, X' sacred) uses
+        rollback_feedback() instead.
+        """
         if self._previous_value is not None:
-            self.value = self._previous_value
+            self.value_external = self._previous_value
             self.normalise()
+
+    def rollback_feedback(self):
+        """
+        Reset the X'' channel to 0.0 (D12).
+
+        Called by FeedbackController.step() in two situations:
+          1. Dead-zone snap (step 6 of the 7-step cycle, §5.0 + §9.2)
+          2. Feedback gate rejection inside the loop machinery
+
+        NEVER touches value_external — sensor / ground truth is sacred.
+        """
+        self.value_feedback = 0.0
+        self.normalise()
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -113,20 +221,47 @@ class Composite:
     """
     Logical grouping of attributes for vector space.
 
-    The absorption_vector is a 1D numpy array (shape: N,) where N equals
-    the number of attributes in this composite.  Seed values are 1/N
-    (equal weights) and are updated dynamically by the Auto Controller
-    via the feedback rule:  W_new = W_old + ΔW
+    Two parallel 1D numpy vectors (shape: N,) live on every composite,
+    one per concern.  Decision D2 of the feedback loop audit deliberately
+    keeps them separate so the learning loop and the feedback loop never
+    fight over the same numbers:
+
+      absorption_vector
+        Seeds the Auto Controller's learning step
+          W_new = W_old + ΔW
+        FROZEN during Phases A–E of the feedback loop rollout (D17).
+        Re-activated only in Phase G.
+
+      distribution_vector
+        Provides w_i in the gate-kernel formula (§2.3):
+          raw = polarity · gain · w_i · G(d) · d · tolerance
+        The feedback loop reads this vector but NEVER mutates it —
+        updates happen only via XML edits by the domain expert.
+
+    Both default to equal 1/N weights when their XML block is missing.
+    Both are full multipliers, not probabilities — sums are NOT
+    normalised (D2).
     """
     id: str
     name: str
     attribute_ids: list
     description: str = ""
     absorption_vector: Optional[np.ndarray] = field(default=None, repr=False)
+    distribution_vector: Optional[np.ndarray] = field(default=None, repr=False)
 
     def update_weights(self, new_values):
         """Set/replace the absorption vector. Called by the Auto Controller after each feedback cycle."""
         self.absorption_vector = np.array(new_values, dtype=float)
+
+    def update_distribution(self, new_values):
+        """
+        Set/replace the distribution vector.
+
+        Phase A leaves this as a domain-expert API (called by the XML
+        parser).  The feedback loop in Phase C reads but never writes
+        this vector.
+        """
+        self.distribution_vector = np.array(new_values, dtype=float)
 
     def apply_absorption(self, attribute_values: list) -> np.ndarray:
         """
@@ -138,6 +273,24 @@ class Composite:
         if self.absorption_vector is None or len(self.absorption_vector) != len(vals):
             return vals
         return vals * self.absorption_vector
+
+    def get_distribution_weight(self, attr_id: str) -> float:
+        """
+        Look up the gate-fanout weight w_i for a specific attribute in
+        this composite.  Returns 1.0 if the attribute is not in this
+        composite or the distribution vector is uninitialised — a safe
+        identity multiplier so callers never have to special-case the
+        missing-vector path.
+        """
+        if self.distribution_vector is None:
+            return 1.0
+        try:
+            idx = self.attribute_ids.index(attr_id)
+        except ValueError:
+            return 1.0
+        if idx >= len(self.distribution_vector):
+            return 1.0
+        return float(self.distribution_vector[idx])
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -197,6 +350,105 @@ class Segment:
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Tag pipeline (Phase B — Feedback Loop)
+# ──────────────────────────────────────────────────────────────────────
+#
+# A Tag binds a BehaviouralOutcome to a gate kernel and a list of
+# composite targets that should receive corrective signal when the
+# outcome leaves its tolerance band.  See FEEDBACK_LOOP_PLAN.md §3.3.
+#
+# Lifecycle:
+#   1. Domain expert declares <tag> in XML (or a future helper API).
+#   2. UniversalTwin parses tags at load time.
+#   3. Identifier.emit_tags() polls every outcome each cycle (D9).
+#      For each outcome whose deviation breaks tolerance the configured
+#      emitter (default: binary) decides whether to emit, and the
+#      matching Tag from the registry is appended to the emission list.
+#   4. Phase C's FeedbackController consumes that list, runs the gate
+#      kernel for each (tag, target) pair, sums deltas (D10), and
+#      applies them once at the cycle end (D11).
+# ──────────────────────────────────────────────────────────────────────
+
+
+# Friendly aliases the XML accepts.  Anything else passes through
+# float() — see resolve_polarity() below.  Per D7 the dataclass field
+# is always a float so the kernel never has to branch on a string.
+POLARITY_MAP = {
+    "negative": -1.0,
+    "positive": +1.0,
+}
+
+
+def resolve_polarity(raw) -> float:
+    """
+    Convert an XML polarity declaration to a float (D7).
+
+    Accepted inputs:
+      - "negative"    → -1.0   (corrective feedback, default)
+      - "positive"    → +1.0   (amplifying feedback)
+      - "0" / 0       →  0.0   (monitor-only — tag still emits and logs
+                                 but produces no X'')
+      - "0.5"         → +0.5   (fractional positive)
+      - "-1.0" / -1.0 → -1.0   (numeric direct)
+      - None / ""     → -1.0   (default — corrective)
+
+    Raises ValueError if the string is neither a known alias nor a
+    parseable number — fail loudly at parse time per the "fail fast"
+    rule that runs through the audit decisions.
+    """
+    if raw is None or raw == "":
+        return -1.0
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    raw_str = str(raw).strip()
+    if raw_str in POLARITY_MAP:
+        return POLARITY_MAP[raw_str]
+    try:
+        return float(raw_str)
+    except ValueError as e:
+        raise ValueError(
+            f"Tag polarity '{raw}' is not a known alias "
+            f"({list(POLARITY_MAP.keys())}) and is not a parseable number."
+        ) from e
+
+
+@dataclass
+class TagTarget:
+    """
+    A single composite address a Tag fans corrective signal into.
+
+    `address` syntax: "[<lamina_id>:]<composite_id>".  Bare composite
+    ids resolve to the host lamina (local-first).  Cross-lamina prefix
+    becomes meaningful in Phase G when more than one lamina exists.
+
+    `weight` (D8): the FULL deviation is multiplied by this weight for
+    each target — deviation is NOT split proportionally across targets.
+    Default 1.0 means "send the entire signal here".
+    """
+    address: str
+    weight: float = 1.0
+
+
+@dataclass
+class Tag:
+    """
+    Declarative binding between a BehaviouralOutcome and a gate kernel.
+
+    Field defaults match the v1 registry defaults so a domain expert
+    can write a minimal <tag> (just id, outcome, targets) and get
+    sensible behaviour out of the box.
+    """
+    id: str
+    outcome: str                       # BehaviouralOutcome.id this tag listens to
+    deviation_type: str = "absolute"   # key into _deviation_registry
+    emitter: str = "binary"            # key into _emitter_registry
+    gate_kernel: str = "sigmoid_leaky_tanh"  # key into _gate_kernel_registry
+    polarity: float = -1.0             # D7 — float, default corrective
+    targets: list = field(default_factory=list)  # list[TagTarget]
+    params: dict = field(default_factory=dict)   # loose kernel params (D15)
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Universal Digital Twin (Parent Class)
 # ──────────────────────────────────────────────────────────────────────
 class UniversalTwin:
@@ -224,16 +476,102 @@ class UniversalTwin:
         self.functions: dict[str, FunctionDef] = {}
         self.composites: dict[str, Composite] = {}
         self.segments: dict[str, Segment] = {}
+        self.tags: dict[str, Tag] = {}  # Phase B — feedback tag registry
         self.channel_mappings: dict[str, str] = {}  # attribute_id -> channel_id
         self.gates: list[Gate] = []
         self._function_registry: dict[str, callable] = {}
         self._computation_log: list[str] = []
+
+        # ── Feedback loop registries (Phase A scaffolding) ───────────
+        #
+        # Five pluggable extension points per FEEDBACK_LOOP_PLAN.md §3.1.
+        # Phase A only wires the coupling registry with the default
+        # `additive` kernel — the rest land in Phase C alongside the
+        # FeedbackController.  The registries are declared here so the
+        # interface stays stable across phases.
+        self._deviation_registry:  dict[str, callable] = {}
+        self._emitter_registry:    dict[str, callable] = {}
+        self._gate_kernel_registry: dict[str, callable] = {}
+        self._coupling_registry:   dict[str, callable] = {}
+        self._solver_registry:     dict[str, callable] = {}
+
+        # XML-declared selections (parsed below, defaults applied if
+        # the optional blocks are absent).
+        self.coupling_type: str = "additive"
+        self.behaviour_solver_type: str = "algebraic_chain"
+        self.behaviour_solver_dt: float = 1.0
+        self.behaviour_solver_unit: str = "second"
+
+        # Register the v1 default kernels.  Phase A registered coupling
+        # only; Phase B adds the deviation + emitter defaults so the
+        # tag pipeline can run end-to-end without Phase C wiring.
+        self._register_default_coupling()
+        self._register_default_deviation()
+        self._register_default_emitter()
 
         # Parse XML
         self._parse_xml(xml_path)
 
         # Let child classes register their function implementations
         self._register_functions()
+
+    # ── Default Kernel Registrations ─────────────────────────────────
+
+    def _register_default_coupling(self):
+        """
+        Register the v1 default `additive` coupling kernel (D6).
+
+        Signature contract (frozen):
+            coupling(x_prime: float | None,
+                     x_pp: float,
+                     params: dict) -> float
+
+        When x_prime is None (sensor never set / PRELIMINARY not yet
+        computed), return x_pp directly so the controller does not need
+        to special-case the missing-anchor path.
+        """
+        def additive(x_prime, x_pp, params):
+            if x_prime is None:
+                return x_pp
+            return x_prime + x_pp
+        self._coupling_registry["additive"] = additive
+
+    def _register_default_deviation(self):
+        """
+        Register the v1 default `absolute` deviation function.
+
+        Signature contract:
+            deviation_fn(actual: float,
+                         target: float,
+                         params: dict) -> float
+
+        `absolute` is just `actual - target`, identical to what
+        BehaviouralOutcome.evaluate() already computes.  Registering it
+        here means Phase C's controller can dispatch by the Tag's
+        deviation_type field without special-casing the default.
+        """
+        def absolute(actual, target, params):
+            return actual - target
+        self._deviation_registry["absolute"] = absolute
+
+    def _register_default_emitter(self):
+        """
+        Register the v1 default `binary` emitter (D9 polling model).
+
+        Signature contract:
+            emitter_fn(deviation: float,
+                       tolerance: float,
+                       params: dict) -> bool
+
+        Returns True when the absolute deviation exceeds the outcome's
+        tolerance, False otherwise.  In-tolerance outcomes are filtered
+        out at the Identifier layer so the gate kernel never runs on
+        signals smaller than the sigmoid's threshold knob anyway —
+        cheap early-exit that keeps the cycle log readable.
+        """
+        def binary(deviation, tolerance, params):
+            return abs(deviation) > tolerance
+        self._emitter_registry["binary"] = binary
 
     # ── XML Parsing ──────────────────────────────────────────────────
 
@@ -257,6 +595,28 @@ class UniversalTwin:
             channel_id = mapping_el.get("channel_id")
             if attr_id and channel_id:
                 self.channel_mappings[attr_id] = channel_id
+
+        # ── Feedback loop XML declarations (Phase A) ─────────────────
+        #
+        # Both blocks are optional.  Defaults set in __init__ stay in
+        # effect when the XML does not declare them — guarantees Phase A
+        # backward compatibility with pre-feedback XML files.
+
+        coupling_el = root.find("coupling")
+        if coupling_el is not None:
+            self.coupling_type = coupling_el.get("type", self.coupling_type)
+
+        solver_el = root.find("behaviour_solver")
+        if solver_el is not None:
+            self.behaviour_solver_type = solver_el.get(
+                "type", self.behaviour_solver_type
+            )
+            dt_text = solver_el.get("dt")
+            if dt_text is not None:
+                self.behaviour_solver_dt = float(dt_text)
+            self.behaviour_solver_unit = solver_el.get(
+                "unit", self.behaviour_solver_unit
+            )
 
         # Parse attributes
         for attr_el in root.findall(".//attributes/attribute"):
@@ -318,6 +678,50 @@ class UniversalTwin:
                 }
                 comp.update_weights([weight_map.get(a, seed) for a in attrs])
 
+            # Build distribution vector (D2): the w_i feeding the gate
+            # kernel formula in §2.3.  Independent of absorption_vector
+            # so the future learning loop (Phase G) cannot accidentally
+            # rewrite gate fanouts.
+            #
+            # XML rules (D2):
+            #   - missing block            → default 1/N for every attr
+            #   - missing weight for attr  → 1/N (silent default)
+            #   - negative weight          → ValueError at parse time
+            #   - weight for unknown attr  → ValueError at parse time
+            #     (catches typos before they surface as silent no-ops)
+            #   - sums NOT normalised      → distribution is a multiplier,
+            #                                not a probability
+            dv_el = comp_el.find("distribution_vector")
+            if dv_el is not None:
+                seed = 1.0 / len(attrs) if attrs else 1.0
+                dist_map: dict[str, float] = {}
+                for w in dv_el.findall("weight"):
+                    attr_id_w = w.get("attribute")
+                    text_w = (w.text or "").strip()
+                    if not attr_id_w or not text_w:
+                        continue
+                    val = float(text_w)
+                    if val < 0:
+                        raise ValueError(
+                            f"distribution_vector weight for '{attr_id_w}' "
+                            f"in composite '{comp_id}' is negative ({val}); "
+                            "direction is carried by tag polarity, not weight (D2/D7)."
+                        )
+                    if attr_id_w not in attrs:
+                        raise ValueError(
+                            f"distribution_vector references attribute "
+                            f"'{attr_id_w}' that is not in composite "
+                            f"'{comp_id}' (attrs: {attrs}).  Likely a typo (D2)."
+                        )
+                    dist_map[attr_id_w] = val
+                comp.update_distribution([dist_map.get(a, seed) for a in attrs])
+            else:
+                # No XML block — every attribute gets the 1/N default so
+                # later gate-kernel lookups never see None.
+                if attrs:
+                    seed = 1.0 / len(attrs)
+                    comp.update_distribution([seed] * len(attrs))
+
             self.composites[comp_id] = comp
 
         # Parse segments
@@ -367,6 +771,165 @@ class UniversalTwin:
                 action_on_fail=gate_el.findtext("action_on_fail", "hold_previous"),
                 flag=gate_el.findtext("flag", ""),
             ))
+
+        # ── Phase B: parse feedback <tags> block ─────────────────────
+        # Optional.  Missing block → empty self.tags, which is fine —
+        # Identifier.emit_tags() will return [] every cycle and the
+        # feedback loop becomes a no-op.
+        self._parse_tags(root)
+
+    def _parse_tags(self, root):
+        """
+        Parse <tags>/<tag> declarations and populate self.tags.
+
+        XML shape (see FEEDBACK_LOOP_PLAN.md §3.3):
+
+            <tags>
+              <tag id="CO_DEVIATION" outcome="target_co"
+                   deviation_type="absolute" emitter="binary"
+                   gate_kernel="sigmoid_leaky_tanh" polarity="negative">
+                <targets>
+                  <target address="pump_state" weight="1.0"/>
+                </targets>
+                <params gain="0.6" decay="0.10" threshold_k="4.0"
+                        saturation="0.3" epsilon_ratio="0.001"/>
+              </tag>
+            </tags>
+
+        Validation performed here (fail fast):
+          - duplicate tag id → ValueError
+          - outcome reference unknown to any segment → ValueError
+          - polarity unparseable → ValueError (via resolve_polarity)
+          - target address ambiguous local lookup → ValueError (D5)
+          - target weight negative → ValueError
+        """
+        known_outcomes = {
+            outcome.id
+            for seg in self.segments.values()
+            for outcome in seg.behavioural_outcomes
+        }
+
+        for tag_el in root.findall(".//tags/tag"):
+            tag_id = tag_el.get("id")
+            if not tag_id:
+                raise ValueError("Encountered a <tag> element with no id attribute.")
+            if tag_id in self.tags:
+                raise ValueError(f"Duplicate tag id '{tag_id}' in XML.")
+
+            outcome_id = tag_el.get("outcome", "")
+            if not outcome_id:
+                raise ValueError(f"Tag '{tag_id}' must declare an outcome= attribute.")
+            if known_outcomes and outcome_id not in known_outcomes:
+                raise ValueError(
+                    f"Tag '{tag_id}' references unknown outcome '{outcome_id}'. "
+                    f"Known outcomes: {sorted(known_outcomes)}"
+                )
+
+            polarity = resolve_polarity(tag_el.get("polarity"))
+
+            # Parse <targets>/<target> children.
+            targets: list[TagTarget] = []
+            targets_el = tag_el.find("targets")
+            if targets_el is not None:
+                for tgt_el in targets_el.findall("target"):
+                    addr = tgt_el.get("address", "").strip()
+                    if not addr:
+                        raise ValueError(
+                            f"Tag '{tag_id}' has a <target> with no address."
+                        )
+                    weight_raw = tgt_el.get("weight", "1.0")
+                    try:
+                        weight = float(weight_raw)
+                    except ValueError as e:
+                        raise ValueError(
+                            f"Tag '{tag_id}' target '{addr}' has invalid "
+                            f"weight '{weight_raw}'."
+                        ) from e
+                    if weight < 0:
+                        raise ValueError(
+                            f"Tag '{tag_id}' target '{addr}' weight is "
+                            f"negative ({weight}). Direction is carried by "
+                            f"polarity, not by target weights (D2/D7)."
+                        )
+                    # Validate the address now so typos surface at load
+                    # time, not on the first feedback cycle (D5).
+                    self.resolve_tag_address(addr, tag_id=tag_id)
+                    targets.append(TagTarget(address=addr, weight=weight))
+
+            # Parse <params .../> — loose dict, kernel decides defaults (D15).
+            params: dict = {}
+            params_el = tag_el.find("params")
+            if params_el is not None:
+                for k, v in params_el.attrib.items():
+                    try:
+                        params[k] = float(v)
+                    except ValueError:
+                        # Non-numeric param values pass through as strings
+                        # (e.g. a future "mode='asymmetric'" knob).
+                        params[k] = v
+
+            self.tags[tag_id] = Tag(
+                id=tag_id,
+                outcome=outcome_id,
+                deviation_type=tag_el.get("deviation_type", "absolute"),
+                emitter=tag_el.get("emitter", "binary"),
+                gate_kernel=tag_el.get("gate_kernel", "sigmoid_leaky_tanh"),
+                polarity=polarity,
+                targets=targets,
+                params=params,
+            )
+
+    def resolve_tag_address(self, address: str, tag_id: str = "?") -> tuple:
+        """
+        Resolve a tag target address `[<lamina>:]<composite>` (D5).
+
+        Returns the tuple (lamina_id_or_None, composite_id).  A bare
+        composite resolves to the local lamina; a prefixed address
+        leaves cross-lamina dispatch to Phase G's controller (which
+        does not yet exist — for now we just record the prefix).
+
+        Validation:
+          - empty address                  → ValueError
+          - composite unknown locally and  → ValueError (no resolver yet
+            no explicit lamina prefix         for cross-lamina lookup)
+          - the same bare composite id     → already prevented because
+            existing on multiple laminas      a single UniversalTwin only
+                                              owns its own composites;
+                                              when Phase G adds the
+                                              registry the ambiguity
+                                              check moves there.
+        """
+        addr = (address or "").strip()
+        if not addr:
+            raise ValueError(f"Tag '{tag_id}' has empty target address.")
+
+        if ":" in addr:
+            lamina_part, _, comp_part = addr.partition(":")
+            lamina_part = lamina_part.strip()
+            comp_part = comp_part.strip()
+            if not lamina_part or not comp_part:
+                raise ValueError(
+                    f"Tag '{tag_id}' target address '{address}' must be of "
+                    f"the form '<lamina_id>:<composite_id>' or a bare "
+                    f"'<composite_id>'."
+                )
+            # Cross-lamina dispatch happens in Phase G; for now we still
+            # validate the local case if the prefix matches this lamina.
+            if lamina_part == self.lamina_id and comp_part not in self.composites:
+                raise ValueError(
+                    f"Tag '{tag_id}' references composite '{comp_part}' on "
+                    f"lamina '{lamina_part}' but no such composite exists."
+                )
+            return (lamina_part, comp_part)
+
+        # Bare composite — local-first lookup.
+        if addr not in self.composites:
+            raise ValueError(
+                f"Tag '{tag_id}' target '{address}' does not match any "
+                f"composite on lamina '{self.lamina_id}'. Known composites: "
+                f"{sorted(self.composites.keys())}."
+            )
+        return (None, addr)
 
     # ── Function Registry (overridden by child classes) ──────────────
 
@@ -605,6 +1168,20 @@ class UniversalTwin:
         Called by the Auto Controller after comparing a Behavioural Outcome
         against real-world sensor data (e.g. Apple Watch reading).
 
+        ⚠️  FROZEN during Phases A–E of the feedback loop rollout (D17).
+            Calling this from production code while X = X' + X'' is being
+            stabilised is a bug — the gate kernel (Phase C) and the
+            learning loop must not be active simultaneously, otherwise
+            the absorption_vector and distribution_vector would couple
+            through indirect feedback.
+
+            Touches `absorption_vector` ONLY.  Never `distribution_vector`
+            — that is owned by the domain expert via XML and read by the
+            feedback loop.  This boundary is what lets Phase G re-enable
+            learning without breaking the feedback loop already in place.
+
+            See FEEDBACK_LOOP_PLAN.md §D2 and §D17 for the full rationale.
+
         Args:
             composite_id:  composite whose weights to adjust
             deviation:     error signal — use BehaviouralOutcome.evaluate()["deviation"]
@@ -753,3 +1330,169 @@ class UniversalTwin:
         tree.write(self.xml_path, encoding="unicode", xml_declaration=True)
         self._parse_xml(self.xml_path)
         self._log(f"XML UPDATED: Gate thresholds for '{attribute}' modified")
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Identifier + Metrix (Phase B — Feedback Loop)
+# ──────────────────────────────────────────────────────────────────────
+#
+# Both helpers are stateless — they live as classes for clarity (so a
+# domain expert reading the code sees the named pipeline components from
+# FEEDBACK_LOOP_PLAN.md §3.1) but every public method is a classmethod /
+# staticmethod that takes the twin explicitly.
+#
+# Pipeline position:
+#
+#     compute_all()
+#       └─ evaluate_all_outcomes()           [existing]
+#            └─ Identifier.emit_tags(twin, outcome_evaluations)
+#                  └─ for each tag → Metrix.lookup(tag) for kernel params
+#                        └─ FeedbackController.step()      [Phase C]
+# ──────────────────────────────────────────────────────────────────────
+
+
+class Identifier:
+    """
+    Polls behavioural outcomes and emits Tag objects for the
+    out-of-tolerance ones (D9).  The deviation_type registered for the
+    tag drives the actual numeric ΔOV; the emitter (default `binary`)
+    decides whether to emit at all.
+    """
+
+    @staticmethod
+    def emit_tags(twin: "UniversalTwin",
+                  outcome_evaluations: dict) -> list:
+        """
+        Args:
+            twin:                the host UniversalTwin (registries live there)
+            outcome_evaluations: dict in the shape produced by
+                                 evaluate_all_outcomes() —
+                                 {segment_id: [feedback_object, ...]}
+
+        Returns:
+            list of dicts, one per emission:
+            {
+              "tag":         Tag,                # registry object
+              "outcome_id":  str,                # which outcome fired it
+              "attribute_id": str,               # tracked attribute
+              "actual":      float,
+              "target":      float,
+              "tolerance":   float,
+              "deviation":   float,              # via deviation_registry
+              "deviation_norm": float | None,    # deviation / tolerance
+            }
+
+        Behaviour:
+          - poll every outcome each call (D9)
+          - tags whose `outcome` field doesn't match any evaluated
+            outcome are silently skipped (allows a domain expert to
+            wire tags ahead of having the outcome in place)
+          - in-tolerance outcomes (per the tag's emitter) are skipped
+          - monitor-only tags (polarity == 0) DO emit — they still
+            produce a log entry, but Phase C will treat them as a
+            no-op for X''
+        """
+        # Flatten outcome_evaluations into {outcome_id: feedback_object}
+        # for O(1) lookup by Tag.outcome.
+        by_outcome: dict[str, dict] = {}
+        for segment_outcomes in outcome_evaluations.values():
+            for fb in segment_outcomes:
+                by_outcome[fb["outcome_id"]] = fb
+
+        emissions: list[dict] = []
+
+        for tag in twin.tags.values():
+            fb = by_outcome.get(tag.outcome)
+            if fb is None:
+                continue  # outcome not present — silent skip
+
+            # Compute deviation via the registered function so a future
+            # `relative` or `rate` deviation type plugs in without code
+            # changes in the Identifier.
+            dev_fn = twin._deviation_registry.get(tag.deviation_type)
+            if dev_fn is None:
+                twin._log(
+                    f"WARN: Tag '{tag.id}' references unknown "
+                    f"deviation_type '{tag.deviation_type}'. Skipped."
+                )
+                continue
+
+            # Look up tolerance from the segment's BehaviouralOutcome
+            # (Identifier doesn't carry tolerance — the outcome owns it).
+            tolerance = Identifier._tolerance_for_outcome(twin, tag.outcome)
+
+            deviation = dev_fn(fb["actual"], fb["target"], tag.params)
+
+            # Emitter decides emission.  Binary uses |deviation| > tolerance.
+            emit_fn = twin._emitter_registry.get(tag.emitter)
+            if emit_fn is None:
+                twin._log(
+                    f"WARN: Tag '{tag.id}' references unknown emitter "
+                    f"'{tag.emitter}'. Skipped."
+                )
+                continue
+            if not emit_fn(deviation, tolerance, tag.params):
+                continue  # within tolerance — no emission
+
+            deviation_norm = (
+                deviation / tolerance if tolerance else None
+            )
+
+            emissions.append({
+                "tag":            tag,
+                "outcome_id":     tag.outcome,
+                "attribute_id":   fb["attribute_id"],
+                "actual":         fb["actual"],
+                "target":         fb["target"],
+                "tolerance":      tolerance,
+                "deviation":      deviation,
+                "deviation_norm": deviation_norm,
+            })
+
+        return emissions
+
+    @staticmethod
+    def _tolerance_for_outcome(twin: "UniversalTwin",
+                                outcome_id: str) -> float:
+        """Look up the outcome's tolerance from segment definitions."""
+        for seg in twin.segments.values():
+            for outcome in seg.behavioural_outcomes:
+                if outcome.id == outcome_id:
+                    return outcome.tolerance
+        return 0.0
+
+
+class Metrix:
+    """
+    Param lookup helper.  Currently a thin wrapper over Tag.params, but
+    isolated as a named component so Phase C's controller has a single
+    extension point if domain experts want per-tag param overrides
+    (e.g. patient-specific saturation) without touching tag definitions.
+    """
+
+    # Framework-wide default kernel params (D15 — kernel defaults).
+    # Used only when neither the tag nor a future override supplies a
+    # value.  Mirrors the demo's sigmoid_leaky_tanh expectations.
+    DEFAULTS = {
+        "gain":          0.6,
+        "decay":         0.10,
+        "threshold_k":   4.0,
+        "saturation":    1.0,   # raw multiplier; controller scales by
+                                # physio range if the tag stored 0.3
+                                # following the convention in §2.3
+        "epsilon_ratio": 0.001,
+    }
+
+    @staticmethod
+    def lookup(tag: "Tag", overrides: Optional[dict] = None) -> dict:
+        """
+        Merge Metrix defaults ← tag.params ← overrides (most specific
+        wins).  Returns a fresh dict so callers can mutate without
+        side-effects on the registry.
+        """
+        merged = dict(Metrix.DEFAULTS)
+        if tag.params:
+            merged.update(tag.params)
+        if overrides:
+            merged.update(overrides)
+        return merged

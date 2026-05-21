@@ -520,7 +520,13 @@
       <targets>
         <target address="pump_state" weight="1.0" />
       </targets>
-      <params gain="0.6" decay="0.10" threshold_k="4.0"
+      <!-- gain=8 empirically tuned in Phase E: pushes the
+           CO settling point well inside the [3.5, 6.5] tolerance
+           band when sensors are forced to HR=110, EDV=180.  Lower
+           gains (0.6 framework default, or even 5.0) leave the
+           equilibrium hovering at the boundary because the soft
+           sigmoid keeps `raw` proportional to error. -->
+      <params gain="8.0" decay="0.10" threshold_k="4.0"
               saturation="0.3" epsilon_ratio="0.001" />
     </tag>
 

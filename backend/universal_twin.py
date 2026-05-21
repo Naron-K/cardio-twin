@@ -13,6 +13,7 @@ Domain experts modify the XML file, not this code.
 Developers add new function models in child classes.
 """
 
+import math
 import numpy as np
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -503,11 +504,14 @@ class UniversalTwin:
         self.behaviour_solver_unit: str = "second"
 
         # Register the v1 default kernels.  Phase A registered coupling
-        # only; Phase B adds the deviation + emitter defaults so the
-        # tag pipeline can run end-to-end without Phase C wiring.
+        # only; Phase B adds the deviation + emitter defaults; Phase C
+        # adds the gate kernel + solver defaults so the full pipeline
+        # can run end-to-end.
         self._register_default_coupling()
         self._register_default_deviation()
         self._register_default_emitter()
+        self._register_default_gate_kernel()
+        self._register_default_solver()
 
         # Parse XML
         self._parse_xml(xml_path)
@@ -572,6 +576,99 @@ class UniversalTwin:
         def binary(deviation, tolerance, params):
             return abs(deviation) > tolerance
         self._emitter_registry["binary"] = binary
+
+    def _register_default_gate_kernel(self):
+        """
+        Register the v1 default `sigmoid_leaky_tanh` gate kernel
+        (FEEDBACK_LOOP_PLAN.md §2.3).
+
+        Signature contract (frozen):
+            kernel(prev_state: dict,
+                   deviation:  float,   # normalised d_t = ΔOV / tolerance
+                   weight:     float,   # w_i from composite.distribution_vector
+                   params:     dict)
+              -> dict                   # new state, must contain "x_pp"
+
+        Params consumed (with defaults):
+            polarity     -1.0    direction; carried by Tag (D7)
+            gain          0.6    overall magnitude knob
+            decay         0.10   λ in the leaky integrator (D1)
+            threshold_k   4.0    sigmoid steepness; kills in-tolerance noise
+            a_max         None   tanh saturation in NATIVE units; if None
+                                 falls back to `saturation` for demo compat
+            saturation    1.0    raw a_max when a_max is missing
+            tolerance     1.0    multiplied back in to restore native units
+
+        Formula (per §2.3):
+            G    = 1 / (1 + exp(-k · (|d| - 1)))
+            raw  = polarity · gain · w · G · d · tolerance
+            x_pp = a_max · tanh( ((1 - λ) · x_pp_prev + raw) / a_max )
+
+        Decay lives INSIDE the kernel (D1) — the framework cycle does
+        not re-decay outside this function.  Convergence proof in §2.3:
+        at x_pp = 0 with no deviation, raw = 0, leaky term pulls back
+        to 0 → fixed point.  Tanh keeps the trajectory inside
+        [-a_max, +a_max].
+        """
+        def sigmoid_leaky_tanh(prev_state, deviation, weight, params):
+            polarity    = float(params.get("polarity", -1.0))
+            gain        = float(params.get("gain", 0.6))
+            decay       = float(params.get("decay", 0.10))
+            threshold_k = float(params.get("threshold_k", 4.0))
+            tolerance   = float(params.get("tolerance", 1.0))
+
+            # a_max takes precedence; saturation is the demo-style raw
+            # fallback so feedback_kernel_demo.py keeps working with the
+            # registered kernel without code changes.
+            a_max_raw = params.get("a_max")
+            a_max = float(a_max_raw) if a_max_raw is not None else float(
+                params.get("saturation", 1.0)
+            )
+
+            d = float(deviation)
+            x_pp_prev = float(prev_state.get("x_pp", 0.0)) if prev_state else 0.0
+
+            # G(d) sigmoid threshold — clamps in-tolerance noise.
+            # math.exp on huge |d| overflows; clamp the exponent.
+            exponent = -threshold_k * (abs(d) - 1.0)
+            if exponent > 700:           # exp(700) ≈ 1e304, near float64 cap
+                g_open = 0.0
+            elif exponent < -700:
+                g_open = 1.0
+            else:
+                g_open = 1.0 / (1.0 + math.exp(exponent))
+
+            raw = polarity * gain * weight * g_open * d * tolerance
+
+            if a_max <= 0:
+                # Pathological: no saturation cap.  Skip the tanh and
+                # let the leaky integrator run linearly — the snap
+                # dead-zone (D3) will still clean up small residuals.
+                x_pp = (1.0 - decay) * x_pp_prev + raw
+            else:
+                inner = ((1.0 - decay) * x_pp_prev + raw) / a_max
+                # tanh saturates around ±1 cleanly even for huge inner.
+                x_pp = a_max * math.tanh(inner)
+
+            return {"x_pp": x_pp}
+
+        self._gate_kernel_registry["sigmoid_leaky_tanh"] = sigmoid_leaky_tanh
+
+    def _register_default_solver(self):
+        """
+        Register the v1 default `algebraic_chain` behaviour solver.
+
+        Signature contract:
+            solver(twin: UniversalTwin, params: dict) -> None
+
+        The default is a thin wrapper over compute_all() — runs the
+        existing function chain in step order, suitable for any
+        steady-state lamina.  Phase G can register `ode_rk4` here
+        without breaking the FeedbackController interface.
+        """
+        def algebraic_chain(twin, params):
+            twin.compute_all()
+        self._solver_registry["algebraic_chain"] = algebraic_chain
 
     # ── XML Parsing ──────────────────────────────────────────────────
 
@@ -1225,6 +1322,40 @@ class UniversalTwin:
             seg_id: self.evaluate_segment_outcomes(seg_id)
             for seg_id in self.segments
         }
+
+    def feedback_norm(self) -> float:
+        """
+        Aggregate norm of the feedback channel (D13).
+
+        Definition:
+            feedback_norm = Σ |X''_i| / Σ (physio_max_i - physio_min_i)
+
+        Generic across laminas because both numerator and denominator
+        scale with the same physio range — produces a dimensionless
+        number in [0, ~1] (the saturation cap is normally < a_max ≤
+        physio_range, so individual contributions cap at ≤ 1).
+
+        Used by:
+          - FeedbackController.step()        (returns it as a probe)
+          - the soft circuit breaker (D16, Phase C floor)
+          - the Phase E settling test       ("settled" = norm below
+                                              threshold for 5 consecutive
+                                              cycles, D14)
+
+        Attributes with zero physio range are skipped on both sides so
+        a degenerate definition never returns NaN.
+        """
+        sum_abs = 0.0
+        sum_range = 0.0
+        for attr in self.attributes.values():
+            range_size = attr.physio_max - attr.physio_min
+            if range_size <= 0:
+                continue
+            sum_abs += abs(attr.value_feedback)
+            sum_range += range_size
+        if sum_range == 0:
+            return 0.0
+        return sum_abs / sum_range
 
     # ── Introspection (for domain experts) ───────────────────────────
 

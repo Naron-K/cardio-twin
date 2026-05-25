@@ -25,6 +25,7 @@ interface FeedbackPanelProps {
   onStep: () => void
   onRun: (cycles: number, settledThreshold: number) => void
   onReset: () => void
+  onSaveSettled?: () => void
 }
 
 const DEFAULT_RUN_CYCLES = 50
@@ -40,6 +41,7 @@ export function FeedbackPanel({
   onStep,
   onRun,
   onReset,
+  onSaveSettled,
 }: FeedbackPanelProps) {
   const [runCycles, setRunCycles] = useState<number>(DEFAULT_RUN_CYCLES)
   const [settledThreshold, setSettledThreshold] = useState<number>(
@@ -70,7 +72,7 @@ export function FeedbackPanel({
         <div>
           <p className="text-slate-300 text-sm font-semibold">Feedback Loop</p>
           <p className="text-slate-500 text-xs mt-0.5">
-            X = X′ (sensor) + X″ (feedback). Tweak sliders to advance one cycle.
+            X = X′ (sensor) + X″ (feedback). Set sensors via sliders, then press Run to watch the body settle.
           </p>
         </div>
         <div className="flex items-center gap-4">
@@ -126,6 +128,20 @@ export function FeedbackPanel({
         >
           Reset
         </button>
+
+        {/* Save button appears only when a Run successfully settled. */}
+        {stoppedReason === 'settled' && onSaveSettled && (
+          <button
+            onClick={onSaveSettled}
+            disabled={busy}
+            className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 active:bg-emerald-500
+                       disabled:opacity-40 disabled:cursor-not-allowed
+                       text-slate-100 text-xs rounded-md border border-emerald-600 transition-colors"
+            title="Download the settled snapshot as XML"
+          >
+            Save settled state
+          </button>
+        )}
 
         <div className="flex items-center gap-2 ml-auto">
           <label className="text-slate-500 text-xs">

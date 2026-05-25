@@ -88,57 +88,44 @@ export default function App() {
     localStorage.setItem('cardiotwin_chart_type', type)
   }, [])
 
-  // Debounced step — fires 300ms after the last slider change.
-  // "Keep feedback running" behaviour: preserves kernelState/cycle and
-  // advances one feedback cycle per debounced slider change.
-  const triggerStep = useCallback((newValues: Record<string, number>) => {
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(async () => {
+  // Clean /api/compute call that also drops any in-flight feedback state.
+  // Used by initial load, slider changes (debounced), Reset, and preset/XML
+  // loading.  The demo story is: sliders = scenario knobs, feedback panel =
+  // "now watch the body correct" — so any sensor edit invalidates the
+  // accumulated X''.
+  const computeAndResetFeedback = useCallback(
+    async (newValues: Record<string, number>) => {
       setLoading(true)
       setError(null)
       try {
-        const res = await feedbackStep({
-          sensorData: newValues,
-          kernelState: kernelStateRef.current,
-          cycle: cycleRef.current,
-        })
-        setResults(res.state)
-        setKernelState(res.kernel_state)
-        setCycle(res.cycle)
-        setDiverged(res.diverged)
-        setStoppedReason(res.diverged ? 'diverged' : null)
-        setNormHistory((prev) => [
-          ...prev,
-          { cycle: res.cycle, norm: res.cycle_report.feedback_norm },
-        ])
+        const res = await computeResults(newValues)
+        setResults(res)
+        setKernelState({})
+        setCycle(0)
+        setNormHistory([])
+        setDiverged(false)
+        setStoppedReason(null)
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e)
-        setError(`Feedback step failed: ${msg}`)
+        setError(`Computation failed: ${msg}`)
       } finally {
         setLoading(false)
       }
-    }, 300)
-  }, [])
+    },
+    []
+  )
 
-  // Initial load + Reset use /api/compute — a clean X''=0 snapshot.
-  const initialCompute = useCallback(async (newValues: Record<string, number>) => {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await computeResults(newValues)
-      setResults(res)
-      setKernelState({})
-      setCycle(0)
-      setNormHistory([])
-      setDiverged(false)
-      setStoppedReason(null)
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e)
-      setError(`Computation failed: ${msg}`)
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+  // Debounced slider-change handler — fires 300ms after the last edit.
+  // Slider change = new scenario → fresh compute, fresh feedback.
+  const triggerCompute = useCallback(
+    (newValues: Record<string, number>) => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+      debounceRef.current = setTimeout(() => {
+        computeAndResetFeedback(newValues)
+      }, 300)
+    },
+    [computeAndResetFeedback]
+  )
 
   // Load schema on mount, then immediately run first simulation
   useEffect(() => {
@@ -147,7 +134,7 @@ export default function App() {
         setSchema(s)
         const defaults = getDefaults(s)
         setValues(defaults)
-        initialCompute(defaults)
+        computeAndResetFeedback(defaults)
       })
       .catch((e: unknown) => {
         const msg = e instanceof Error ? e.message : String(e)
@@ -159,11 +146,11 @@ export default function App() {
     (id: string, value: number) => {
       setValues((prev) => {
         const next = { ...prev, [id]: value }
-        triggerStep(next)
+        triggerCompute(next)
         return next
       })
     },
-    [triggerStep]
+    [triggerCompute]
   )
 
   // Slider Reset — restore defaults AND drop feedback state (new scenario).
@@ -171,13 +158,13 @@ export default function App() {
     if (!schema) return
     const defaults = getDefaults(schema)
     setValues(defaults)
-    initialCompute(defaults)
-  }, [schema, initialCompute])
+    computeAndResetFeedback(defaults)
+  }, [schema, computeAndResetFeedback])
 
   // Feedback Reset — keep current sensor values, just drop feedback state.
   const handleFeedbackReset = useCallback(() => {
-    initialCompute(values)
-  }, [values, initialCompute])
+    computeAndResetFeedback(values)
+  }, [values, computeAndResetFeedback])
 
   // Manual single-cycle step — same payload as the debounced version,
   // without the slider-change context.
@@ -263,28 +250,50 @@ export default function App() {
   const handleLoadProfile = useCallback(
     (loadedValues: Record<string, number>) => {
       setValues(loadedValues)
-      initialCompute(loadedValues)
+      computeAndResetFeedback(loadedValues)
     },
-    [initialCompute]
+    [computeAndResetFeedback]
   )
 
-  // Download current results as XML
-  const handleDownload = useCallback(async () => {
-    if (!results) return
-    try {
-      const xml = await downloadResultsXML(results, schema?.lamina_name ?? 'CardioTwin')
-      const blob = new Blob([xml], { type: 'application/xml' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'cardiotwin_results.xml'
-      a.click()
-      URL.revokeObjectURL(url)
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e)
-      showToast(`Download failed: ${msg}`, 'error')
-    }
-  }, [results, schema, showToast])
+  // Shared download helper — used by both the header "Download XML" button
+  // and the FeedbackPanel "Save settled state" button.  The `filename`
+  // argument lets the settled-save flow tag the file with cycle count so a
+  // researcher can tell snapshots apart.
+  const triggerXMLDownload = useCallback(
+    async (filename: string, scenarioName: string) => {
+      if (!results) return
+      try {
+        const xml = await downloadResultsXML(results, scenarioName)
+        const blob = new Blob([xml], { type: 'application/xml' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = filename
+        a.click()
+        URL.revokeObjectURL(url)
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e)
+        showToast(`Download failed: ${msg}`, 'error')
+      }
+    },
+    [results, showToast]
+  )
+
+  const handleDownload = useCallback(
+    () =>
+      triggerXMLDownload(
+        'cardiotwin_results.xml',
+        schema?.lamina_name ?? 'CardioTwin'
+      ),
+    [triggerXMLDownload, schema]
+  )
+
+  const handleSaveSettled = useCallback(() => {
+    const filename = `cardiotwin_settled_cycle${cycle}.xml`
+    const label = `${schema?.lamina_name ?? 'CardioTwin'} — settled @ cycle ${cycle}`
+    triggerXMLDownload(filename, label)
+    showToast(`Saved settled snapshot (cycle ${cycle})`, 'success')
+  }, [cycle, schema, triggerXMLDownload, showToast])
 
   // ── Loading screen (before schema arrives) ──────────────────────────────────
   if (!schema && !error) {
@@ -358,6 +367,7 @@ export default function App() {
             onStep={handleFeedbackStep}
             onRun={handleFeedbackRun}
             onReset={handleFeedbackReset}
+            onSaveSettled={handleSaveSettled}
           />
         )}
 

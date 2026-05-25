@@ -18,18 +18,24 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # Ensure backend package is importable when running from project root
 sys.path.insert(0, str(Path(__file__).parent))
 
 from circulatory_lamina import CirculatoryLamina
+from feedback_controller import (
+    FeedbackController,
+    DEFAULT_EPSILON_RATIO,
+    DEFAULT_MAX_NORM,
+)
+from universal_twin import resolve_polarity
 from xml_converter import dict_to_patient_xml, patient_xml_to_dict, results_to_xml
 
 # ── App Setup ────────────────────────────────────────────────────────────────
@@ -67,6 +73,54 @@ class ComputeRequest(BaseModel):
 class DownloadRequest(BaseModel):
     results: Dict[str, Any]
     name: str = "Patient Scenario"
+
+
+# ── Feedback loop models (Phase D) ────────────────────────────────────────────
+#
+# Stateless server contract: the client carries the kernel state and cycle
+# counter across requests.  Each /api/feedback/step round-trip returns the
+# updated state so the client (or its localStorage) can keep driving.
+# /api/feedback/run is the batched alternative — runs N cycles in one shot
+# and returns the final state plus a per-cycle trace.
+#
+# kernel_state on the wire uses "tag_id|attr_id" string keys instead of
+# Python tuples so it round-trips through JSON without ceremony.
+
+class TagOverride(BaseModel):
+    """Per-tag knobs the client can twiddle without editing the XML."""
+    polarity: Optional[Any] = None          # accepts "negative"/"positive"/number
+    params:   Optional[Dict[str, float]] = None
+
+
+class FeedbackConfig(BaseModel):
+    """Per-request controller knobs.  All optional — defaults come from the
+    feedback_controller module constants."""
+    max_norm:      float = Field(default=DEFAULT_MAX_NORM,
+                                 description="Circuit breaker — abort cycle when feedback_norm exceeds.")
+    epsilon_ratio: float = Field(default=DEFAULT_EPSILON_RATIO,
+                                 description="Snap dead-zone as a fraction of physio range (D3).")
+
+
+class FeedbackStepRequest(BaseModel):
+    sensor_data:   Dict[str, float]
+    kernel_state:  Dict[str, Dict[str, float]] = Field(default_factory=dict,
+                       description='Carry across requests. Keys "tag_id|attr_id".')
+    cycle:         int = Field(default=0, description="Cycle counter from the previous response.")
+    config:        FeedbackConfig = Field(default_factory=FeedbackConfig)
+    tag_overrides: Dict[str, TagOverride] = Field(default_factory=dict)
+
+
+class FeedbackRunRequest(BaseModel):
+    sensor_data:        Dict[str, float]
+    kernel_state:       Dict[str, Dict[str, float]] = Field(default_factory=dict)
+    cycle:              int = Field(default=0)
+    cycles:             int = Field(default=100, ge=1, le=10000,
+                                     description="Maximum cycles to run.")
+    settled_threshold:  Optional[float] = Field(default=None,
+                            description="D14 early stop: norm below this for settled_window cycles.")
+    settled_window:     int = Field(default=5, ge=1, le=100)
+    config:             FeedbackConfig = Field(default_factory=FeedbackConfig)
+    tag_overrides:      Dict[str, TagOverride] = Field(default_factory=dict)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -141,6 +195,162 @@ def _run_simulation(sensor_data: Dict[str, float]) -> Dict[str, Any]:
         "outcomes":   twin.evaluate_all_outcomes(),
         "warnings":   warnings,
         "log":        twin.get_log(),
+    }
+
+
+# ── Feedback loop helpers (Phase D) ───────────────────────────────────────────
+
+# Wire-format separator for kernel_state keys.  Tuples don't survive JSON,
+# so "(tag_id, attr_id)" becomes "tag_id|attr_id" on the wire.  Pipe is
+# reserved (neither tag ids nor attribute ids contain it in the XML).
+_KSTATE_SEP = "|"
+
+
+def _serialize_kernel_state(controller: FeedbackController) -> Dict[str, Dict[str, float]]:
+    """Convert controller._kernel_state to JSON-friendly dict."""
+    out: Dict[str, Dict[str, float]] = {}
+    for (tag_id, attr_id), state in controller._kernel_state.items():
+        if not state:
+            continue  # skip empty state (saves bandwidth + matches D4 snap reset)
+        key = f"{tag_id}{_KSTATE_SEP}{attr_id}"
+        # State dicts hold floats (x_pp etc.) — cast for safety.
+        out[key] = {k: float(v) for k, v in state.items()}
+    return out
+
+
+def _restore_kernel_state(controller: FeedbackController,
+                           wire: Dict[str, Dict[str, float]]):
+    """
+    Inject client-supplied state back into the controller dict AND
+    reconstruct every targeted attribute's value_feedback so the twin
+    picks up exactly where the previous cycle left off.
+
+    Without the second step the next cycle would compute deviation
+    against a fresh-from-sensors twin (value_feedback = 0) — a much
+    larger deviation than the cycle had at the end of the previous
+    call.  The kernel would then mix a small-deviation-trained state
+    with a big-deviation `raw`, producing a saturated jump and
+    breaking continuity across requests.
+
+    Per D11 the cycle's attribute value_feedback equals the SUM of
+    x_pp across all tags targeting that attribute — exactly the
+    information the wire format already carries, so we don't need a
+    separate attribute_feedback payload.
+    """
+    feedback_sum: Dict[str, float] = {}
+    for key, state in wire.items():
+        if _KSTATE_SEP not in key:
+            continue  # malformed key, silently skip
+        tag_id, attr_id = key.split(_KSTATE_SEP, 1)
+        controller._kernel_state[(tag_id, attr_id)] = dict(state)
+        feedback_sum[attr_id] = feedback_sum.get(attr_id, 0.0) + float(state.get("x_pp", 0.0))
+
+    for attr_id, total in feedback_sum.items():
+        attr = controller.twin.attributes.get(attr_id)
+        if attr is not None:
+            attr.apply_feedback(total)
+
+    # Re-derive PRELIMINARY attributes so the chain reflects the
+    # restored X'' on SENSOR inputs.  Without this the next step's
+    # deviation calculation would use stale PRELIMINARY values.
+    controller.twin.compute_all()
+
+
+def _apply_tag_overrides(twin: CirculatoryLamina,
+                          overrides: Dict[str, "TagOverride"]):
+    """
+    Mutate the parsed Tag registry in place per client overrides.
+
+    Domain experts can change a tag's polarity or kernel params without
+    editing XML — useful for the frontend's "what if I disable Q tag"
+    or "what if I bump gain" interactions.  Unknown tag ids are ignored
+    (defensive — frontend might still hold stale tag ids while XML
+    evolves on the backend).
+    """
+    for tag_id, ov in overrides.items():
+        tag = twin.tags.get(tag_id)
+        if tag is None:
+            continue
+        if ov.polarity is not None:
+            try:
+                tag.polarity = resolve_polarity(ov.polarity)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail={
+                    "error": f"tag '{tag_id}': {e}",
+                    "type": "ValidationError",
+                    "field": f"tag_overrides.{tag_id}.polarity",
+                    "timestamp": datetime.now().isoformat(),
+                })
+        if ov.params:
+            # Merge, don't replace — keep XML-defined keys the client
+            # didn't touch.
+            tag.params = {**tag.params, **ov.params}
+
+
+def _build_feedback_twin(sensor_data: Dict[str, float],
+                          tag_overrides: Dict[str, "TagOverride"]) -> CirculatoryLamina:
+    """
+    Fresh twin per request (stateless server).  Applies sensor values
+    and any tag overrides before the controller is wired up.
+    """
+    twin = CirculatoryLamina(str(SCHEMA_PATH))
+    _apply_tag_overrides(twin, tag_overrides)
+
+    for attr_id, value in sensor_data.items():
+        try:
+            twin.set_sensor(attr_id, value)
+        except (KeyError, ValueError) as e:
+            raise HTTPException(status_code=400, detail={
+                "error": str(e),
+                "type": type(e).__name__,
+                "field": attr_id,
+                "timestamp": datetime.now().isoformat(),
+            })
+
+    # Initial compute_all so PRELIMINARY attributes have a value
+    # before the first feedback cycle reads them.
+    twin.compute_all()
+    return twin
+
+
+def _simulation_snapshot(twin: CirculatoryLamina) -> Dict[str, Any]:
+    """
+    Same payload shape as /api/compute returns — attribute split,
+    composite vectors, outcomes, warnings.  Pulled into a helper so
+    /api/feedback/step and /api/feedback/run can reuse it without
+    re-deriving the twin.
+    """
+    sensors_out: Dict[str, Any] = {}
+    for attr_id in twin.list_attributes("SENSOR"):
+        attr = twin.attributes[attr_id]
+        sensors_out[attr_id] = {
+            "value":           attr.value,
+            "value_external":  attr.value_external,
+            "value_feedback":  attr.value_feedback,
+            "normalised":      attr.normalised,
+            "unit":            attr.unit,
+            "name":            attr.name,
+        }
+    computed_out: Dict[str, Any] = {}
+    for attr_id in twin.list_attributes("PRELIMINARY"):
+        attr = twin.attributes[attr_id]
+        computed_out[attr_id] = {
+            "value":           attr.value,
+            "value_external":  attr.value_external,
+            "value_feedback":  attr.value_feedback,
+            "normalised":      attr.normalised,
+            "unit":            attr.unit,
+            "name":            attr.name,
+        }
+    warnings = [line for line in twin.get_log() if "GATE FAIL" in line]
+    return {
+        "sensors":       sensors_out,
+        "computed":      computed_out,
+        "vectors":       twin.get_all_vectors(),
+        "absorption":    twin.get_all_absorbed_vectors(),
+        "outcomes":      twin.evaluate_all_outcomes(),
+        "feedback_norm": twin.feedback_norm(),
+        "warnings":      warnings,
     }
 
 
@@ -307,6 +517,131 @@ def compute(request: ComputeRequest):
     except Exception as e:
         print(f"[ERROR] Compute failed: {e}")
         raise HTTPException(status_code=400, detail={
+            "error": str(e),
+            "type": type(e).__name__,
+            "timestamp": datetime.now().isoformat(),
+        })
+
+
+# ── Feedback loop endpoints (Phase D) ─────────────────────────────────────────
+
+@app.post("/api/feedback/step")
+def feedback_step(request: FeedbackStepRequest):
+    """
+    Run ONE feedback cycle.
+
+    Stateless contract — the client carries kernel_state and the cycle
+    counter across requests.  Submit kernel_state={} (default) for a
+    fresh start, then keep round-tripping the value returned in
+    `kernel_state_out` to continue the loop.
+
+    Response shape:
+      {
+        "cycle":           int,                 # new cycle counter
+        "cycle_report":    CycleReport,         # tags, deltas, norm, snap, etc.
+        "state":           SimulationSnapshot,  # same shape as /api/compute
+        "kernel_state":    {"tag|attr": {...}}, # round-trip for next request
+        "diverged":        bool                 # circuit breaker fired
+      }
+    """
+    print(f"[LOG] POST /api/feedback/step — cycle in={request.cycle}  "
+          f"state_keys={len(request.kernel_state)}")
+    try:
+        twin = _build_feedback_twin(request.sensor_data, request.tag_overrides)
+        ctrl = FeedbackController(
+            twin,
+            epsilon_ratio=request.config.epsilon_ratio,
+            max_norm=request.config.max_norm,
+        )
+        _restore_kernel_state(ctrl, request.kernel_state)
+        ctrl.cycle = request.cycle  # continue from client-supplied counter
+
+        report = ctrl.step()
+
+        return {
+            "cycle":         ctrl.cycle,
+            "cycle_report":  report,
+            "state":         _simulation_snapshot(twin),
+            "kernel_state":  _serialize_kernel_state(ctrl),
+            "diverged":      report["diverged"],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] /api/feedback/step failed: {e}")
+        raise HTTPException(status_code=500, detail={
+            "error": str(e),
+            "type": type(e).__name__,
+            "timestamp": datetime.now().isoformat(),
+        })
+
+
+@app.post("/api/feedback/run")
+def feedback_run(request: FeedbackRunRequest):
+    """
+    Batch N feedback cycles in one request.
+
+    Stops early when either:
+      - circuit breaker fires (diverged), or
+      - feedback_norm stays below `settled_threshold` for `settled_window`
+        consecutive cycles (D14 — when settled_threshold is provided), or
+      - `cycles` exhausted.
+
+    Response shape:
+      {
+        "cycles_run":     int,
+        "stopped_reason": "settled" | "max_cycles" | "diverged",
+        "cycle":          int,                   # final cycle counter
+        "trace":          [CycleReport, ...],    # one per cycle
+        "state":          SimulationSnapshot,    # final state
+        "kernel_state":   {"tag|attr": {...}},   # for client continuation
+        "diverged":       bool
+      }
+    """
+    print(f"[LOG] POST /api/feedback/run — max={request.cycles}  "
+          f"settled_threshold={request.settled_threshold}  "
+          f"window={request.settled_window}  "
+          f"state_keys={len(request.kernel_state)}")
+    try:
+        twin = _build_feedback_twin(request.sensor_data, request.tag_overrides)
+        ctrl = FeedbackController(
+            twin,
+            epsilon_ratio=request.config.epsilon_ratio,
+            max_norm=request.config.max_norm,
+        )
+        _restore_kernel_state(ctrl, request.kernel_state)
+        ctrl.cycle = request.cycle
+
+        reports = ctrl.run(
+            n_cycles=request.cycles,
+            settled_threshold=request.settled_threshold,
+            settled_window=request.settled_window,
+        )
+
+        if not reports:
+            stopped_reason = "max_cycles"
+        elif reports[-1]["diverged"]:
+            stopped_reason = "diverged"
+        elif (request.settled_threshold is not None
+              and len(reports) < request.cycles):
+            stopped_reason = "settled"
+        else:
+            stopped_reason = "max_cycles"
+
+        return {
+            "cycles_run":     len(reports),
+            "stopped_reason": stopped_reason,
+            "cycle":          ctrl.cycle,
+            "trace":          reports,
+            "state":          _simulation_snapshot(twin),
+            "kernel_state":   _serialize_kernel_state(ctrl),
+            "diverged":       bool(reports and reports[-1]["diverged"]),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] /api/feedback/run failed: {e}")
+        raise HTTPException(status_code=500, detail={
             "error": str(e),
             "type": type(e).__name__,
             "timestamp": datetime.now().isoformat(),

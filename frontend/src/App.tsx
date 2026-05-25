@@ -1,16 +1,30 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { fetchSchema, computeResults, downloadResultsXML } from './utils/api'
-import type { Schema, SimulationResults, AttributeSchema } from './utils/api'
+import {
+  fetchSchema,
+  computeResults,
+  downloadResultsXML,
+  feedbackStep,
+  feedbackRun,
+} from './utils/api'
+import type {
+  Schema,
+  SimulationResults,
+  AttributeSchema,
+  KernelState,
+} from './utils/api'
 import { Sidebar } from './components/Sidebar'
 import { GaugeChart } from './components/GaugeChart'
 import { CardioRadarChart } from './components/CardioRadarChart'
 import { DataTable } from './components/DataTable'
+import { FeedbackPanel } from './components/FeedbackPanel'
+import type { NormPoint } from './components/FeedbackPanel'
 import { useToast } from './components/Toast'
 
 // Computed attributes shown as gauges (most clinically significant)
 const GAUGE_ATTRS = ['MAP', 'CO', 'Q']
 
 type ChartType = 'radar' | 'table'
+type StoppedReason = 'settled' | 'max_cycles' | 'diverged' | null
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -43,6 +57,29 @@ export default function App() {
   const [chartType, setChartType] = useState<ChartType>(
     () => (localStorage.getItem('cardiotwin_chart_type') as ChartType) ?? 'radar'
   )
+
+  // ── Feedback loop state (Phase F) ─────────────────────────────────────────
+  // kernelState is opaque server-side payload, round-tripped verbatim.
+  // cycle is the counter the backend echoes back; normHistory feeds the chart.
+  const [kernelState, setKernelState] = useState<KernelState>({})
+  const [cycle, setCycle] = useState<number>(0)
+  const [normHistory, setNormHistory] = useState<NormPoint[]>([])
+  const [diverged, setDiverged] = useState<boolean>(false)
+  const [stoppedReason, setStoppedReason] = useState<StoppedReason>(null)
+  const [feedbackBusy, setFeedbackBusy] = useState<boolean>(false)
+
+  // Refs let the debounced step callback read the latest state without
+  // re-creating itself on every cycle update (which would cancel pending
+  // debounce timers and break slider responsiveness).
+  const kernelStateRef = useRef<KernelState>({})
+  const cycleRef = useRef<number>(0)
+  useEffect(() => {
+    kernelStateRef.current = kernelState
+  }, [kernelState])
+  useEffect(() => {
+    cycleRef.current = cycle
+  }, [cycle])
+
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { showToast } = useToast()
 
@@ -51,22 +88,56 @@ export default function App() {
     localStorage.setItem('cardiotwin_chart_type', type)
   }, [])
 
-  // Debounced compute – fires 300ms after the last slider change
-  const triggerCompute = useCallback((newValues: Record<string, number>) => {
+  // Debounced step — fires 300ms after the last slider change.
+  // "Keep feedback running" behaviour: preserves kernelState/cycle and
+  // advances one feedback cycle per debounced slider change.
+  const triggerStep = useCallback((newValues: Record<string, number>) => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(async () => {
       setLoading(true)
       setError(null)
       try {
-        const res = await computeResults(newValues)
-        setResults(res)
+        const res = await feedbackStep({
+          sensorData: newValues,
+          kernelState: kernelStateRef.current,
+          cycle: cycleRef.current,
+        })
+        setResults(res.state)
+        setKernelState(res.kernel_state)
+        setCycle(res.cycle)
+        setDiverged(res.diverged)
+        setStoppedReason(res.diverged ? 'diverged' : null)
+        setNormHistory((prev) => [
+          ...prev,
+          { cycle: res.cycle, norm: res.cycle_report.feedback_norm },
+        ])
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e)
-        setError(`Computation failed: ${msg}`)
+        setError(`Feedback step failed: ${msg}`)
       } finally {
         setLoading(false)
       }
     }, 300)
+  }, [])
+
+  // Initial load + Reset use /api/compute — a clean X''=0 snapshot.
+  const initialCompute = useCallback(async (newValues: Record<string, number>) => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await computeResults(newValues)
+      setResults(res)
+      setKernelState({})
+      setCycle(0)
+      setNormHistory([])
+      setDiverged(false)
+      setStoppedReason(null)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setError(`Computation failed: ${msg}`)
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   // Load schema on mount, then immediately run first simulation
@@ -76,7 +147,7 @@ export default function App() {
         setSchema(s)
         const defaults = getDefaults(s)
         setValues(defaults)
-        triggerCompute(defaults)
+        initialCompute(defaults)
       })
       .catch((e: unknown) => {
         const msg = e instanceof Error ? e.message : String(e)
@@ -88,19 +159,88 @@ export default function App() {
     (id: string, value: number) => {
       setValues((prev) => {
         const next = { ...prev, [id]: value }
-        triggerCompute(next)
+        triggerStep(next)
         return next
       })
     },
-    [triggerCompute]
+    [triggerStep]
   )
 
+  // Slider Reset — restore defaults AND drop feedback state (new scenario).
   const handleReset = useCallback(() => {
     if (!schema) return
     const defaults = getDefaults(schema)
     setValues(defaults)
-    triggerCompute(defaults)
-  }, [schema, triggerCompute])
+    initialCompute(defaults)
+  }, [schema, initialCompute])
+
+  // Feedback Reset — keep current sensor values, just drop feedback state.
+  const handleFeedbackReset = useCallback(() => {
+    initialCompute(values)
+  }, [values, initialCompute])
+
+  // Manual single-cycle step — same payload as the debounced version,
+  // without the slider-change context.
+  const handleFeedbackStep = useCallback(async () => {
+    if (feedbackBusy) return
+    setFeedbackBusy(true)
+    setError(null)
+    try {
+      const res = await feedbackStep({
+        sensorData: values,
+        kernelState: kernelStateRef.current,
+        cycle: cycleRef.current,
+      })
+      setResults(res.state)
+      setKernelState(res.kernel_state)
+      setCycle(res.cycle)
+      setDiverged(res.diverged)
+      setStoppedReason(res.diverged ? 'diverged' : null)
+      setNormHistory((prev) => [
+        ...prev,
+        { cycle: res.cycle, norm: res.cycle_report.feedback_norm },
+      ])
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setError(`Feedback step failed: ${msg}`)
+    } finally {
+      setFeedbackBusy(false)
+    }
+  }, [values, feedbackBusy])
+
+  // Batched N-cycle run — appends every trace point to the norm chart.
+  const handleFeedbackRun = useCallback(
+    async (cycles: number, settledThreshold: number) => {
+      if (feedbackBusy) return
+      setFeedbackBusy(true)
+      setError(null)
+      try {
+        const res = await feedbackRun({
+          sensorData: values,
+          kernelState: kernelStateRef.current,
+          cycle: cycleRef.current,
+          cycles,
+          settledThreshold,
+          settledWindow: 5,
+        })
+        setResults(res.state)
+        setKernelState(res.kernel_state)
+        setCycle(res.cycle)
+        setDiverged(res.diverged)
+        setStoppedReason(res.stopped_reason)
+        setNormHistory((prev) => [
+          ...prev,
+          ...res.trace.map((t) => ({ cycle: t.cycle, norm: t.feedback_norm })),
+        ])
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e)
+        setError(`Feedback run failed: ${msg}`)
+      } finally {
+        setFeedbackBusy(false)
+      }
+    },
+    [values, feedbackBusy]
+  )
 
   // Called when XML is uploaded or preset is loaded — bypass debounce, set directly
   const handleLoadXML = useCallback(
@@ -109,17 +249,23 @@ export default function App() {
       setValues(loadedValues)
       setResults(loadedResults)
       setError(null)
+      // Loading a new scenario invalidates feedback history.
+      setKernelState({})
+      setCycle(0)
+      setNormHistory([])
+      setDiverged(false)
+      setStoppedReason(null)
     },
     []
   )
 
-  // Called when a saved profile is loaded — repopulate sliders and recompute
+  // Called when a saved profile is loaded — repopulate sliders and reset feedback.
   const handleLoadProfile = useCallback(
     (loadedValues: Record<string, number>) => {
       setValues(loadedValues)
-      triggerCompute(loadedValues)
+      initialCompute(loadedValues)
     },
-    [triggerCompute]
+    [initialCompute]
   )
 
   // Download current results as XML
@@ -150,6 +296,10 @@ export default function App() {
   }
 
   const sensors = schema ? getSensors(schema) : {}
+  const currentNorm =
+    normHistory.length > 0
+      ? normHistory[normHistory.length - 1].norm
+      : results?.feedback_norm ?? 0
 
   return (
     <div className="min-h-screen bg-slate-900 flex">
@@ -194,6 +344,21 @@ export default function App() {
           <div className="mb-5 p-3 bg-red-900/40 border border-red-700 rounded-md text-red-300 text-sm">
             {error}
           </div>
+        )}
+
+        {/* Feedback loop panel (Phase F MVP) */}
+        {results && (
+          <FeedbackPanel
+            cycle={cycle}
+            feedbackNorm={currentNorm}
+            diverged={diverged}
+            busy={feedbackBusy || loading}
+            history={normHistory}
+            stoppedReason={stoppedReason}
+            onStep={handleFeedbackStep}
+            onRun={handleFeedbackRun}
+            onReset={handleFeedbackReset}
+          />
         )}
 
         {/* Gate warnings */}

@@ -309,6 +309,20 @@ class FeedbackController:
                     continue
 
                 for attr_id in comp.attribute_ids:
+                    # D12 enforcement: X' is sacred.  Composites mix
+                    # SENSOR and PRELIMINARY attrs (pump_state has EDV
+                    # + HR as sensors alongside SV + CO).  If we let
+                    # the kernel apply X'' to sensors, attr.value =
+                    # value_external + value_feedback feeds the
+                    # contaminated reading back into downstream
+                    # formulas through _resolve_inputs, which violates
+                    # the "X' = 0 invariant after initial set" the
+                    # design guarantees and causes cascade overshoot.
+                    # Skip sensors here so they never receive feedback.
+                    attr = self.twin.attributes.get(attr_id)
+                    if attr is None or attr.source == "SENSOR":
+                        continue
+
                     w_i = comp.get_distribution_weight(attr_id)
                     # D8: full deviation × target_weight per target.
                     weight = w_i * target_weight

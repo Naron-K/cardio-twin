@@ -550,6 +550,34 @@
               saturation="0.3" epsilon_ratio="0.001" />
     </tag>
 
+    <!-- gain=8 mirrors CO_DEVIATION: SV violations in the test
+         dataset (heart failure, hypovolemic / cardiogenic shock)
+         live in the same volume-unit scale (mL) so the same
+         tuning that works for CO is a reasonable starting point. -->
+    <tag id="SV_DEVIATION" outcome="target_sv"
+         deviation_type="absolute" emitter="binary"
+         gate_kernel="sigmoid_leaky_tanh" polarity="negative">
+      <targets>
+        <target address="pump_state" weight="1.0" />
+      </targets>
+      <params gain="8.0" decay="0.10" threshold_k="4.0"
+              saturation="0.3" epsilon_ratio="0.001" />
+    </tag>
+
+    <!-- Wired for completeness — none of the test_dataset/ profiles
+         currently violate target_lambda (r_m, r_i, r_e are held
+         constant across all 10).  Lower gain since lambda's physio
+         range and tolerance are both small. -->
+    <tag id="LAMBDA_DEVIATION" outcome="target_lambda"
+         deviation_type="absolute" emitter="binary"
+         gate_kernel="sigmoid_leaky_tanh" polarity="negative">
+      <targets>
+        <target address="conduction_state" weight="1.0" />
+      </targets>
+      <params gain="1.0" decay="0.10" threshold_k="4.0"
+              saturation="0.3" epsilon_ratio="0.001" />
+    </tag>
+
   </tags>
 
 </lamina>

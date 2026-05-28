@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<patient>
+  <metadata>
+    <name>Cardiogenic Shock — Post-MI</name>
+    <description>Pump failure after large anterior infarct: low EDV, weak HR, reflex peripheral vasoconstriction (small vessel radius) trying to preserve perfusion. SV violates and Q drops sharply — multi-target failure scenario.</description>
+  </metadata>
+  <sensor_data>
+    <SBP>95</SBP>
+    <DBP>65</DBP>
+    <HR>105</HR>
+    <eta>3.6</eta>
+    <L>50</L>
+    <r>0.11</r>
+    <EDV>70</EDV>
+    <r_m>5000</r_m>
+    <r_i>200</r_i>
+    <r_e>300</r_e>
+  </sensor_data>
+</patient>

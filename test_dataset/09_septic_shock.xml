@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<patient>
+  <metadata>
+    <name>Septic Shock — Warm Phase</name>
+    <description>Distributive shock with profound vasodilation (large vessel radius), low viscosity from haemodilution, and compensatory tachycardia. MAP plunges while Q goes hyperdynamic — opposing-direction violations test the kernel's per-tag isolation.</description>
+  </metadata>
+  <sensor_data>
+    <SBP>85</SBP>
+    <DBP>50</DBP>
+    <HR>125</HR>
+    <eta>3.2</eta>
+    <L>50</L>
+    <r>0.22</r>
+    <EDV>100</EDV>
+    <r_m>5000</r_m>
+    <r_i>200</r_i>
+    <r_e>300</r_e>
+  </sensor_data>
+</patient>

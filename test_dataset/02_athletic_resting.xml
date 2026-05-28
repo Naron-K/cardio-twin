@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<patient>
+  <metadata>
+    <name>Athletic Resting</name>
+    <description>Endurance athlete at rest: low HR, enlarged ventricle, normal BP. Tests how feedback handles mild SV elevation paired with borderline-low CO.</description>
+  </metadata>
+  <sensor_data>
+    <SBP>110</SBP>
+    <DBP>70</DBP>
+    <HR>50</HR>
+    <eta>3.5</eta>
+    <L>50</L>
+    <r>0.15</r>
+    <EDV>145</EDV>
+    <r_m>5000</r_m>
+    <r_i>200</r_i>
+    <r_e>300</r_e>
+  </sensor_data>
+</patient>

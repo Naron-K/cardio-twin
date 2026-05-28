@@ -1,0 +1,11 @@
+id,scenario,SBP_mmHg,DBP_mmHg,HR_bpm,EDV_mL,eta_mPa_s,L_cm,r_cm,r_m_ohm_cm,r_i_ohm_cm,r_e_ohm_cm
+01,Healthy resting adult,118,78,70,115,3.5,50,0.15,5000,200,300
+02,Athletic resting (trained heart),110,70,50,145,3.5,50,0.15,5000,200,300
+03,Hypertension Stage 1 (mild),145,92,75,120,3.5,50,0.14,5000,200,300
+04,Hypertension Stage 2 (severe + vasoconstriction),180,110,82,125,3.6,50,0.12,5000,200,300
+05,Sinus tachycardia (acute stress),130,82,130,110,3.5,50,0.15,5000,200,300
+06,Symptomatic bradycardia,115,72,45,130,3.5,50,0.15,5000,200,300
+07,Heart failure reduced output,105,68,95,75,3.6,50,0.13,5000,200,300
+08,Hypovolemic shock Class III,92,60,120,65,3.6,50,0.13,5000,200,300
+09,Septic shock warm phase,85,50,125,100,3.2,50,0.22,5000,200,300
+10,Cardiogenic shock post-MI,95,65,105,70,3.6,50,0.11,5000,200,300

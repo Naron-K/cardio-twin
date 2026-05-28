@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<patient>
+  <metadata>
+    <name>Symptomatic Bradycardia</name>
+    <description>Sinus node dysfunction or AV block. Slow HR drops CO below target; SV is preserved. Mirror-image case of #05 — verifies that the kernel corrects in the opposite direction with the same polarity.</description>
+  </metadata>
+  <sensor_data>
+    <SBP>115</SBP>
+    <DBP>72</DBP>
+    <HR>45</HR>
+    <eta>3.5</eta>
+    <L>50</L>
+    <r>0.15</r>
+    <EDV>130</EDV>
+    <r_m>5000</r_m>
+    <r_i>200</r_i>
+    <r_e>300</r_e>
+  </sensor_data>
+</patient>

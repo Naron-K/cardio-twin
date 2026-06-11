@@ -451,6 +451,62 @@ class Tag:
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Adaptive Feedback Loop — persistent meta-state (slow loop)
+# ──────────────────────────────────────────────────────────────────────
+#
+# Implements the persistent half of the two-timescale split from the
+# Adaptive Feedback Loop spec.  The fast loop (FeedbackController) keeps
+# TRANSIENT per-(tag, attr) kernel state that the dead-zone snap wipes
+# every time an outcome settles.  This object is the PERSISTENT half:
+# one record per behavioural outcome that survives the snap, survives
+# reset_kernel_state(), and accumulates learning across episodes (and,
+# when server-side persistence is added later, across runs).
+#
+# It lives on UniversalTwin (parent), NOT on FeedbackController — that
+# placement is exactly what keeps a controller built to forget within an
+# episode able to still learn across episodes.  See
+# `adaptive_feedback_architecture.md` §"Layer 2 / Invariant" and the
+# locked kernel decisions (2026-06-11).
+#
+# v1 adaptation scope (locked): the slow loop may move `gain` and
+# `operating_point` only.  Gate steepness adaptation is deferred to v2,
+# so there is intentionally no steepness field that the slow loop writes.
+# ──────────────────────────────────────────────────────────────────────
+@dataclass
+class MetaState:
+    """
+    Persistent per-outcome learning state for the slow adaptation loop.
+
+    Fields:
+        gain             learned proportional gain handed down to the fast
+                         loop.  None until seeded from the tag/XML default
+                         so the slow loop never starts from a hard-coded
+                         number that disagrees with the lamina config.
+        operating_point  cumulative target shift folded into the outcome
+                         (native units).  Applied with bumpless transfer:
+                         shifting by ΔX subtracts ΔX from the fast loop's
+                         leaky integrator so total tone stays continuous.
+        perf_ewma        EWMA of |normalised deviation| — the performance
+                         accumulator, the only input the slow loop reads.
+                         None until the first cycle feeds it.
+        prev_perf        perf_ewma snapshot at the last slow-loop tick;
+                         the MIT-rule compares against it to decide whether
+                         the last adjustment helped.
+        last_direction   sign (+1/-1/0) of the last gain nudge — MIT-rule
+                         memory so an improving direction is continued and
+                         a worsening one is reversed.
+        updates          count of slow-loop adjustments applied (telemetry
+                         + lets a kernel ramp its rate down over time).
+    """
+    gain: Optional[float] = None
+    operating_point: float = 0.0
+    perf_ewma: Optional[float] = None
+    prev_perf: Optional[float] = None
+    last_direction: float = 0.0
+    updates: int = 0
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Universal Digital Twin (Parent Class)
 # ──────────────────────────────────────────────────────────────────────
 class UniversalTwin:
@@ -497,12 +553,52 @@ class UniversalTwin:
         self._coupling_registry:   dict[str, callable] = {}
         self._solver_registry:     dict[str, callable] = {}
 
+        # ── Adaptive feedback loop registry (slow loop) ──────────────
+        #
+        # Sixth registry slot, parallel to the gate-kernel registry, per
+        # the Adaptive Feedback Loop spec's implementation-placement
+        # table.  Holds the pluggable slow-loop adaptation kernels.  The
+        # default is model-free (MIT-rule); RLS is registered as a
+        # deferred stub (locked decision 2026-06-11).
+        self._adaptation_kernel_registry: dict[str, callable] = {}
+
+        # PERSISTENT meta-state store, keyed by behavioural-outcome id.
+        # Deliberately a plain dict on the parent so it is structurally
+        # separate from FeedbackController._kernel_state (transient).
+        # The dead-zone snap and reset_kernel_state() touch only the
+        # transient store, never this one — that separation is the whole
+        # point of the two-timescale design.
+        self._meta_state: dict[str, MetaState] = {}
+
         # XML-declared selections (parsed below, defaults applied if
         # the optional blocks are absent).
         self.coupling_type: str = "additive"
         self.behaviour_solver_type: str = "algebraic_chain"
         self.behaviour_solver_dt: float = 1.0
         self.behaviour_solver_unit: str = "second"
+
+        # Slow-loop config (numbers live in XML, algorithm in parent).
+        # Defaults keep the slow loop INERT until a lamina opts in:
+        #   - adaptation_kernel_type selects the registered kernel
+        #   - slow_loop_cadence N = 0 disables the slow loop entirely
+        #     (Phase 1 ships the mechanism switched off; Phase 5 wires
+        #     real numbers into circulatory_lamina.xml)
+        self.adaptation_kernel_type: str = "model_free"
+        self.slow_loop_cadence: int = 0
+        # Slow-loop tuning knobs + safe bounds.  Parsed from the optional
+        # <adaptation> XML block; these framework defaults apply when the
+        # block (or an individual attribute) is absent.  Tight + slow per
+        # the locked design rules.
+        self.adaptation_params: dict[str, float] = {
+            "perf_alpha": 0.10,   # EWMA smoothing for the perf accumulator
+            "gain_rate":  0.02,   # per-tick gain nudge (slow)
+            "gain_min":   0.05,
+            "gain_max":   2.0,
+            "op_rate":    0.10,   # fraction of sustained correction folded/tick
+            "op_min":    -1.0,    # operating-point shift clamp (fraction of tol)
+            "op_max":     1.0,
+            "settle_band": 0.5,   # |norm deviation| under this ⇒ "near settled"
+        }
 
         # Register the v1 default kernels.  Phase A registered coupling
         # only; Phase B adds the deviation + emitter defaults; Phase C
@@ -513,6 +609,7 @@ class UniversalTwin:
         self._register_default_emitter()
         self._register_default_gate_kernel()
         self._register_default_solver()
+        self._register_default_adaptation_kernel()
 
         # Parse XML
         self._parse_xml(xml_path)
@@ -671,6 +768,157 @@ class UniversalTwin:
             twin.compute_all()
         self._solver_registry["algebraic_chain"] = algebraic_chain
 
+    def _register_default_adaptation_kernel(self):
+        """
+        Register the v1 slow-loop adaptation kernels.
+
+        Two kernels land here (locked decision 2026-06-11):
+
+          model_free  — the default.  A MIT-rule / gradient nudge that
+                        adapts the fast loop's `gain` and folds steady
+                        residual into the `operating_point`.  Domain-free:
+                        it reads only the dimensionless performance summary
+                        and the (already normalised) sustained correction,
+                        so a brand-new lamina inherits it with no extra
+                        adaptation code — only math + config.
+
+          rls         — recursive least squares.  DEFERRED.  Registered so
+                        XML can reference it and the registry shape is
+                        stable, but it raises NotImplementedError if
+                        actually selected (fail-fast, matching the rest of
+                        this codebase).  Implemented in a later pass.
+
+        Signature contract (frozen — Phase 3's slow-loop controller and
+        any future kernel must honour it):
+
+            kernel(meta: MetaState,
+                   ctx:  dict,
+                   params: dict) -> dict
+
+          ctx (supplied by the slow-loop controller each tick):
+              "perf"                 float  EWMA of |normalised deviation|
+              "settled"              bool   fast loop settled this episode
+              "sustained_correction" float  steady X'' the fast loop holds,
+                                            already normalised by tolerance
+                                            (dimensionless) — keeps the
+                                            kernel domain-free
+          params: self.adaptation_params merged with any XML overrides.
+
+          returns:
+              "gain"            float  new fast-loop gain (clamped)
+              "operating_point" float  new operating point (clamped)
+              "op_delta"        float  ΔX applied this tick — the controller
+                                       subtracts it from the leaky
+                                       integrator for bumpless transfer
+              "direction"       float  new last_direction (MIT-rule memory)
+              "consolidated"    bool   whether operating_point moved
+
+        The kernel is PURE w.r.t. meta: it reads meta but does not mutate
+        it.  The controller writes the returned values back into meta and
+        owns the bumpless-transfer application — keeps this function easy
+        to unit-test in isolation.
+        """
+        def model_free(meta, ctx, params):
+            perf = float(ctx.get("perf", 0.0))
+            settled = bool(ctx.get("settled", False))
+            sustained = float(ctx.get("sustained_correction", 0.0))
+
+            gain_rate = float(params.get("gain_rate", 0.02))
+            gain_min  = float(params.get("gain_min", 0.05))
+            gain_max  = float(params.get("gain_max", 2.0))
+            op_rate   = float(params.get("op_rate", 0.10))
+            op_min    = float(params.get("op_min", -1.0))
+            op_max    = float(params.get("op_max", 1.0))
+
+            # Seed gain from whatever the lamina configured if the slow
+            # loop has never run for this outcome (None means unseeded).
+            gain = meta.gain if meta.gain is not None else float(
+                params.get("gain_seed", 0.6)
+            )
+            operating_point = float(meta.operating_point)
+
+            # ── Gain adaptation (MIT-rule) ───────────────────────────
+            # Compare current performance to the snapshot taken at the
+            # last tick.  perf is an error measure, so LOWER is better.
+            #   improved  → keep nudging gain the same way
+            #   worsened  → reverse direction
+            #   first tick (prev_perf None) → probe upward (+1)
+            if meta.prev_perf is None:
+                direction = 1.0 if meta.last_direction == 0.0 else meta.last_direction
+            else:
+                improved = perf < meta.prev_perf
+                if improved:
+                    direction = meta.last_direction if meta.last_direction != 0.0 else 1.0
+                else:
+                    direction = -meta.last_direction if meta.last_direction != 0.0 else -1.0
+
+            new_gain = gain + gain_rate * direction
+            new_gain = max(gain_min, min(gain_max, new_gain))
+
+            # ── Operating-point consolidation ────────────────────────
+            # Only fold the SETTLED residual into the operating point:
+            # we want the steady compensation the fast loop genuinely
+            # needs, not the transient overshoot.  Consolidating mid-
+            # transient would ratchet the operating point past target.
+            op_delta = 0.0
+            consolidated = False
+            if settled and abs(sustained) > 0.0:
+                op_delta = op_rate * sustained
+                new_op = operating_point + op_delta
+                new_op = max(op_min, min(op_max, new_op))
+                # Recover the clamp-adjusted actual delta so the
+                # controller's bumpless subtraction stays exact.
+                op_delta = new_op - operating_point
+                operating_point = new_op
+                consolidated = op_delta != 0.0
+
+            return {
+                "gain":            new_gain,
+                "operating_point": operating_point,
+                "op_delta":        op_delta,
+                "direction":       direction,
+                "consolidated":    consolidated,
+            }
+
+        def rls(meta, ctx, params):
+            raise NotImplementedError(
+                "The 'rls' adaptation kernel is a deferred stub. "
+                "Select 'model_free' (the default) until RLS lands."
+            )
+
+        self._adaptation_kernel_registry["model_free"] = model_free
+        self._adaptation_kernel_registry["rls"] = rls
+
+    # ── Meta-state store (persistent slow-loop state) ────────────────
+
+    def get_meta_state(self, outcome_id: str) -> "MetaState":
+        """
+        Return the persistent MetaState for a behavioural outcome,
+        lazily creating an empty one on first access.
+
+        This is the only sanctioned way to reach the persistent store —
+        callers never index self._meta_state directly so the lazy-create
+        invariant holds everywhere.
+        """
+        ms = self._meta_state.get(outcome_id)
+        if ms is None:
+            ms = MetaState()
+            self._meta_state[outcome_id] = ms
+        return ms
+
+    def reset_meta_state(self):
+        """
+        Wipe ALL persistent learning.
+
+        Deliberately NOT called by the dead-zone snap or by
+        FeedbackController.reset_kernel_state() — those reset only the
+        transient fast-loop store.  Persistent learning is erased only
+        when a caller explicitly asks (e.g. starting a fresh patient /
+        loading factory defaults).
+        """
+        self._meta_state.clear()
+        self._log("META-STATE RESET: all persistent slow-loop learning cleared")
+
     # ── XML Parsing ──────────────────────────────────────────────────
 
     def _parse_xml(self, path: str):
@@ -715,6 +963,48 @@ class UniversalTwin:
             self.behaviour_solver_unit = solver_el.get(
                 "unit", self.behaviour_solver_unit
             )
+
+        # ── Adaptive feedback loop (slow loop) declaration ───────────
+        #
+        # Optional <adaptation> block.  Absent → slow loop stays inert
+        # (cadence 0), so every pre-adaptive XML keeps running unchanged.
+        #
+        #   <adaptation kernel="model_free" cadence="20">
+        #     <param name="gain_rate" value="0.02"/>
+        #     <param name="gain_max"  value="2.0"/>
+        #     ...
+        #   </adaptation>
+        #
+        # kernel must name a registered adaptation kernel (fail fast on a
+        # typo so a misconfigured lamina never silently runs with no
+        # learning).  cadence is the fixed N from the locked decision.
+        # Each <param> overrides one entry of self.adaptation_params; all
+        # are plain floats (numbers in XML, algorithm in the parent).
+        adapt_el = root.find("adaptation")
+        if adapt_el is not None:
+            self.adaptation_kernel_type = adapt_el.get(
+                "kernel", self.adaptation_kernel_type
+            )
+            if self.adaptation_kernel_type not in self._adaptation_kernel_registry:
+                raise ValueError(
+                    f"<adaptation> selects unknown kernel "
+                    f"'{self.adaptation_kernel_type}'. Registered kernels: "
+                    f"{sorted(self._adaptation_kernel_registry.keys())}."
+                )
+            cadence_text = adapt_el.get("cadence")
+            if cadence_text is not None:
+                cadence = int(cadence_text)
+                if cadence < 0:
+                    raise ValueError(
+                        f"<adaptation cadence='{cadence_text}'> must be >= 0 "
+                        "(0 disables the slow loop)."
+                    )
+                self.slow_loop_cadence = cadence
+            for param_el in adapt_el.findall("param"):
+                pname = param_el.get("name")
+                pval = param_el.get("value")
+                if pname and pval is not None:
+                    self.adaptation_params[pname] = float(pval)
 
         # Parse attributes
         for attr_el in root.findall(".//attributes/attribute"):

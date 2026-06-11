@@ -36,6 +36,29 @@
   <behaviour_solver type="algebraic_chain" dt="1.0" unit="second" />
 
   <!-- ============================================================== -->
+  <!-- ADAPTIVE FEEDBACK LOOP (slow loop) — declaration + numbers only -->
+  <!-- The algorithm lives in UniversalTwin; this block only selects   -->
+  <!-- the kernel, sets the cadence, and supplies safe bounds.  A      -->
+  <!-- brand-new lamina inherits the entire loop by copying a block    -->
+  <!-- like this — no adaptation code, only math + config.             -->
+  <!--                                                                  -->
+  <!--   kernel    "model_free" (MIT-rule, default) | "rls" (deferred) -->
+  <!--   cadence   slow loop runs every N fast cycles (0 = disabled)   -->
+  <!-- Tuning follows the locked design rules: tight clamps + slow     -->
+  <!-- rate, so learning is gradual and operating-point drift bounded. -->
+  <!-- ============================================================== -->
+  <adaptation kernel="model_free" cadence="20">
+    <param name="perf_alpha"  value="0.10" />  <!-- EWMA smoothing of |norm deviation| -->
+    <param name="gain_rate"   value="0.02" />  <!-- per-tick gain nudge (slow)          -->
+    <param name="gain_min"    value="0.30" />  <!-- gain clamp (tight around 0.6 base)  -->
+    <param name="gain_max"    value="1.20" />
+    <param name="op_rate"     value="0.10" />  <!-- fraction of settled residual / tick -->
+    <param name="op_min"      value="-0.30" /> <!-- operating-point clamp (frac of range)-->
+    <param name="op_max"      value="0.30" />
+    <param name="settle_band" value="0.50" />  <!-- |norm deviation| under this = settled-->
+  </adaptation>
+
+  <!-- ============================================================== -->
   <!-- CHANNEL MAPPINGS: Links sensor attributes to ingestion channels -->
   <!-- Channel definitions live in ingestion_manifold.xml            -->
   <!-- ============================================================== -->

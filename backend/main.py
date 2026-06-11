@@ -39,6 +39,7 @@ from feedback_controller import (
 )
 from session import Session
 from signal_source import SimulatedCardioSource, _DEFAULT_BASELINE
+from streaming_runtime import StreamingRuntime
 from snapshot import (
     _KSTATE_SEP,
     _simulation_snapshot,
@@ -683,21 +684,46 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100):
     source  = SimulatedCardioSource()
     flags   = {"paused": False}
 
-    async def _ticker() -> None:
+    # ── Layer 1 streaming runtime ────────────────────────────────────
+    # Ingestion and control run on two independent timescales (spec
+    # §"Layer 1").  The ingestion task pushes sensor readings into the
+    # runtime's latest-wins mailbox; the runtime's fixed-rate control
+    # cycle consumes the freshest sample and runs one feedback step.
+    # Overlapping readings coalesce in the mailbox, so a slow cycle can
+    # never build a backlog.  The twin/session know nothing about any of
+    # this — the runtime is purely domain-agnostic plumbing around tick().
+    period_s = tick_ms / 1000.0
+
+    def _control(sample: dict | None):
+        # Paused → emit nothing and do not advance the cycle.  A None
+        # sample (mailbox empty this period) still runs a cycle on the
+        # current state, matching physiological control that keeps
+        # regulating between fresh readings.
+        if flags["paused"]:
+            return None
+        return session.tick(sample or {})
+
+    async def _send(snapshot: dict) -> None:
+        # jsonable_encoder handles any numpy scalars inside vectors/outcomes.
+        await websocket.send_json(jsonable_encoder(snapshot))
+
+    runtime = StreamingRuntime(
+        process=_control,
+        emit=_send,
+        period_s=period_s,
+        refractory_s=period_s * 0.5,   # min spacing floor after an overrun
+    )
+
+    async def _ingest() -> None:
         try:
             while True:
-                await asyncio.sleep(tick_ms / 1000.0)
-                if flags["paused"]:
-                    continue
-                snapshot = session.tick(source.next())
-                # jsonable_encoder handles any numpy scalars inside vectors/outcomes.
-                await websocket.send_json(jsonable_encoder(snapshot))
+                await asyncio.sleep(period_s)
+                runtime.submit(source.next())
         except asyncio.CancelledError:
-            raise  # propagate so the task cancels cleanly
-        except Exception:
-            pass   # WebSocket closed mid-send; outer finally cancels the task
+            raise
 
-    task = asyncio.create_task(_ticker())
+    runtime.start()
+    ingest_task = asyncio.create_task(_ingest())
 
     try:
         async for msg in websocket.iter_json():
@@ -737,9 +763,10 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100):
     except WebSocketDisconnect:
         pass
     finally:
-        task.cancel()
+        ingest_task.cancel()
         try:
-            await task
+            await ingest_task
         except asyncio.CancelledError:
             pass
+        await runtime.stop()
         print("[WS] /ws/feedback disconnected")

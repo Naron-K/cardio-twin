@@ -82,6 +82,42 @@ class FeedbackController:
         # correlated.  Reset by reset_kernel_state().
         self.cycle: int = 0
 
+        # ── Adaptive feedback loop wiring (Phase 2+) ─────────────────
+        # The slow loop only manages outcomes that an actual tag drives,
+        # so the performance accumulator tracks exactly those — keeps the
+        # persistent meta-state store free of spurious entries for
+        # monitor-only or untagged outcomes.  Tags are fixed at parse
+        # time, so this set is computed once.
+        self._tagged_outcomes: set[str] = {
+            tag.outcome for tag in twin.tags.values()
+        }
+
+        # Slow-loop lookups, built once (definitions are fixed at parse
+        # time).  outcome_id → the tags that drive it, the attribute it
+        # tracks, and its tolerance.  The operating point binds to the
+        # outcome's OWN tracked attribute (single, well-defined unit) in
+        # v1; multi-attribute fan-out is deferred to v2.
+        self._tags_by_outcome: dict[str, list[Tag]] = {}
+        for tag in twin.tags.values():
+            self._tags_by_outcome.setdefault(tag.outcome, []).append(tag)
+        self._outcome_attr: dict[str, str] = {}
+        self._outcome_tol: dict[str, float] = {}
+        for seg in twin.segments.values():
+            for outcome in seg.behavioural_outcomes:
+                self._outcome_attr[outcome.id] = outcome.attribute_id
+                self._outcome_tol[outcome.id] = outcome.tolerance
+
+    @property
+    def adaptive_enabled(self) -> bool:
+        """
+        True when the lamina opted into the slow loop (cadence > 0).
+
+        When False every adaptive code path in step() is skipped and the
+        cycle is byte-for-byte the pre-adaptive behaviour — the "ship
+        inert" guarantee from Phase 1.
+        """
+        return self.twin.slow_loop_cadence > 0
+
     # ── State management ─────────────────────────────────────────────
 
     def reset_kernel_state(self):
@@ -149,6 +185,16 @@ class FeedbackController:
         params = Metrix.lookup(tag)
         params["polarity"] = tag.polarity
 
+        # Slow-loop gain hand-down (Phase 3): once the adaptation loop has
+        # learned a gain for this tag's outcome it overrides the static
+        # tag/XML default.  This is the only channel by which the slow
+        # loop reaches into the fast loop — a one-way "parameter
+        # adjustments down" stream, exactly the invariant from the spec.
+        if self.adaptive_enabled:
+            ms = self.twin._meta_state.get(outcome_id)
+            if ms is not None and ms.gain is not None:
+                params["gain"] = ms.gain
+
         tol = Identifier._tolerance_for_outcome(self.twin, outcome_id)
         if tol > 0:
             params["tolerance"] = tol
@@ -191,6 +237,205 @@ class FeedbackController:
             return 0.0
         return self.epsilon_ratio * range_size
 
+    # ── Performance accumulator (Phase 2 — slow-loop input) ──────────
+
+    def _update_performance(self, outcome_evaluations: dict) -> dict:
+        """
+        Update the EWMA of |normalised deviation| for every tagged
+        outcome.  This is the ONLY signal the slow loop consumes.
+
+        Runs every cycle (including in-tolerance cycles — that is how the
+        accumulator learns that performance is good).  Writes into the
+        PERSISTENT meta-state on the twin, so the summary survives the
+        dead-zone snap that wipes the fast loop's transient state.
+
+        Normalised deviation is dimensionless (deviation / tolerance),
+        which is exactly what keeps the slow loop domain-free: it never
+        sees mmHg or L/min, only "how many tolerances off".
+
+        Returns {outcome_id: perf_ewma} for this cycle (telemetry).
+        """
+        alpha = float(self.twin.adaptation_params.get("perf_alpha", 0.10))
+
+        # Flatten to {outcome_id: feedback_object} once.
+        by_outcome: dict[str, dict] = {}
+        for seg_outcomes in outcome_evaluations.values():
+            for fb in seg_outcomes:
+                by_outcome[fb["outcome_id"]] = fb
+
+        perf_snapshot: dict[str, float] = {}
+        for outcome_id in self._tagged_outcomes:
+            fb = by_outcome.get(outcome_id)
+            if fb is None:
+                continue  # outcome not evaluated this cycle
+            tolerance = self._outcome_tol.get(outcome_id, 0.0)
+            if tolerance <= 0:
+                continue  # cannot normalise — skip (slow loop needs a band)
+
+            d_norm = abs(fb["deviation"]) / tolerance
+            ms = self.twin.get_meta_state(outcome_id)
+            if ms.perf_ewma is None:
+                ms.perf_ewma = d_norm           # seed on first observation
+            else:
+                ms.perf_ewma = (1.0 - alpha) * ms.perf_ewma + alpha * d_norm
+            perf_snapshot[outcome_id] = ms.perf_ewma
+
+        return perf_snapshot
+
+    # ── Slow loop (Phase 3 — adaptation every N cycles) ──────────────
+
+    def _transient_for(self, outcome_id: str, attr_id: str) -> list[tuple]:
+        """
+        Return [(state_dict, x_pp), ...] — one entry per tag driving this
+        outcome that currently holds transient kernel state on attr_id.
+        Used both to measure the steady correction and to apply the
+        bumpless subtraction onto the exact same states.
+        """
+        out = []
+        for tag in self._tags_by_outcome.get(outcome_id, []):
+            st = self._kernel_state.get((tag.id, attr_id))
+            if st and "x_pp" in st:
+                out.append((st, float(st["x_pp"])))
+        return out
+
+    def _run_slow_loop(self, outcome_evaluations: dict) -> dict:
+        """
+        One slow-loop tick: read the performance accumulator, call the
+        adaptation kernel per outcome, write the learned gain +
+        operating point back into persistent meta-state, and apply the
+        bumpless transfer onto the fast loop's transient integrator.
+
+        Issues NO correction of its own (the spec's rule): it only moves
+        parameters.  The new gain reaches the fast loop next time
+        _build_kernel_params runs; the operating point reaches the
+        attribute through _operating_point_per_attr at apply time.
+
+        Bumpless transfer (locked design rule): whatever fraction of the
+        steady correction we fold into the persistent operating point, we
+        subtract the same amount from the transient integrator, so the
+        TOTAL tone applied to the attribute is continuous across the
+        transfer — no jump.  Consolidation happens ONLY when the outcome
+        is near settled, so we capture the needed compensation level, not
+        transient overshoot (no ratcheting).
+
+        Runs AFTER the fast loop's Step 3/4 has produced this cycle's
+        transient states, so the bumpless subtraction lands on the fresh
+        integrator values.  The learned gain therefore takes effect on the
+        NEXT cycle — irrelevant at the slow loop's cadence (every N).
+
+        Returns (report, op_delta_native_per_attr):
+          report                 per-outcome telemetry for the cycle log
+          op_delta_native_per_attr  {attr_id: δ} the native operating-point
+                                 increment folded this cycle.  step() both
+                                 subtracts it from the applied transient
+                                 (bumpless) and the persistent op adds it
+                                 back, so the applied total is continuous.
+        """
+        kernel = self.twin._adaptation_kernel_registry.get(
+            self.twin.adaptation_kernel_type
+        )
+        if kernel is None:
+            return {}, {}
+
+        params = self.twin.adaptation_params
+        settle_band = float(params.get("settle_band", 0.5))
+
+        by_outcome: dict[str, dict] = {}
+        for seg_outcomes in outcome_evaluations.values():
+            for fb in seg_outcomes:
+                by_outcome[fb["outcome_id"]] = fb
+
+        report: dict[str, dict] = {}
+        op_delta_native: dict[str, float] = {}
+        for outcome_id in self._tagged_outcomes:
+            ms = self.twin.get_meta_state(outcome_id)
+            if ms.perf_ewma is None:
+                continue  # no performance signal yet
+            fb = by_outcome.get(outcome_id)
+            tol = self._outcome_tol.get(outcome_id, 0.0)
+            if fb is None or tol <= 0:
+                continue
+            attr_id = self._outcome_attr.get(outcome_id)
+            attr = self.twin.attributes.get(attr_id) if attr_id else None
+            if attr is None:
+                continue
+            physio_range = attr.physio_max - attr.physio_min
+            if physio_range <= 0:
+                continue
+
+            # "Near settled" ⇒ |normalised deviation| under the band.
+            settled = (abs(fb["deviation"]) / tol) < settle_band
+
+            # Steady correction the fast loop is holding on this attr,
+            # expressed dimensionless (fraction of physio range) so the
+            # kernel never sees native units.
+            transient_states = self._transient_for(outcome_id, attr_id)
+            transient_native = sum(x for _, x in transient_states)
+            sustained = transient_native / physio_range
+
+            ctx = {
+                "perf":                 ms.perf_ewma,
+                "settled":              settled,
+                "sustained_correction": sustained,
+            }
+            result = kernel(ms, ctx, params)
+
+            # ── write learned params back (controller owns write-back) ─
+            ms.gain = result["gain"]
+            ms.last_direction = result["direction"]
+            ms.prev_perf = ms.perf_ewma   # snapshot for next MIT comparison
+            ms.updates += 1
+
+            if result.get("consolidated"):
+                ms.operating_point = result["operating_point"]
+                # Bumpless: drain the just-folded native delta out of the
+                # transient integrator(s) — split across the tags that hold
+                # state — so future cycles start lower and the persistent
+                # op carries that part instead.  step() subtracts the same
+                # amount from THIS cycle's applied transient and the op
+                # adds it back, keeping the total continuous.
+                delta_native = result["op_delta"] * physio_range
+                op_delta_native[attr_id] = op_delta_native.get(attr_id, 0.0) + delta_native
+                if transient_states:
+                    share = delta_native / len(transient_states)
+                    for st, _ in transient_states:
+                        st["x_pp"] = float(st["x_pp"]) - share
+
+            report[outcome_id] = {
+                "gain":            round(ms.gain, 6),
+                "operating_point": round(ms.operating_point, 6),
+                "perf_ewma":       round(ms.perf_ewma, 6),
+                "settled":         settled,
+                "updates":         ms.updates,
+            }
+
+        return report, op_delta_native
+
+    def _operating_point_per_attr(self) -> dict[str, float]:
+        """
+        Native operating-point bias to add to each attribute's
+        value_feedback this cycle.  operating_point is stored
+        dimensionless (fraction of physio range); convert to native here.
+
+        Empty when the slow loop is disabled or no operating point has
+        been learned yet.
+        """
+        out: dict[str, float] = {}
+        if not self.adaptive_enabled:
+            return out
+        for outcome_id, ms in self.twin._meta_state.items():
+            if not ms.operating_point:
+                continue
+            attr_id = self._outcome_attr.get(outcome_id)
+            attr = self.twin.attributes.get(attr_id) if attr_id else None
+            if attr is None or attr.source == "SENSOR":
+                continue  # D12 — never bias a sensor
+            physio_range = attr.physio_max - attr.physio_min
+            if physio_range <= 0:
+                continue
+            out[attr_id] = out.get(attr_id, 0.0) + ms.operating_point * physio_range
+        return out
+
     # ── The 7-step cycle (D18) ───────────────────────────────────────
 
     def step(self) -> dict:
@@ -216,6 +461,15 @@ class FeedbackController:
 
         # ─── Step 1: deviations per outcome ────────────────────────
         outcome_evaluations = self.twin.evaluate_all_outcomes()
+
+        # ─── Phase 2: feed the performance accumulator ─────────────
+        # Updated every cycle (before any correction) so the EWMA
+        # reflects the state the fast loop is about to act on.  Skipped
+        # entirely when the slow loop is disabled — keeps the inert path
+        # identical to pre-adaptive behaviour.
+        perf_snapshot: dict[str, float] = {}
+        if self.adaptive_enabled:
+            perf_snapshot = self._update_performance(outcome_evaluations)
 
         # ─── Step 2: emit tags (D9 poll) ───────────────────────────
         # `emissions` is informational — it reports which tags crossed
@@ -355,11 +609,30 @@ class FeedbackController:
         # kernel — we already stored the decayed state in step 3 above.
         # The sum here is over the CURRENT cycle's kernel outputs.
 
+        # ─── Phase 3: slow loop every N cycles ─────────────────────
+        # Runs after the transient states for this cycle exist.  Adapts
+        # gain (effective next cycle) and consolidates the persistent
+        # operating point, draining the matching transient for bumpless
+        # transfer.  Issues no correction itself.
+        slow_report: dict = {}
+        op_delta_native: dict[str, float] = {}
+        if self.adaptive_enabled and (self.cycle % self.twin.slow_loop_cadence == 0):
+            slow_report, op_delta_native = self._run_slow_loop(outcome_evaluations)
+
         # ─── Step 5: apply X'' to value_feedback (all attrs first, D11) ─
-        # We replace value_feedback wholesale with the per-attribute
-        # sum.  This is correct because each kernel state already
-        # carries memory from prior cycles via its decay term — re-
-        # adding old value_feedback would double-count.
+        # value_feedback = transient sum (this cycle's kernels) + persistent
+        # operating point − the op increment folded THIS cycle.  The last
+        # two cancel on a consolidation cycle (bumpless: the applied total
+        # is unchanged at the instant of transfer; only the split between
+        # transient and persistent moves).  On non-consolidation cycles the
+        # full operating point is applied and the transient was already
+        # drained, so there is no double-counting.
+        if self.adaptive_enabled:
+            for attr_id, delta in op_delta_native.items():
+                delta_per_attr[attr_id] = delta_per_attr.get(attr_id, 0.0) - delta
+            for attr_id, op_native in self._operating_point_per_attr().items():
+                delta_per_attr[attr_id] = delta_per_attr.get(attr_id, 0.0) + op_native
+
         for attr_id, total in delta_per_attr.items():
             attr = self.twin.attributes.get(attr_id)
             if attr is not None:
@@ -429,6 +702,12 @@ class FeedbackController:
             "diverged":        diverged,
             "snapped":         snapped,
             "warnings":        warnings,
+            # Phase 2: per-outcome EWMA of |normalised deviation|.  Empty
+            # dict when the slow loop is disabled.
+            "perf":            {k: round(v, 6) for k, v in perf_snapshot.items()},
+            # Phase 3: slow-loop telemetry — only populated on a slow-loop
+            # tick (cycle % cadence == 0), empty otherwise.
+            "adaptation":      slow_report,
         }
         for w in warnings:
             self.twin._log(f"FB WARN: {w}")

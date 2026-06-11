@@ -14,13 +14,15 @@ Run:
     uvicorn main:app --reload --port 8000
 """
 
+import asyncio
 import os
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -34,6 +36,14 @@ from feedback_controller import (
     FeedbackController,
     DEFAULT_EPSILON_RATIO,
     DEFAULT_MAX_NORM,
+)
+from session import Session
+from signal_source import SimulatedCardioSource, _DEFAULT_BASELINE
+from snapshot import (
+    _KSTATE_SEP,
+    _simulation_snapshot,
+    _serialize_kernel_state,
+    _restore_kernel_state,
 )
 from universal_twin import resolve_polarity
 from xml_converter import dict_to_patient_xml, patient_xml_to_dict, results_to_xml
@@ -199,61 +209,8 @@ def _run_simulation(sensor_data: Dict[str, float]) -> Dict[str, Any]:
 
 
 # ── Feedback loop helpers (Phase D) ───────────────────────────────────────────
-
-# Wire-format separator for kernel_state keys.  Tuples don't survive JSON,
-# so "(tag_id, attr_id)" becomes "tag_id|attr_id" on the wire.  Pipe is
-# reserved (neither tag ids nor attribute ids contain it in the XML).
-_KSTATE_SEP = "|"
-
-
-def _serialize_kernel_state(controller: FeedbackController) -> Dict[str, Dict[str, float]]:
-    """Convert controller._kernel_state to JSON-friendly dict."""
-    out: Dict[str, Dict[str, float]] = {}
-    for (tag_id, attr_id), state in controller._kernel_state.items():
-        if not state:
-            continue  # skip empty state (saves bandwidth + matches D4 snap reset)
-        key = f"{tag_id}{_KSTATE_SEP}{attr_id}"
-        # State dicts hold floats (x_pp etc.) — cast for safety.
-        out[key] = {k: float(v) for k, v in state.items()}
-    return out
-
-
-def _restore_kernel_state(controller: FeedbackController,
-                           wire: Dict[str, Dict[str, float]]):
-    """
-    Inject client-supplied state back into the controller dict AND
-    reconstruct every targeted attribute's value_feedback so the twin
-    picks up exactly where the previous cycle left off.
-
-    Without the second step the next cycle would compute deviation
-    against a fresh-from-sensors twin (value_feedback = 0) — a much
-    larger deviation than the cycle had at the end of the previous
-    call.  The kernel would then mix a small-deviation-trained state
-    with a big-deviation `raw`, producing a saturated jump and
-    breaking continuity across requests.
-
-    Per D11 the cycle's attribute value_feedback equals the SUM of
-    x_pp across all tags targeting that attribute — exactly the
-    information the wire format already carries, so we don't need a
-    separate attribute_feedback payload.
-    """
-    feedback_sum: Dict[str, float] = {}
-    for key, state in wire.items():
-        if _KSTATE_SEP not in key:
-            continue  # malformed key, silently skip
-        tag_id, attr_id = key.split(_KSTATE_SEP, 1)
-        controller._kernel_state[(tag_id, attr_id)] = dict(state)
-        feedback_sum[attr_id] = feedback_sum.get(attr_id, 0.0) + float(state.get("x_pp", 0.0))
-
-    for attr_id, total in feedback_sum.items():
-        attr = controller.twin.attributes.get(attr_id)
-        if attr is not None:
-            attr.apply_feedback(total)
-
-    # Re-derive PRELIMINARY attributes so the chain reflects the
-    # restored X'' on SENSOR inputs.  Without this the next step's
-    # deviation calculation would use stale PRELIMINARY values.
-    controller.twin.compute_all()
+# _KSTATE_SEP, _simulation_snapshot, _serialize_kernel_state, and
+# _restore_kernel_state now live in snapshot.py (shared with Session).
 
 
 def _apply_tag_overrides(twin: CirculatoryLamina,
@@ -311,47 +268,6 @@ def _build_feedback_twin(sensor_data: Dict[str, float],
     # before the first feedback cycle reads them.
     twin.compute_all()
     return twin
-
-
-def _simulation_snapshot(twin: CirculatoryLamina) -> Dict[str, Any]:
-    """
-    Same payload shape as /api/compute returns — attribute split,
-    composite vectors, outcomes, warnings.  Pulled into a helper so
-    /api/feedback/step and /api/feedback/run can reuse it without
-    re-deriving the twin.
-    """
-    sensors_out: Dict[str, Any] = {}
-    for attr_id in twin.list_attributes("SENSOR"):
-        attr = twin.attributes[attr_id]
-        sensors_out[attr_id] = {
-            "value":           attr.value,
-            "value_external":  attr.value_external,
-            "value_feedback":  attr.value_feedback,
-            "normalised":      attr.normalised,
-            "unit":            attr.unit,
-            "name":            attr.name,
-        }
-    computed_out: Dict[str, Any] = {}
-    for attr_id in twin.list_attributes("PRELIMINARY"):
-        attr = twin.attributes[attr_id]
-        computed_out[attr_id] = {
-            "value":           attr.value,
-            "value_external":  attr.value_external,
-            "value_feedback":  attr.value_feedback,
-            "normalised":      attr.normalised,
-            "unit":            attr.unit,
-            "name":            attr.name,
-        }
-    warnings = [line for line in twin.get_log() if "GATE FAIL" in line]
-    return {
-        "sensors":       sensors_out,
-        "computed":      computed_out,
-        "vectors":       twin.get_all_vectors(),
-        "absorption":    twin.get_all_absorbed_vectors(),
-        "outcomes":      twin.evaluate_all_outcomes(),
-        "feedback_norm": twin.feedback_norm(),
-        "warnings":      warnings,
-    }
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -737,3 +653,93 @@ def download(request: DownloadRequest):
             "type": type(e).__name__,
             "timestamp": datetime.now().isoformat(),
         })
+
+
+# ── WebSocket streaming endpoint (Phase 3) ───────────────────────────────────
+
+@app.websocket("/ws/feedback")
+async def ws_feedback(websocket: WebSocket, tick_ms: int = 100):
+    """
+    Stream the feedback loop to the browser over WebSocket.
+
+    On connect: an isolated Session + SimulatedCardioSource are created
+    and a background ticker fires every `tick_ms` milliseconds, sending
+    a simulation snapshot as JSON.
+
+    Inbound control messages (JSON):
+      {"type": "inject_arrhythmia", "magnitude": 30.0, "decay": 0.15}
+      {"type": "set_sensor",        "id": "HR",        "value": 110.0}
+      {"type": "pause"}
+      {"type": "resume"}
+      {"type": "reset"}
+
+    On disconnect: the ticker task is cancelled and the session is freed.
+    One ticker task per connection — sessions are never shared.
+    """
+    await websocket.accept()
+    print(f"[WS] /ws/feedback connected  tick_ms={tick_ms}")
+
+    session = Session(dict(_DEFAULT_BASELINE))
+    source  = SimulatedCardioSource()
+    flags   = {"paused": False}
+
+    async def _ticker() -> None:
+        try:
+            while True:
+                await asyncio.sleep(tick_ms / 1000.0)
+                if flags["paused"]:
+                    continue
+                snapshot = session.tick(source.next())
+                # jsonable_encoder handles any numpy scalars inside vectors/outcomes.
+                await websocket.send_json(jsonable_encoder(snapshot))
+        except asyncio.CancelledError:
+            raise  # propagate so the task cancels cleanly
+        except Exception:
+            pass   # WebSocket closed mid-send; outer finally cancels the task
+
+    task = asyncio.create_task(_ticker())
+
+    try:
+        async for msg in websocket.iter_json():
+            if not isinstance(msg, dict):
+                continue  # non-dict payload — silently skip
+
+            msg_type = msg.get("type", "")
+
+            if msg_type == "inject_arrhythmia":
+                source.inject_arrhythmia(
+                    magnitude=float(msg.get("magnitude", 30.0)),
+                    decay=float(msg.get("decay", 0.15)),
+                )
+
+            elif msg_type == "set_sensor":
+                sensor_id = str(msg.get("id", ""))
+                raw       = msg.get("value")
+                if sensor_id and raw is not None:
+                    value = float(raw)
+                    source.set_baseline(sensor_id, value)
+                    try:
+                        session.twin.set_sensor(sensor_id, value)
+                    except (KeyError, ValueError):
+                        pass  # PRELIMINARY or unknown attr — ignore
+
+            elif msg_type == "pause":
+                flags["paused"] = True
+
+            elif msg_type == "resume":
+                flags["paused"] = False
+
+            elif msg_type == "reset":
+                session.reset()
+
+            # Unknown types are silently dropped (forward-compatible).
+
+    except WebSocketDisconnect:
+        pass
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        print("[WS] /ws/feedback disconnected")

@@ -389,10 +389,10 @@
   <!-- ============================================================== -->
   <gates>
 
-    <gate attribute="MAP" type="range">
+    <gate attribute="MAP" type="soft_range">
       <min>60</min>
       <max>110</max>
-      <action_on_fail>hold_previous</action_on_fail>
+      <steepness>1.0</steepness>
       <flag>hypo/hypertension alert</flag>
     </gate>
 
@@ -402,17 +402,17 @@
       <flag>invalid resistance</flag>
     </gate>
 
-    <gate attribute="CO" type="range">
+    <gate attribute="CO" type="soft_range">
       <min>2</min>
       <max>12</max>
-      <action_on_fail>hold_previous</action_on_fail>
+      <steepness>2.0</steepness>
       <flag>abnormal cardiac output</flag>
     </gate>
 
-    <gate attribute="Q" type="range">
+    <gate attribute="Q" type="soft_range">
       <min>0.5</min>
       <max>15</max>
-      <action_on_fail>hold_previous</action_on_fail>
+      <steepness>1.0</steepness>
       <flag>abnormal flow rate</flag>
     </gate>
 

@@ -2,7 +2,7 @@
 # Install with: pip install -r requirements.txt
 
 # Core framework
-fastapi==0.109.0
+fastapi==0.115.14
 uvicorn[standard]==0.27.0
 
 # Numerical computation (absorption vectors)
@@ -10,6 +10,9 @@ numpy>=1.26.0
 
 # File handling
 python-multipart==0.0.6
+
+# Testing
+pytest>=8.0.0
 
 # Optional: Type checking and formatting
 # mypy==1.8.0

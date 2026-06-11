@@ -190,13 +190,14 @@ class Attribute:
 class Gate:
     """Permeability gate - validates values before propagation."""
     attribute: str
-    gate_type: str         # "range", "positive", "consistency"
+    gate_type: str         # "range", "positive", "consistency", "soft_range"
     min_val: Optional[float] = None
     max_val: Optional[float] = None
     tolerance: Optional[float] = None
     compare: Optional[list] = None
     action_on_fail: str = "hold_previous"
     flag: str = ""
+    steepness: float = 2.0  # soft_range: sigmoid slope around each boundary
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -867,6 +868,7 @@ class UniversalTwin:
                 compare=compare,
                 action_on_fail=gate_el.findtext("action_on_fail", "hold_previous"),
                 flag=gate_el.findtext("flag", ""),
+                steepness=float(gate_el.findtext("steepness", "2.0")),
             ))
 
         # ── Phase B: parse feedback <tags> block ─────────────────────
@@ -1172,6 +1174,54 @@ class UniversalTwin:
                     flags.append(f"GATE FAIL: {gate.attribute} = {attr.value:.2f} <= 0 | {gate.flag}")
                     if gate.action_on_fail == "hold_previous":
                         attr.rollback()
+
+            elif gate.gate_type == "soft_range":
+                # Continuous sigmoid conductance — neuron-inspired gate.
+                #
+                # Instead of binary pass/fail, each boundary contributes a
+                # conductance g ∈ (0, 1]:
+                #   g_low  = σ( steepness · (v − min) )  → 0 when v ≪ min
+                #   g_high = σ( steepness · (max − v) )  → 0 when v ≫ max
+                #   g      = g_low · g_high
+                #
+                # The effective value blends between the hard boundary and
+                # the raw computed value:
+                #   effective = boundary · (1 − g) + v · g
+                # so g = 1 means full pass-through; g = 0 means clamped to
+                # the boundary.  No discontinuity, no rollback.
+                attr = self.attributes.get(gate.attribute)
+                if attr and attr.value is not None:
+                    v = attr.value
+                    # MARGIN shifts the "50 % open" point to
+                    # (boundary - MARGIN/steepness), so AT the boundary
+                    # g ≈ σ(MARGIN) ≈ 0.95 — gate mostly open, not half-open.
+                    # Values well inside the range see g ≈ 1 (no attenuation).
+                    MARGIN = 3.0
+                    if gate.min_val is not None:
+                        exp_lo = max(-700.0, min(700.0,
+                            -(gate.steepness * (v - gate.min_val) + MARGIN)))
+                        g_low = 1.0 / (1.0 + math.exp(exp_lo))
+                    else:
+                        g_low = 1.0
+                    if gate.max_val is not None:
+                        exp_hi = max(-700.0, min(700.0,
+                            -(gate.steepness * (gate.max_val - v) + MARGIN)))
+                        g_high = 1.0 / (1.0 + math.exp(exp_hi))
+                    else:
+                        g_high = 1.0
+                    g = g_low * g_high
+                    if g < 0.99:
+                        lo = gate.min_val if gate.min_val is not None else v
+                        hi = gate.max_val if gate.max_val is not None else v
+                        clamped = max(lo, min(hi, v))
+                        effective = clamped * (1.0 - g) + v * g
+                        attr.value_external = effective
+                        attr.normalise()
+                        if g < 0.9:
+                            flags.append(
+                                f"GATE SOFT: {gate.attribute} = {v:.2f} "
+                                f"-> {effective:.2f} (g={g:.3f}) | {gate.flag}"
+                            )
 
             elif gate.gate_type == "consistency":
                 if gate.compare and len(gate.compare) == 2:

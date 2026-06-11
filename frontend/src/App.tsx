@@ -19,6 +19,7 @@ import { DataTable } from './components/DataTable'
 import { FeedbackPanel } from './components/FeedbackPanel'
 import type { NormPoint } from './components/FeedbackPanel'
 import { useToast } from './components/Toast'
+import { StreamingDashboard } from './components/StreamingDashboard'
 
 // Computed attributes shown as gauges (most clinically significant)
 const GAUGE_ATTRS = ['MAP', 'CO', 'Q']
@@ -82,6 +83,7 @@ export default function App() {
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { showToast } = useToast()
+  const [mode, setMode] = useState<'analysis' | 'stream'>('analysis')
 
   const handleChartType = useCallback((type: ChartType) => {
     setChartType(type)
@@ -295,6 +297,11 @@ export default function App() {
     showToast(`Saved settled snapshot (cycle ${cycle})`, 'success')
   }, [cycle, schema, triggerXMLDownload, showToast])
 
+  // ── Streaming mode — full-page, no schema needed ────────────────────────────
+  if (mode === 'stream') {
+    return <StreamingDashboard onBack={() => setMode('analysis')} />
+  }
+
   // ── Loading screen (before schema arrives) ──────────────────────────────────
   if (!schema && !error) {
     return (
@@ -337,15 +344,24 @@ export default function App() {
               Real-time physiological digital twin — adjust sliders to recompute
             </p>
           </div>
-          {results && (
+          <div className="flex items-center gap-2 shrink-0 ml-4">
             <button
-              onClick={handleDownload}
-              className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 active:bg-slate-500
-                         text-slate-300 text-xs rounded-md border border-slate-600 transition-colors shrink-0 ml-4"
+              onClick={() => setMode('stream')}
+              className="px-3 py-1.5 bg-emerald-900/50 hover:bg-emerald-800/60 text-emerald-300
+                         text-xs rounded-md border border-emerald-800/60 transition-colors"
             >
-              Download XML
+              ⚡ Live Stream
             </button>
-          )}
+            {results && (
+              <button
+                onClick={handleDownload}
+                className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 active:bg-slate-500
+                           text-slate-300 text-xs rounded-md border border-slate-600 transition-colors"
+              >
+                Download XML
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Error banner */}
@@ -452,7 +468,14 @@ export default function App() {
 
 interface ComputedCardProps {
   id: string
-  attr: { value: number; normalised: number; unit: string; name: string }
+  attr: {
+    value: number
+    normalised: number
+    unit: string
+    name: string
+    value_external?: number
+    value_feedback?: number
+  }
 }
 
 function ComputedCard({ id: _id, attr }: ComputedCardProps) {
@@ -466,22 +489,79 @@ function ComputedCard({ id: _id, attr }: ComputedCardProps) {
         ? 'bg-amber-400'
         : 'bg-cyan-500'
 
+  // Feedback is active when X'' is meaningfully non-zero
+  const fb = attr.value_feedback ?? 0
+  const ext = attr.value_external ?? attr.value
+  const hasFeedback = Math.abs(fb) > 1e-6
+
+  // Stacked bar: split current bar (width = pct) into X' and |X''| segments
+  // using the absolute-fraction approach so the total always equals pct.
+  // Ratio: |X'| / (|X'| + |X''|) for primary, |X''|/(|X'|+|X''|) for secondary.
+  // This correctly handles the common corrective case where |X''| > |X| without
+  // overflowing the bar container.
+  const sumAbs = Math.abs(ext) + Math.abs(fb)
+  const primaryWidth   = sumAbs > 0 ? (Math.abs(ext) / sumAbs) * pct : pct
+  const secondaryWidth = sumAbs > 0 ? (Math.abs(fb)  / sumAbs) * pct : 0
+
   return (
     <div className="bg-slate-800 border border-slate-700 rounded-lg p-4">
       <p className="text-slate-500 text-xs uppercase tracking-wide mb-1">{attr.name}</p>
-      <p className="text-slate-100 text-2xl font-mono font-bold leading-none">
-        {attr.value.toFixed(2)}
-        <span className="text-slate-500 text-sm font-normal ml-1.5">{attr.unit}</span>
-      </p>
 
-      {/* Normalised range bar */}
-      <div className="mt-3 h-1 bg-slate-700 rounded-full overflow-hidden">
-        <div
-          className={`h-full ${barColor} rounded-full transition-all duration-300`}
-          style={{ width: `${pct}%` }}
-        />
+      {/* Value + X'' badge */}
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="text-slate-100 text-2xl font-mono font-bold leading-none">
+          {attr.value.toFixed(2)}
+          <span className="text-slate-500 text-sm font-normal ml-1.5">{attr.unit}</span>
+        </p>
+        {hasFeedback && (
+          <span
+            className={`shrink-0 text-[10px] font-mono px-1.5 py-0.5 rounded border ${
+              fb < 0
+                ? 'bg-emerald-900/40 text-emerald-300 border-emerald-800/50'
+                : 'bg-amber-900/40 text-amber-300 border-amber-800/50'
+            }`}
+          >
+            X″ {fb >= 0 ? '+' : ''}{fb.toFixed(4)}
+          </span>
+        )}
       </div>
-      <p className="text-slate-600 text-xs mt-1">{pct.toFixed(0)}% of physiological range</p>
+
+      {/* Stacked bar: X' (primary colour) + X'' (emerald / rose) */}
+      <div className="mt-3 h-2 bg-slate-700 rounded-full overflow-hidden">
+        {hasFeedback ? (
+          <div className="h-full flex transition-all duration-300">
+            {/* X' segment */}
+            <div
+              className={`h-full shrink-0 ${barColor}`}
+              style={{ width: `${primaryWidth}%` }}
+            />
+            {/* X'' segment — emerald when positive (boosted), rose when corrective */}
+            <div
+              className={`h-full shrink-0 ${fb >= 0 ? 'bg-emerald-400' : 'bg-rose-400'}`}
+              style={{ width: `${secondaryWidth}%` }}
+            />
+          </div>
+        ) : (
+          <div
+            className={`h-full ${barColor} rounded-full transition-all duration-300`}
+            style={{ width: `${pct}%` }}
+          />
+        )}
+      </div>
+
+      {/* Footer: decomposition text when active, normalised % otherwise */}
+      {hasFeedback ? (
+        <p className="text-[10px] text-slate-500 mt-1.5 font-mono">
+          X′{' '}
+          <span className="text-slate-400">{ext.toFixed(2)}</span>
+          {'  '}
+          <span className={fb < 0 ? 'text-emerald-400' : 'text-amber-400'}>
+            {fb >= 0 ? '+' : ''}{fb.toFixed(4)} X″
+          </span>
+        </p>
+      ) : (
+        <p className="text-slate-600 text-xs mt-1">{pct.toFixed(0)}% of physiological range</p>
+      )}
     </div>
   )
 }

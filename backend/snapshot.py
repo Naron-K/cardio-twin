@@ -43,7 +43,8 @@ def _simulation_snapshot(twin) -> Dict[str, Any]:
             "name":           attr.name,
         }
 
-    warnings = [line for line in twin.get_log() if "GATE FAIL" in line]
+    warnings = [line for line in twin.get_log()
+                if "GATE FAIL" in line or "GATE SOFT" in line]
     return {
         "sensors":       sensors_out,
         "computed":      computed_out,
@@ -53,6 +54,77 @@ def _simulation_snapshot(twin) -> Dict[str, Any]:
         "feedback_norm": twin.feedback_norm(),
         "warnings":      warnings,
     }
+
+
+def _flat_outcomes(outcome_evaluations: Dict[str, Any]) -> Dict[str, Any]:
+    """Flatten {segment_id: [feedback_obj]} → {outcome_id: feedback_obj}."""
+    flat: Dict[str, Any] = {}
+    for seg_outcomes in outcome_evaluations.values():
+        for fb in seg_outcomes:
+            flat[fb["outcome_id"]] = fb
+    return flat
+
+
+def before_after_outcomes(twin) -> Dict[str, Any]:
+    """
+    Shadow-pass baseline: for every behavioural outcome, return the value
+    WITH the feedback loop ("after") alongside the value the chain would
+    have produced WITHOUT any feedback ("before", X'' = 0 everywhere).
+
+    The before/after difference is exactly what the loop achieved this
+    tick — the same framing as DEMO.md's before/after table.  Because the
+    whole chain is recomputed with feedback zeroed, coupling such as
+    CO = HR·SV is reflected: a correction that lands on SV shows up in the
+    CO row too, which a per-attribute value_external diff cannot capture.
+
+    Pure with respect to twin state: the feedback channel is saved, zeroed,
+    used for one recompute, then restored and recomputed, so the twin is
+    byte-for-byte where it started when this returns.  Cost is two extra
+    compute_all() passes per tick — cheap at streaming cadence.
+
+    Payload is self-contained (target, tolerance, physio range) so the
+    frontend panel needs nothing from the schema endpoint.
+    """
+    # AFTER = current settled state (feedback applied).
+    after = _flat_outcomes(twin.evaluate_all_outcomes())
+
+    # Snapshot then zero the X'' channel on every attribute (D12 keeps
+    # sensors at 0 anyway; saving/restoring them is harmless).
+    saved = {aid: a.value_feedback for aid, a in twin.attributes.items()}
+    for a in twin.attributes.values():
+        a.value_feedback = 0.0
+        a.normalise()
+    twin.compute_all()
+    before = _flat_outcomes(twin.evaluate_all_outcomes())
+
+    # Restore the exact feedback channel and re-derive the chain.
+    for aid, a in twin.attributes.items():
+        a.value_feedback = saved[aid]
+        a.normalise()
+    twin.compute_all()
+
+    out: Dict[str, Any] = {}
+    for seg in twin.segments.values():
+        for outcome in seg.behavioural_outcomes:
+            oid = outcome.id
+            attr = twin.attributes.get(outcome.attribute_id)
+            fb_after = after.get(oid)
+            fb_before = before.get(oid)
+            if attr is None or fb_after is None or fb_before is None:
+                continue
+            out[oid] = {
+                "attribute_id":  outcome.attribute_id,
+                "unit":          outcome.unit,
+                "target":        outcome.target_value,
+                "tolerance":     outcome.tolerance,
+                "physio_min":    attr.physio_min,
+                "physio_max":    attr.physio_max,
+                "before":        fb_before["actual"],
+                "after":         fb_after["actual"],
+                "x_pp":          round(attr.value_feedback, 4),
+                "within_after":  fb_after["within_tolerance"],
+            }
+    return out
 
 
 def _serialize_kernel_state(controller) -> Dict[str, Dict[str, float]]:

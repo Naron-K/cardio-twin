@@ -24,7 +24,7 @@ from feedback_controller import (
     DEFAULT_MAX_NORM,
     FeedbackController,
 )
-from snapshot import _simulation_snapshot
+from snapshot import _simulation_snapshot, before_after_outcomes
 from universal_twin import resolve_polarity
 
 _SCHEMA_PATH = Path(__file__).parent / "circulatory_lamina.xml"
@@ -69,6 +69,10 @@ class Session:
         report = self.controller.step()
         snapshot = _simulation_snapshot(self.twin)
         snapshot["cycle_report"] = report
+        # Shadow-pass before/after baseline for the "before vs after tuning"
+        # panel.  Runs after step() so "after" reflects this tick's
+        # correction; restores twin state before returning.
+        snapshot["before_after"] = before_after_outcomes(self.twin)
         return snapshot
 
     def reset(self) -> None:

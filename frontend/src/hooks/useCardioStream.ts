@@ -3,7 +3,7 @@
  *
  * Connects to /ws/feedback (proxied by Vite → backend), maintains a
  * ring-buffer of parsed tick data, and exposes a sendControl() helper
- * for injecting arrhythmia, setting sensors, pause/resume, and reset.
+ * for setting sensors, pause/resume, and reset.
  *
  * Auto-reconnects with exponential backoff (1 s → 2 s → 4 s → 16 s max).
  */
@@ -11,6 +11,34 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { pushRing } from '../utils/ringBuffer'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
+
+/**
+ * One outcome's before/after the feedback loop (from the backend
+ * shadow-pass).  `before` is the value the chain would produce with
+ * X''=0 everywhere; `after` is the current settled value.  Self-contained
+ * (target/tolerance/physio range) so the panel needs nothing else.
+ */
+export interface BeforeAfter {
+  attribute_id: string
+  unit: string
+  target: number
+  tolerance: number
+  physio_min: number
+  physio_max: number
+  before: number
+  after: number
+  x_pp: number          // value_feedback on this outcome's attribute (X'')
+  within_after: boolean
+}
+
+/** One slow-loop adaptation record (only present on slow-loop ticks). */
+export interface Adaptation {
+  gain: number
+  operating_point: number
+  perf_ewma: number
+  settled: boolean
+  updates: number
+}
 
 /** One tick of streaming data extracted from a backend snapshot. */
 export interface StreamTick {
@@ -28,13 +56,20 @@ export interface StreamTick {
   co_feedback: number   // computed.CO.value_feedback  (X'')
   sv_feedback: number   // computed.SV.value_feedback  (X'')
   feedback_norm: number // top-level L2 norm of all value_feedback
+  // ── Cycle report (the 7-step cycle's per-tick log, previously dropped) ─
+  tagsEmitted: string[]               // tag ids that fired this cycle
+  deltasPerAttr: Record<string, number> // signed X'' applied per attribute
+  snapped: string[]                   // attrs dead-zone snapped to 0
+  diverged: boolean                   // circuit breaker tripped
+  adaptation: Record<string, Adaptation> // slow-loop records, keyed by outcome
+  // ── Before vs after the loop (shadow-pass), keyed by outcome id ────
+  beforeAfter: Record<string, BeforeAfter>
 }
 
 export type StreamStatus = 'connecting' | 'open' | 'closed'
 
 // Control message shapes — mirrors the WebSocket protocol in main.py
 export type ControlMsg =
-  | { type: 'inject_arrhythmia'; magnitude?: number; decay?: number }
   | { type: 'set_sensor'; id: string; value: number }
   | { type: 'pause' }
   | { type: 'resume' }
@@ -56,18 +91,28 @@ export interface UseCardioStreamResult {
 // ── Snapshot parsing ───────────────────────────────────────────────────────────
 
 type AttrEntry = { value: number; value_external: number; value_feedback: number }
+type RawCycleReport = {
+  cycle: number
+  tags_emitted?: string[]
+  deltas_per_attr?: Record<string, number>
+  snapped?: string[]
+  diverged?: boolean
+  adaptation?: Record<string, Adaptation>
+}
 type RawSnapshot = {
   sensors: Record<string, AttrEntry>
   computed: Record<string, AttrEntry>
   feedback_norm: number
-  cycle_report: { cycle: number }
+  cycle_report: RawCycleReport
+  before_after?: Record<string, BeforeAfter>
 }
 
 function parseSnapshot(raw: unknown): StreamTick | null {
   try {
     const s = raw as RawSnapshot
+    const r = s.cycle_report
     return {
-      tick:          s.cycle_report.cycle,
+      tick:          r.cycle,
       hr:            s.sensors.HR?.value              ?? 0,
       sbp:           s.sensors.SBP?.value             ?? 0,
       dbp:           s.sensors.DBP?.value             ?? 0,
@@ -78,6 +123,12 @@ function parseSnapshot(raw: unknown): StreamTick | null {
       co_feedback:   s.computed.CO?.value_feedback     ?? 0,
       sv_feedback:   s.computed.SV?.value_feedback     ?? 0,
       feedback_norm: s.feedback_norm                   ?? 0,
+      tagsEmitted:   r.tags_emitted                    ?? [],
+      deltasPerAttr: r.deltas_per_attr                 ?? {},
+      snapped:       r.snapped                         ?? [],
+      diverged:      r.diverged                        ?? false,
+      adaptation:    r.adaptation                      ?? {},
+      beforeAfter:   s.before_after                    ?? {},
     }
   } catch {
     return null

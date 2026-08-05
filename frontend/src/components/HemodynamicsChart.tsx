@@ -22,6 +22,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
+import type { Formatter, NameType, ValueType } from 'recharts/types/component/DefaultTooltipContent'
 import type { StreamTick } from '../hooks/useCardioStream'
 
 interface Props {
@@ -67,12 +68,12 @@ export function HemodynamicsChart({ ticks }: Props) {
         <Tooltip
           contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', fontSize: 11 }}
           labelStyle={{ color: '#94a3b8' }}
-          formatter={(v: number, name: string) => {
-            if (name === 'CO')  return [`${fmt2(v)} L/min`, name]
-            if (name === 'MAP') return [`${fmt1(v)} mmHg`, name]
-            if (name === 'SV')  return [`${fmt1(v)} mL`, name]
-            return [v, name]
-          }}
+          formatter={((value, name) => {
+            if (name === 'CO')  return [`${fmt2(Number(value))} L/min`, name]
+            if (name === 'MAP') return [`${fmt1(Number(value))} mmHg`, name]
+            if (name === 'SV')  return [`${fmt1(Number(value))} mL`, name]
+            return [value ?? '', name]
+          }) as Formatter<ValueType, NameType>}
         />
         <Legend wrapperStyle={{ fontSize: 10, paddingTop: 4 }} />
 

@@ -20,6 +20,7 @@ import { FeedbackPanel } from './components/FeedbackPanel'
 import type { NormPoint } from './components/FeedbackPanel'
 import { useToast } from './components/Toast'
 import { StreamingDashboard } from './components/StreamingDashboard'
+import { GameDashboard } from './components/game/GameDashboard'
 
 // Computed attributes shown as gauges (most clinically significant)
 const GAUGE_ATTRS = ['MAP', 'CO', 'Q']
@@ -83,7 +84,20 @@ export default function App() {
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { showToast } = useToast()
-  const [mode, setMode] = useState<'analysis' | 'stream'>('analysis')
+  // Deep-linkable view: #game / #stream open straight into that screen, which
+  // also makes the app scriptable for headless screenshots.
+  const [mode, setMode] = useState<'analysis' | 'stream' | 'game'>(() => {
+    const hash = window.location.hash.replace('#', '')
+    return hash === 'game' || hash === 'stream' ? hash : 'analysis'
+  })
+
+  // Keep the URL in step with the view so the current screen is shareable.
+  useEffect(() => {
+    const target = mode === 'analysis' ? '' : `#${mode}`
+    if (window.location.hash !== target) {
+      window.history.replaceState(null, '', target || window.location.pathname)
+    }
+  }, [mode])
 
   const handleChartType = useCallback((type: ChartType) => {
     setChartType(type)
@@ -302,6 +316,11 @@ export default function App() {
     return <StreamingDashboard onBack={() => setMode('analysis')} />
   }
 
+  // ── 2D game mode — full-page interactive stage ──────────────────────────────
+  if (mode === 'game') {
+    return <GameDashboard onBack={() => setMode('analysis')} />
+  }
+
   // ── Loading screen (before schema arrives) ──────────────────────────────────
   if (!schema && !error) {
     return (
@@ -345,6 +364,13 @@ export default function App() {
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0 ml-4">
+            <button
+              onClick={() => setMode('game')}
+              className="px-3 py-1.5 bg-rose-900/50 hover:bg-rose-800/60 text-rose-300
+                         text-xs rounded-md border border-rose-800/60 transition-colors"
+            >
+              🎮 2D Stage
+            </button>
             <button
               onClick={() => setMode('stream')}
               className="px-3 py-1.5 bg-emerald-900/50 hover:bg-emerald-800/60 text-emerald-300

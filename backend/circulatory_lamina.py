@@ -49,6 +49,13 @@ class CirculatoryLamina(UniversalTwin):
     STARLING_K = 0.55
     STARLING_LIMIT_EDV = 200  # mL, beyond this SV plateaus
 
+    # Central venous (right-atrial) pressure — the downstream end of the
+    # systemic pressure gradient.  Hemodynamic flow is driven by the
+    # arterio-venous gradient (MAP − CVP), not MAP alone, so Q = ΔP/R uses
+    # ΔP = MAP − CVP.  Held constant in v1 (normal resting CVP ≈ 2–6 mmHg);
+    # a future revision can promote it to a sensor / per-patient input.
+    CENTRAL_VENOUS_PRESSURE = 5.0  # mmHg
+
     def _register_functions(self):
         """Register all function implementations mapped to XML function ids."""
         self._function_registry = {
@@ -151,22 +158,26 @@ class CirculatoryLamina(UniversalTwin):
 
     def _calc_flow(self, inputs: list) -> float:
         """
-        Q = ΔP / R
+        Q = ΔP / R,  with  ΔP = MAP − CVP
 
-        Ohm's Law for hemodynamics. ΔP = MAP (from Step 1),
-        R = Vascular Resistance (from Step 2).
+        Ohm's Law for hemodynamics. The driving pressure is the
+        arterio-venous gradient (MAP minus central venous pressure), not
+        MAP alone — flow stops when arterial pressure falls to venous
+        pressure, not to zero. MAP comes from Step 1, R from Step 2, and
+        CVP is the constant CENTRAL_VENOUS_PRESSURE.
 
         This is the central formula of the lamina.
         Q is the primary Behaviour Outcome.
         inputs: [MAP, R]  — order defined in XML <inputs>
         """
-        delta_p, resistance = inputs[0], inputs[1]
+        mean_arterial, resistance = inputs[0], inputs[1]
 
-        if delta_p is None or resistance is None:
+        if mean_arterial is None or resistance is None:
             raise ValueError("inputs[0] (MAP) and inputs[1] (R) must be computed before computing Q")
         if resistance <= 0:
             raise ValueError("Resistance must be positive to compute flow")
 
+        delta_p = mean_arterial - self.CENTRAL_VENOUS_PRESSURE
         return delta_p / resistance
 
     # ── Step 5: Electrical Conduction ────────────────────────────────

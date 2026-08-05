@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Copied verbatim from test_dataset/07_heart_failure_reduced_ef.xml so the
+  streaming dashboard can load a dataset profile from its preset row.
+  Keep the two files in sync.
+-->
+<patient>
+  <metadata>
+    <name>Heart Failure — Reduced Output</name>
+    <description>Chronic systolic dysfunction with low effective preload (low EDV proxy) and compensatory tachycardia. SV violates target strongly; CO sits at the low boundary — exercises multi-tag interaction on the pump composite.</description>
+  </metadata>
+  <sensor_data>
+    <SBP>105</SBP>
+    <DBP>68</DBP>
+    <HR>95</HR>
+    <eta>3.6</eta>
+    <L>50</L>
+    <r>0.13</r>
+    <EDV>75</EDV>
+    <r_m>5000</r_m>
+    <r_i>200</r_i>
+    <r_e>300</r_e>
+  </sensor_data>
+</patient>

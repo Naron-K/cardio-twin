@@ -1,24 +1,27 @@
 /**
- * AdaptationChart — feedback_norm + per-attribute X″ corrections.
+ * AdaptationChart — per-attribute X″ corrections held by the loop.
  *
- * This is the "arrhythmia demo arc": inject arrhythmia → HR spikes →
- * CO leaves tolerance → CO_DEVIATION fires → co_feedback / sv_feedback
- * go negative (corrective) and feedback_norm rises.  As the drift
- * fades the corrections decay back to 0 — homeostasis re-established.
+ * The recovery arc: a disturbance (slider drag or preset) pushes CO out
+ * of tolerance → CO_DEVIATION fires → co_feedback / sv_feedback go
+ * negative (corrective).  The shaded area under each line is the amount
+ * of correction the loop is currently holding; as the outcome returns to
+ * band the leaky integrator drains it back to 0 — homeostasis.
  *
- * The reference line at y=0 makes the correction direction clear.
+ * Norm line intentionally omitted (kept to the two X″ signals for clarity).
+ * The reference line at y=0 marks "recovered".
  */
 import {
+  Area,
+  AreaChart,
   CartesianGrid,
   Legend,
-  Line,
-  LineChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts'
+import type { Formatter, NameType, ValueType } from 'recharts/types/component/DefaultTooltipContent'
 import type { StreamTick } from '../hooks/useCardioStream'
 
 interface Props {
@@ -30,7 +33,7 @@ const fmt4 = (v: number) => v.toFixed(4)
 export function AdaptationChart({ ticks }: Props) {
   return (
     <ResponsiveContainer width="100%" height={220}>
-      <LineChart data={ticks} margin={{ top: 16, right: 8, bottom: 0, left: -8 }}>
+      <AreaChart data={ticks} margin={{ top: 16, right: 8, bottom: 0, left: -8 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
         <XAxis
           dataKey="tick"
@@ -46,44 +49,39 @@ export function AdaptationChart({ ticks }: Props) {
         <Tooltip
           contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', fontSize: 11 }}
           labelStyle={{ color: '#94a3b8' }}
-          formatter={(v: number, name: string) => [fmt4(v), name]}
+          formatter={((value, name) => [fmt4(Number(value)), name]) as Formatter<ValueType, NameType>}
         />
         <Legend wrapperStyle={{ fontSize: 10, paddingTop: 4 }} />
 
-        {/* Zero baseline — corrections below this are corrective (negative) */}
+        {/* Zero baseline — "recovered"; corrections sit below it (negative) */}
         <ReferenceLine y={0} stroke="#475569" strokeDasharray="5 3" />
 
-        {/* feedback_norm — overall loop intensity */}
-        <Line
-          type="monotone"
-          dataKey="feedback_norm"
-          name="‖X″‖ norm"
-          stroke="#f59e0b"
-          dot={false}
-          strokeWidth={2}
-          isAnimationActive={false}
-        />
-        {/* CO correction — goes negative when CO is above target */}
-        <Line
-          type="monotone"
-          dataKey="co_feedback"
-          name="CO X″"
-          stroke="#10b981"
-          dot={false}
-          strokeWidth={1.5}
-          isAnimationActive={false}
-        />
-        {/* SV correction — the pump attribute most directly corrected */}
-        <Line
+        {/* SV correction — the pump attribute most directly corrected;
+            shaded area = correction currently held on SV */}
+        <Area
           type="monotone"
           dataKey="sv_feedback"
           name="SV X″"
           stroke="#6366f1"
+          strokeWidth={1.8}
+          fill="#6366f1"
+          fillOpacity={0.16}
           dot={false}
-          strokeWidth={1.5}
           isAnimationActive={false}
         />
-      </LineChart>
+        {/* CO correction — goes negative when CO is above target */}
+        <Area
+          type="monotone"
+          dataKey="co_feedback"
+          name="CO X″"
+          stroke="#10b981"
+          strokeWidth={1.8}
+          fill="#10b981"
+          fillOpacity={0.16}
+          dot={false}
+          isAnimationActive={false}
+        />
+      </AreaChart>
     </ResponsiveContainer>
   )
 }

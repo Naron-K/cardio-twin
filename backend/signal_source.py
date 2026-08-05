@@ -8,7 +8,7 @@ Session.tick() pipeline without touching session logic.
 Classes
 -------
 SignalSource            Minimal ABC: next() -> dict[str, float].
-SimulatedCardioSource   Noisy baseline + arrhythmia injection hook.
+SimulatedCardioSource   Noisy baseline around configurable values.
 """
 from __future__ import annotations
 
@@ -64,11 +64,6 @@ _DEFAULT_SIGMA: dict[str, float] = {
     "r_e":  5.0,
 }
 
-# Drift magnitudes below this are zeroed to avoid tiny residuals
-# persisting indefinitely after arrhythmia decay.
-_DRIFT_THRESHOLD: float = 0.5  # bpm
-
-
 class SignalSource(ABC):
     """Minimal interface for a sensor reading producer."""
 
@@ -83,10 +78,8 @@ class SimulatedCardioSource(SignalSource):
     Synthetic cardiovascular sensor feed.
 
     Emits realistic readings with small Gaussian noise around a
-    configurable baseline.  inject_arrhythmia() adds a transient HR
-    elevation that decays exponentially each tick — this is the "shock"
-    the Phase 4 adaptation chart will visualise as the loop drives
-    feedback_norm back toward baseline.
+    configurable baseline.  Sensor baselines can be updated live through
+    set_baseline() (driven by the WebSocket set_sensor control message).
 
     Parameters
     ----------
@@ -104,9 +97,6 @@ class SimulatedCardioSource(SignalSource):
         self._baseline: dict[str, float] = dict(baseline or _DEFAULT_BASELINE)
         self._sigma: dict[str, float] = dict(noise_sigma or _DEFAULT_SIGMA)
         self._rng = random.Random(seed)
-        # Arrhythmia state — reset by inject_arrhythmia(), decays in next().
-        self._drift_magnitude: float = 0.0
-        self._drift_decay: float = 0.15
 
     # ── Public API ────────────────────────────────────────────────────
 
@@ -114,8 +104,8 @@ class SimulatedCardioSource(SignalSource):
         """
         Emit one sensor reading.
 
-        Adds Gaussian noise to the baseline, applies any active arrhythmia
-        drift to HR, then clamps all values to physiological bounds.
+        Adds Gaussian noise to the baseline, then clamps all values to
+        physiological bounds.
         """
         readings: dict[str, float] = {}
         for sensor_id, base in self._baseline.items():
@@ -124,39 +114,7 @@ class SimulatedCardioSource(SignalSource):
             lo, hi = _PHYSIO_RANGES.get(sensor_id, (-math.inf, math.inf))
             readings[sensor_id] = max(lo, min(hi, noisy))
 
-        # Apply arrhythmia drift to HR.  The drift is positive (elevated
-        # HR), then multiplied by (1 - _drift_decay) each call so it
-        # fades exponentially.  Once below threshold it is zeroed to
-        # prevent numeric residuals accumulating over hundreds of ticks.
-        if self._drift_magnitude > _DRIFT_THRESHOLD:
-            lo, hi = _PHYSIO_RANGES["HR"]
-            readings["HR"] = max(lo, min(hi, readings["HR"] + self._drift_magnitude))
-            self._drift_magnitude *= (1.0 - self._drift_decay)
-        else:
-            self._drift_magnitude = 0.0
-
         return readings
-
-    def inject_arrhythmia(
-        self,
-        magnitude: float = 30.0,
-        decay: float = 0.15,
-    ) -> None:
-        """
-        Trigger a transient HR elevation that fades exponentially.
-
-        magnitude : peak HR elevation in bpm (added to the noisy baseline).
-        decay     : fraction of remaining drift removed each tick (0–1).
-                    0.15 → ~85 % remains per tick; at 100 ms/tick the
-                    perturbation falls below 1 bpm after roughly 25 ticks
-                    (~2.5 s), giving the adaptation chart a visible arc.
-
-        Calling inject_arrhythmia() again before the previous drift has
-        cleared replaces it immediately (the new magnitude takes effect on
-        the very next next() call).
-        """
-        self._drift_magnitude = float(magnitude)
-        self._drift_decay = max(0.0, min(1.0, float(decay)))
 
     def set_baseline(self, sensor_id: str, value: float) -> None:
         """

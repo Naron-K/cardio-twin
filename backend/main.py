@@ -192,8 +192,9 @@ def _run_simulation(sensor_data: Dict[str, float]) -> Dict[str, Any]:
             "name": attr.name,
         }
 
-    # Collect gate warnings
-    warnings = [line for line in twin.get_log() if "GATE FAIL" in line]
+    # Collect gate warnings (hard fails + soft out-of-range monitors)
+    warnings = [line for line in twin.get_log()
+                if "GATE FAIL" in line or "GATE SOFT" in line]
 
     # Collect composite vectors
     vectors = twin.get_all_vectors()
@@ -668,7 +669,6 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100):
     a simulation snapshot as JSON.
 
     Inbound control messages (JSON):
-      {"type": "inject_arrhythmia", "magnitude": 30.0, "decay": 0.15}
       {"type": "set_sensor",        "id": "HR",        "value": 110.0}
       {"type": "pause"}
       {"type": "resume"}
@@ -732,13 +732,7 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100):
 
             msg_type = msg.get("type", "")
 
-            if msg_type == "inject_arrhythmia":
-                source.inject_arrhythmia(
-                    magnitude=float(msg.get("magnitude", 30.0)),
-                    decay=float(msg.get("decay", 0.15)),
-                )
-
-            elif msg_type == "set_sensor":
+            if msg_type == "set_sensor":
                 sensor_id = str(msg.get("id", ""))
                 raw       = msg.get("value")
                 if sensor_id and raw is not None:

@@ -76,32 +76,6 @@ def test_ws_sensors_present_in_snapshot():
 
 # ── Control messages ─────────────────────────────────────────────────
 
-def test_ws_inject_arrhythmia_raises_feedback_norm():
-    """
-    inject_arrhythmia raises feedback_norm above the stable baseline.
-
-    magnitude=50 → HR ≈ 122 bpm → CO ≈ 8 L/min (above 6.5 tolerance) →
-    CO_DEVIATION fires → feedback_norm > 0.
-    """
-    with TestClient(app) as client:
-        with client.websocket_connect(_FAST) as ws:
-            # Drain 5 baseline ticks
-            norms_before = [ws.receive_json()["feedback_norm"] for _ in range(5)]
-            avg_before = sum(norms_before) / len(norms_before)
-
-            ws.send_json({"type": "inject_arrhythmia",
-                          "magnitude": 50.0, "decay": 0.15})
-
-            # Collect 8 ticks — at least one should show loop response
-            norms_after = [ws.receive_json()["feedback_norm"] for _ in range(8)]
-            peak_after = max(norms_after)
-
-    assert peak_after > avg_before, (
-        f"Feedback norm should rise after arrhythmia: "
-        f"avg_before={avg_before:.4f}  peak_after={peak_after:.4f}"
-    )
-
-
 def test_ws_set_sensor_changes_hr():
     """
     set_sensor with id=HR updates source baseline: subsequent snapshots

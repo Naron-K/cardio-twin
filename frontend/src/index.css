@@ -2,6 +2,85 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Scientific Indie base (DESIGN.md) ─────────────────────────────────────── */
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@layer utilities {
+  /* Pixel sprites must never be smoothed by the browser. */
+  .pixelated {
+    image-rendering: pixelated;
+    shape-rendering: crispEdges;
+  }
+
+  /* Level-0 background texture for the game stage: faint 8px-rhythm grid. */
+  .stage-grid {
+    background-image:
+      linear-gradient(to right, rgb(216 227 251 / 0.045) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(216 227 251 / 0.045) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  /* Emissive-screen scanlines — very low contrast, decorative only. */
+  .scanlines::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgb(0 0 0 / 0.16) 0px,
+      rgb(0 0 0 / 0.16) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+    mix-blend-mode: multiply;
+  }
+
+  /* Monospaced readouts get the +1px "readout" tracking DESIGN.md asks for. */
+  .readout {
+    letter-spacing: 0.05em;
+  }
+}
+
+/* Out-of-range vitals: crimson bloom that breathes. */
+@keyframes bloom-alert {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(255 82 95 / 0);
+  }
+  50% {
+    box-shadow: 0 0 22px 2px rgb(255 82 95 / 0.45);
+  }
+}
+.animate-bloom-alert {
+  animation: bloom-alert 1.6s ease-in-out infinite;
+}
+
+/* Terminal log lines fade in from the bottom. */
+@keyframes log-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-log-in {
+  animation: log-in 0.22s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-bloom-alert,
+  .animate-log-in {
+    animation: none;
+  }
+}
+
 /* Range input thumb styling across browsers */
 input[type='range']::-webkit-slider-thumb {
   -webkit-appearance: none;

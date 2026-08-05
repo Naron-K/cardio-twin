@@ -13,15 +13,20 @@ import type { StreamStatus } from '../hooks/useCardioStream'
 import { SensorChart } from './SensorChart'
 import { AdaptationChart } from './AdaptationChart'
 import { HemodynamicsChart } from './HemodynamicsChart'
+import { FeedbackCycleDiagram } from './FeedbackCycleDiagram'
+import { BeforeAfterPanel } from './BeforeAfterPanel'
+import { CycleLog } from './CycleLog'
 import { fetchSchema, uploadXML } from '../utils/api'
 import type { Schema, AttributeSchema } from '../utils/api'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const PRESETS = [
-  { id: 'normal',        label: 'Normal'       },
-  { id: 'hypertension',  label: 'Hypertension' },
-  { id: 'heart_failure', label: 'Heart Failure' },
+  { id: 'normal',                 label: 'Normal'        },
+  { id: 'hypertension',           label: 'Hypertension'  },
+  { id: 'heart_failure',          label: 'Heart Failure' },
+  { id: 'dataset_03_hypertension',  label: 'Dataset #03' },
+  { id: 'dataset_07_heart_failure', label: 'Dataset #07' },
 ]
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -60,17 +65,21 @@ interface SliderRowProps {
 
 function SliderRow({ attr, value, onChange }: SliderRowProps) {
   const step = (attr.physio_max - attr.physio_min) / 200
+  // Decimals scale with the attribute's magnitude. Vessel radius tops out at
+  // 1.5 cm and feeds R via r^4, so rounding it to 1 dp shows 0.14 as "0.1" —
+  // a 3.8x error for anyone recomputing R from the displayed inputs.
+  const decimals = attr.physio_max >= 10 ? 1 : attr.physio_max >= 2 ? 2 : 3
   return (
     <div className="space-y-1">
       <div className="flex justify-between items-baseline">
         <label
-          className="text-slate-300 text-xs font-medium truncate max-w-[130px]"
+          className="text-slate-300 text-xs font-medium truncate max-w-[170px]"
           title={attr.description}
         >
           {attr.name}
         </label>
         <span className="text-cyan-400 text-xs font-mono shrink-0 ml-2">
-          {value.toFixed(1)}{' '}
+          {value.toFixed(decimals)}{' '}
           <span className="text-slate-500">{attr.unit}</span>
         </span>
       </div>
@@ -109,7 +118,6 @@ export function StreamingDashboard({ onBack }: Props) {
   const [schema,     setSchema]     = useState<Schema | null>(null)
   const [values,     setValues]     = useState<Record<string, number>>({})
   const [paused,     setPaused]     = useState(false)
-  const [magnitude,  setMagnitude]  = useState(30)
   const [presetBusy, setPresetBusy] = useState(false)
   const [presetErr,  setPresetErr]  = useState<string | null>(null)
 
@@ -264,7 +272,7 @@ export function StreamingDashboard({ onBack }: Props) {
               <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500 mb-2">
                 Presets
               </p>
-              <div className="grid grid-cols-3 gap-1.5">
+              <div className="grid grid-cols-2 gap-1.5">
                 {PRESETS.map(p => (
                   <button
                     key={p.id}
@@ -311,38 +319,6 @@ export function StreamingDashboard({ onBack }: Props) {
 
             <div className="border-t border-slate-700/60" />
 
-            {/* Arrhythmia injection */}
-            <section>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500 mb-2">
-                Arrhythmia
-              </p>
-              <label className="text-xs text-slate-300 block mb-1">
-                Magnitude:{' '}
-                <span className="text-slate-100 font-mono">{magnitude} bpm</span>
-              </label>
-              <input
-                type="range"
-                min={10} max={60} step={5}
-                value={magnitude}
-                onChange={e => setMagnitude(Number(e.target.value))}
-                className="w-full accent-amber-500 cursor-pointer"
-              />
-              <p className="text-[10px] text-slate-500 mt-1 mb-2.5">
-                decay 0.15 · fades in ~25 ticks
-              </p>
-              <button
-                onClick={() => sendControl({ type: 'inject_arrhythmia', magnitude, decay: 0.15 })}
-                disabled={status !== 'open' || paused}
-                className="w-full px-2 py-1.5 text-xs font-medium rounded-md border transition-colors
-                           bg-amber-800/60 hover:bg-amber-700/60 border-amber-700/60 text-amber-200
-                           disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                ⚡ Inject Arrhythmia
-              </button>
-            </section>
-
-            <div className="border-t border-slate-700/60" />
-
             {/* Live readings */}
             <section>
               <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500 mb-2">
@@ -366,14 +342,16 @@ export function StreamingDashboard({ onBack }: Props) {
                   <div className="border-t border-slate-700/50 my-1" />
 
                   {/* Computed hemodynamics */}
-                  {[
+                  {([
                     { label: 'CO',  value: `${latest.co.toFixed(2)} L/min`,  color: 'text-cyan-400' },
-                    { label: 'Q',   value: `${latest.q.toFixed(2)} L/min`,   color: 'text-violet-400' },
+                    { label: 'Q',   value: `${latest.q.toFixed(2)} L/min`,
+                      color: latest.q < 0.5 || latest.q > 15 ? 'text-amber-400' : 'text-violet-400',
+                      hint: 'Single-segment Poiseuille estimate — absolute value unreliable; watch the trend, not the number.' },
                     { label: 'SV',  value: `${latest.sv.toFixed(1)} mL`,     color: 'text-sky-400' },
                     { label: 'MAP', value: `${latest.map.toFixed(1)} mmHg`,  color: 'text-orange-400' },
-                  ].map(r => (
-                    <div key={r.label} className="flex justify-between text-xs">
-                      <span className="text-slate-500">{r.label}</span>
+                  ] as { label: string; value: string; color: string; hint?: string }[]).map(r => (
+                    <div key={r.label} className="flex justify-between text-xs" title={r.hint}>
+                      <span className="text-slate-500">{r.label}{r.hint ? ' ⓘ' : ''}</span>
                       <span className={`font-mono ${r.color}`}>{r.value}</span>
                     </div>
                   ))}
@@ -410,9 +388,10 @@ export function StreamingDashboard({ onBack }: Props) {
                 <li><span className="text-cyan-400">■</span> CO — cardiac output (L/min)</li>
                 <li><span className="text-emerald-400">■ </span>SV — stroke volume (mL)</li>
                 <li><span className="text-orange-400">■</span> MAP — mean arterial pressure</li>
-                <li><span className="text-amber-400">■</span> ‖X″‖ — overall feedback correction</li>
+                <li><span className="text-violet-400">■</span> Q — single-segment estimate; trend only, not absolute value</li>
+                <li><span className="text-amber-400">■</span> ‖X″‖ — overall feedback correction (homeostatic)</li>
                 <li className="mt-1.5 text-slate-600">
-                  Drag a slider or inject arrhythmia → watch charts react → recover.
+                  Drag a slider or load a preset → watch the loop react → recover.
                 </li>
               </ul>
             </section>
@@ -423,10 +402,37 @@ export function StreamingDashboard({ onBack }: Props) {
         {/* ── Charts ──────────────────────────────────────────────────── */}
         <div className="flex-1 p-4 space-y-3 overflow-y-auto min-w-0">
 
+          {/* Feedback cycle — the fast loop as a live signal-flow graph */}
+          <div className="bg-slate-800 border border-slate-700 rounded-lg p-4">
+            <div className="flex items-baseline gap-2 mb-2">
+              <h3 className="text-sm font-semibold text-slate-200">Feedback Cycle</h3>
+              <span className="text-[10px] text-slate-500">outcome → tag → composite → X″ → recompute</span>
+            </div>
+            <FeedbackCycleDiagram latest={latest} />
+          </div>
+
+          {/* Before/after + cycle log */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <div className="bg-slate-800 border border-slate-700 rounded-lg p-4">
+              <div className="flex items-baseline gap-2 mb-2">
+                <h3 className="text-sm font-semibold text-slate-200">Before vs After Tuning</h3>
+                <span className="text-[10px] text-slate-500">○ before · ● after · band</span>
+              </div>
+              <BeforeAfterPanel latest={latest} />
+            </div>
+            <div className="bg-slate-800 border border-slate-700 rounded-lg p-4">
+              <div className="flex items-baseline gap-2 mb-2">
+                <h3 className="text-sm font-semibold text-slate-200">Cycle Log</h3>
+                <span className="text-[10px] text-slate-500">fired tags · X″ · snaps · slow-loop</span>
+              </div>
+              <CycleLog ticks={ticks} />
+            </div>
+          </div>
+
           <div className="bg-slate-800 border border-slate-700 rounded-lg p-4">
             <div className="flex items-baseline gap-2 mb-3">
               <h3 className="text-sm font-semibold text-slate-200">Sensor Feed</h3>
-              <span className="text-[10px] text-slate-500">HR · SBP · DBP</span>
+              <span className="text-[10px] text-slate-500">HR · SBP · DBP · x-axis = control cycles (not seconds)</span>
             </div>
             {ticks.length === 0 ? <Placeholder /> : <SensorChart ticks={ticks} />}
           </div>
@@ -434,7 +440,7 @@ export function StreamingDashboard({ onBack }: Props) {
           <div className="bg-slate-800 border border-slate-700 rounded-lg p-4">
             <div className="flex items-baseline gap-2 mb-3">
               <h3 className="text-sm font-semibold text-slate-200">Haemodynamics</h3>
-              <span className="text-[10px] text-slate-500">CO · MAP · SV</span>
+              <span className="text-[10px] text-slate-500">CO · MAP · SV · x-axis = control cycles (not seconds)</span>
             </div>
             {ticks.length === 0 ? <Placeholder /> : <HemodynamicsChart ticks={ticks} />}
           </div>
@@ -442,7 +448,7 @@ export function StreamingDashboard({ onBack }: Props) {
           <div className="bg-slate-800 border border-slate-700 rounded-lg p-4">
             <div className="flex items-baseline gap-2 mb-3">
               <h3 className="text-sm font-semibold text-slate-200">Adaptation Loop</h3>
-              <span className="text-[10px] text-slate-500">feedback norm · CO X″ · SV X″</span>
+              <span className="text-[10px] text-slate-500">SV X″ · CO X″ correction held → 0</span>
             </div>
             {ticks.length === 0 ? <Placeholder /> : <AdaptationChart ticks={ticks} />}
           </div>

@@ -9,6 +9,7 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from 'recharts'
+import type { Formatter, NameType, ValueType } from 'recharts/types/component/DefaultTooltipContent'
 
 export interface NormPoint {
   cycle: number
@@ -213,7 +214,7 @@ export function FeedbackPanel({
                   color: '#e2e8f0',
                   fontSize: 12,
                 }}
-                formatter={(v: number) => [v.toExponential(3), 'feedback_norm']}
+                formatter={((value) => [Number(value).toExponential(3), 'feedback_norm']) as Formatter<ValueType, NameType>}
                 labelFormatter={(c) => `cycle ${c}`}
               />
               <ReferenceLine

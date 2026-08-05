@@ -115,7 +115,7 @@
       <source>SENSOR</source>
       <physio_min>1.0</physio_min>
       <physio_max>100.0</physio_max>
-      <description>Length of the vessel segment being modelled</description>
+      <description>Length of ONE representative vessel segment (not the whole systemic tree). Used by the single-segment Poiseuille estimate for R.</description>
     </attribute>
 
     <attribute id="r">
@@ -124,7 +124,7 @@
       <source>SENSOR</source>
       <physio_min>0.01</physio_min>
       <physio_max>1.5</physio_max>
-      <description>Internal radius of the vessel</description>
+      <description>Internal radius of ONE representative vessel segment (not the whole systemic tree). Drives R via the r^4 term — the model is extremely sensitive to it.</description>
     </attribute>
 
     <attribute id="EDV">
@@ -151,25 +151,25 @@
       <source>SENSOR</source>
       <physio_min>1000</physio_min>
       <physio_max>10000</physio_max>
-      <description>Resistance of the cell membrane</description>
+      <description>Membrane resistance of a unit length of cable (cable theory r_m, units ohm.cm)</description>
     </attribute>
 
     <attribute id="r_i">
       <name>Intracellular Resistance</name>
-      <unit>ohm.cm</unit>
+      <unit>ohm/cm</unit>
       <source>SENSOR</source>
       <physio_min>100</physio_min>
       <physio_max>500</physio_max>
-      <description>Resistance inside the cell</description>
+      <description>Axial resistance inside the cell, per unit length (cable theory r_i, units ohm/cm)</description>
     </attribute>
 
     <attribute id="r_e">
       <name>Extracellular Resistance</name>
-      <unit>ohm.cm</unit>
+      <unit>ohm/cm</unit>
       <source>SENSOR</source>
       <physio_min>100</physio_min>
       <physio_max>500</physio_max>
-      <description>Resistance of extracellular space</description>
+      <description>Axial resistance of the extracellular space, per unit length (cable theory r_e, units ohm/cm)</description>
     </attribute>
 
     <!-- PRELIMINARY ATTRIBUTES (computed internally) -->
@@ -192,7 +192,7 @@
       <physio_max>40</physio_max>
       <computed_by>vascular_resistance</computed_by>
       <depends_on>eta, L, r</depends_on>
-      <description>Resistance to blood flow from vessel properties</description>
+      <description>Single-segment Poiseuille resistance estimate, calibrated so a representative segment lands in the systemic range. NOT the true whole-body systemic vascular resistance (which is the parallel sum of billions of vessels). Treat the value range, not the exact number, as meaningful.</description>
     </attribute>
 
     <attribute id="SV">
@@ -236,7 +236,7 @@
       <physio_max>5.0</physio_max>
       <computed_by>electrical_conduction</computed_by>
       <depends_on>r_m, r_i, r_e</depends_on>
-      <description>Signal propagation distance before decay</description>
+      <description>Cable-theory length constant: distance over which a passive signal decays to 1/e. Standalone in v1 (r_m/r_i/r_e are not coupled to the haemodynamic chain); absolute magnitude/units pending domain calibration.</description>
     </attribute>
 
   </attributes>
@@ -260,7 +260,7 @@
       <formula>R = 8*eta*L / (pi * r^4)</formula>
       <inputs>eta, L, r</inputs>
       <output>R</output>
-      <description>Poiseuille's Law. r^4 dependence: 50% radius reduction = 16x resistance increase.</description>
+      <description>Poiseuille's Law for a single rigid cylindrical segment. r^4 dependence: 50% radius reduction = 16x resistance increase. Assumes steady laminar Newtonian flow in one rigid tube — it is a representative estimate, not whole-body SVR.</description>
     </function>
 
     <function id="cardiac_filling" step="3a">
@@ -281,10 +281,10 @@
 
     <function id="hemodynamic_flow" step="4">
       <name>Hemodynamic Flow</name>
-      <formula>Q = delta_P / R</formula>
+      <formula>Q = (MAP - CVP) / R   (CVP held constant at ~5 mmHg)</formula>
       <inputs>MAP, R</inputs>
       <output>Q</output>
-      <description>Ohm's Law for hemodynamics. Central formula resolving pressure and resistance into flow.</description>
+      <description>Ohm's Law for hemodynamics. Driving pressure is the arterio-venous gradient (MAP - CVP), not MAP alone. NOTE: R here is a single-segment Poiseuille estimate, so Q's ABSOLUTE value is unreliable; trust its trend, not its magnitude (see R).</description>
     </function>
 
     <function id="electrical_conduction" step="5">
@@ -292,7 +292,7 @@
       <formula>lambda = sqrt(r_m / (r_i + r_e))</formula>
       <inputs>r_m, r_i, r_e</inputs>
       <output>lambda</output>
-      <description>Cable Theory. Models signal propagation distance. Links to ECG P-wave analysis.</description>
+      <description>Cable Theory length constant lambda = sqrt(r_m / (r_i + r_e)). Relates to passive conduction (a longer lambda spreads charge further); the link to P-wave / arrhythmia risk is indirect and should be treated as illustrative, not diagnostic.</description>
     </function>
 
   </functions>

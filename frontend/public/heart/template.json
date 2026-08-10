@@ -1,0 +1,305 @@
+{
+  "laminaId": "lamina_circulatory",
+  "artwork": {
+    "src": "base.png",
+    "width": 608,
+    "height": 756
+  },
+  "rhythm": {
+    "bind": "HR",
+    "envelopes": {
+      "ventricular": [
+        0.08,
+        0.42
+      ],
+      "atrial": [
+        0.8,
+        0.99
+      ]
+    }
+  },
+  "placeholders": {
+    "RA": {
+      "label": "Right atrium",
+      "asset": "ra.png",
+      "geometry": {
+        "x": 73,
+        "y": 289,
+        "w": 167,
+        "h": 240,
+        "px": 153.7,
+        "py": 409.5
+      },
+      "motion": {
+        "animator": "scale",
+        "modulator": null,
+        "terms": [
+          {
+            "envelope": "ventricular",
+            "amount": 0.035
+          },
+          {
+            "envelope": "atrial",
+            "amount": -0.085
+          }
+        ]
+      }
+    },
+    "RV": {
+      "label": "Right ventricle",
+      "asset": "rv.png",
+      "geometry": {
+        "x": 227,
+        "y": 530,
+        "w": 206,
+        "h": 172,
+        "px": 329.6,
+        "py": 624.5
+      },
+      "motion": {
+        "animator": "scale",
+        "modulator": {
+          "attribute": "SV",
+          "reference": 70,
+          "range": [
+            0.5,
+            1.6
+          ]
+        },
+        "terms": [
+          {
+            "envelope": "ventricular",
+            "amount": -0.09
+          }
+        ]
+      }
+    },
+    "PA": {
+      "label": "Pulmonary artery",
+      "asset": "pa.png",
+      "geometry": {
+        "x": 263,
+        "y": 158,
+        "w": 265,
+        "h": 178,
+        "px": 341.0,
+        "py": 329.0,
+        "path": [
+          [
+            341.8,
+            304.2
+          ],
+          [
+            339.5,
+            282.0
+          ],
+          [
+            334.5,
+            262.3
+          ],
+          [
+            333.2,
+            242.2
+          ],
+          [
+            351.9,
+            222.5
+          ],
+          [
+            386.7,
+            211.2
+          ],
+          [
+            416.1,
+            205.6
+          ],
+          [
+            439.7,
+            200.9
+          ],
+          [
+            464.2,
+            197.0
+          ],
+          [
+            486.3,
+            190.7
+          ],
+          [
+            504.6,
+            180.4
+          ]
+        ]
+      },
+      "motion": {
+        "animator": "scale",
+        "modulator": {
+          "attribute": "SV",
+          "reference": 70,
+          "range": [
+            0.5,
+            1.6
+          ]
+        },
+        "terms": [
+          {
+            "envelope": "ventricular",
+            "amount": 0.045
+          }
+        ]
+      },
+      "flow": {
+        "animator": "flow_along_path",
+        "rateFrom": "CO",
+        "colour": "#bff0ff",
+        "particles": 4,
+        "radius": 7
+      }
+    },
+    "LA": {
+      "label": "Left atrium",
+      "asset": "la.png",
+      "geometry": {
+        "x": 339,
+        "y": 258,
+        "w": 173,
+        "h": 184,
+        "px": 427.7,
+        "py": 336.1
+      },
+      "motion": {
+        "animator": "scale",
+        "modulator": null,
+        "terms": [
+          {
+            "envelope": "ventricular",
+            "amount": 0.035
+          },
+          {
+            "envelope": "atrial",
+            "amount": -0.085
+          }
+        ]
+      }
+    },
+    "LV": {
+      "label": "Left ventricle",
+      "asset": "lv.png",
+      "geometry": {
+        "x": 332,
+        "y": 440,
+        "w": 209,
+        "h": 231,
+        "px": 458.1,
+        "py": 554.6
+      },
+      "motion": {
+        "animator": "scale",
+        "modulator": {
+          "attribute": "SV",
+          "reference": 70,
+          "range": [
+            0.5,
+            1.6
+          ]
+        },
+        "terms": [
+          {
+            "envelope": "ventricular",
+            "amount": -0.09
+          }
+        ]
+      }
+    },
+    "AO": {
+      "label": "Aorta",
+      "asset": "ao.png",
+      "geometry": {
+        "x": 183,
+        "y": -1,
+        "w": 265,
+        "h": 358,
+        "px": 242.0,
+        "py": 350.0,
+        "path": [
+          [
+            238.5,
+            317.8
+          ],
+          [
+            237.9,
+            283.7
+          ],
+          [
+            237.4,
+            248.3
+          ],
+          [
+            237.3,
+            210.5
+          ],
+          [
+            246.9,
+            172.7
+          ],
+          [
+            268.6,
+            140.0
+          ],
+          [
+            299.6,
+            124.9
+          ],
+          [
+            337.8,
+            123.4
+          ],
+          [
+            368.0,
+            112.2
+          ],
+          [
+            381.9,
+            84.6
+          ],
+          [
+            382.8,
+            44.4
+          ]
+        ]
+      },
+      "motion": {
+        "animator": "scale",
+        "modulator": {
+          "attribute": "SV",
+          "reference": 70,
+          "range": [
+            0.5,
+            1.6
+          ]
+        },
+        "terms": [
+          {
+            "envelope": "ventricular",
+            "amount": 0.045
+          }
+        ]
+      },
+      "flow": {
+        "animator": "flow_along_path",
+        "rateFrom": "Q",
+        "colour": "#ffd0d4",
+        "particles": 4,
+        "radius": 7
+      }
+    }
+  },
+  "drawOrder": [
+    "RA",
+    "LA",
+    "RV",
+    "LV",
+    "AO",
+    "PA"
+  ]
+}

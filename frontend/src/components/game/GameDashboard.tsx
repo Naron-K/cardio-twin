@@ -10,13 +10,15 @@
  * Layout follows DESIGN.md: 32px page margin, 24px gutter, card-centric with
  * 24px safe areas, tonal layers + glows instead of drop shadows.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useCardioStream } from '../../hooks/useCardioStream'
 import type { StreamTick } from '../../hooks/useCardioStream'
 import { fetchSchema, uploadXML } from '../../utils/api'
 import type { Schema } from '../../utils/api'
 import { PixelHeart } from './PixelHeart'
-import { AnatomicalHeart } from './AnatomicalHeart'
+import { LaminaStage } from './LaminaStage'
+import { loadStage } from '../../game/stageTemplate'
+import type { LoadedStage } from '../../game/stageTemplate'
 import { EcgStrip } from './EcgStrip'
 import { Panel, Chip, VitalCard, CommandButton } from './ui'
 import { COMMANDS, MISSIONS, VITAL_RANGE } from '../../game/protocol'
@@ -39,9 +41,10 @@ interface LogEntry {
 
 const LEGEND: Chamber[] = ['RA', 'RV', 'PA', 'LA', 'LV', 'AO']
 
-type HeartModel = 'anatomical' | 'pixel'
+type HeartModel = 'anatomical' | 'schematic' | 'pixel'
 const HEART_MODELS: { id: HeartModel; label: string }[] = [
   { id: 'anatomical', label: 'Anatomical' },
+  { id: 'schematic', label: 'Schematic' },
   { id: 'pixel', label: '16-bit' },
 ]
 
@@ -61,6 +64,7 @@ export function GameDashboard({ onBack }: Props) {
   const [tab, setTab] = useState<Tab>('diagnostics')
   const [focus, setFocus] = useState<Chamber | null>(null)
   const [heartModel, setHeartModel] = useState<HeartModel>('anatomical')
+  const [stage, setStage] = useState<LoadedStage | null>(null)
 
   const [missionIdx, setMissionIdx] = useState(0)
   const [progress, setProgress] = useState(0)
@@ -115,6 +119,14 @@ export function GameDashboard({ onBack }: Props) {
         setValues(defaults)
       })
       .catch(() => pushLog('Schema failed to load — is the backend up on port 8000?', 'warn'))
+  }, [pushLog])
+
+  // The stage is data, not code: fetched at runtime so its bindings can change
+  // without a rebuild.
+  useEffect(() => {
+    loadStage('heart')
+      .then(setStage)
+      .catch(() => pushLog('Stage template failed to load', 'warn'))
   }, [pushLog])
 
   // Load a scenario preset and push every sensor to the backend at once.
@@ -280,6 +292,20 @@ export function GameDashboard({ onBack }: Props) {
   const sv = latest?.sv ?? 70
   const sbp = latest?.sbp ?? 120
   const dbp = latest?.dbp ?? 80
+
+  // What the stage is allowed to see.  Sensors (HR, SBP, DBP, EDV …) are not in
+  // here on purpose — the visualiser reads processed attributes only.  Beat
+  // timing is the one hold-out and goes in on its own prop, where Schematic
+  // mode can report it as the violation it currently is.
+  const modelValues = useMemo(
+    () => ({ MAP: map, CO: co, SV: sv, Q: latest?.q ?? 0 }),
+    [map, co, sv, latest]
+  )
+  const attributeSources = useMemo(() => {
+    const out: Record<string, string> = {}
+    for (const [id, a] of Object.entries(schema?.attributes ?? {})) out[id] = a.source
+    return out
+  }, [schema])
 
   const missionValue = mission.metric === 'map' ? map : mission.metric === 'co' ? co : hr
   const inBand = latest !== null && missionValue >= mission.lo && missionValue <= mission.hi
@@ -447,16 +473,17 @@ export function GameDashboard({ onBack }: Props) {
               >
                 {heartModel === 'pixel' ? (
                   <PixelHeart hr={hr} co={co} sv={sv} alert={alert} paused={paused} focus={focus} />
-                ) : (
-                  <AnatomicalHeart
-                    hr={hr}
-                    co={co}
-                    sv={sv}
-                    alert={alert}
+                ) : stage ? (
+                  <LaminaStage
+                    stage={stage}
+                    values={modelValues}
+                    sources={attributeSources}
+                    rhythmHr={hr}
                     paused={paused}
                     focus={focus}
+                    mode={heartModel === 'schematic' ? 'schematic' : 'showcase'}
                   />
-                )}
+                ) : null}
               </div>
             </div>
 

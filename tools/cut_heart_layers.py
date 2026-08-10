@@ -7,10 +7,13 @@ region.  Image models cannot segment, so the brief asked for a single
 machine-separable picture and the separation happens here — see
 `HEART_SPRITE_SPEC.md` for the brief and `docs/heart-asset.md` for the design.
 
-Writes to `frontend/`:
-    public/heart/base.png              static myocardium, valves, vessel walls
-    public/heart/{ra,rv,la,lv,ao,pa}.png   per-region cutouts
-    src/game/heartLayers.generated.ts   placement, pivots and vessel centrelines
+Writes to `frontend/public/heart/`:
+    base.png                    static myocardium, valves, vessel walls
+    {ra,rv,la,lv,ao,pa}.png     per-region cutouts
+    template.json               placeholders: geometry, bindings, animators
+
+Geometry in template.json is machine-owned and rewritten every run; labels,
+motion and flow bindings are hand-editable and preserved.
 
 Run from the repo root:  python tools/cut_heart_layers.py
 """
@@ -25,7 +28,7 @@ from scipy import ndimage
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, "screen.png")
 IMG_OUT = os.path.join(ROOT, "frontend", "public", "heart")
-TS_OUT = os.path.join(ROOT, "frontend", "src", "game", "heartLayers.generated.ts")
+TEMPLATE_OUT = os.path.join(IMG_OUT, "template.json")
 
 # Seed points inside each region, at the source image's native 1024².  These
 # were found by hand and verified to produce six closed, zero-overlap regions.
@@ -94,6 +97,82 @@ def centreline(mask, root, offset):
         for i in range(1, len(pts) - 1)
     ] + [pts[-1]]
     return [[round(x, 1), round(y, 1)] for x, y in smooth]
+
+
+SV_MODULATOR = {"attribute": "SV", "reference": 70, "range": [0.5, 1.6]}
+
+# First-generation bindings.  Only the geometry below is regenerated on a
+# re-run — anything a human edits in template.json survives.
+LABELS = {
+    "RA": "Right atrium", "RV": "Right ventricle", "LA": "Left atrium",
+    "LV": "Left ventricle", "AO": "Aorta", "PA": "Pulmonary artery",
+}
+DEFAULT_MOTION = {
+    # Atria fill while the ventricles eject, then kick.  No model output
+    # describes an atrium, so their amplitude is a declared constant.
+    "RA": {"animator": "scale", "modulator": None, "terms": [
+        {"envelope": "ventricular", "amount": 0.035},
+        {"envelope": "atrial", "amount": -0.085}]},
+    "LA": {"animator": "scale", "modulator": None, "terms": [
+        {"envelope": "ventricular", "amount": 0.035},
+        {"envelope": "atrial", "amount": -0.085}]},
+    # Both ventricles eject the same stroke volume in a closed loop, so both
+    # read SV.  That they end up identical is the model's position, not a bug.
+    "RV": {"animator": "scale", "modulator": SV_MODULATOR, "terms": [
+        {"envelope": "ventricular", "amount": -0.09}]},
+    "LV": {"animator": "scale", "modulator": SV_MODULATOR, "terms": [
+        {"envelope": "ventricular", "amount": -0.09}]},
+    "AO": {"animator": "scale", "modulator": SV_MODULATOR, "terms": [
+        {"envelope": "ventricular", "amount": 0.045}]},
+    "PA": {"animator": "scale", "modulator": SV_MODULATOR, "terms": [
+        {"envelope": "ventricular", "amount": 0.045}]},
+}
+DEFAULT_FLOW = {
+    # Q is the systemic Poiseuille estimate, CO the pump's output — different
+    # model outputs feeding different vessels, which is the point.
+    "AO": {"animator": "flow_along_path", "rateFrom": "Q",
+           "colour": "#ffd0d4", "particles": 4, "radius": 7},
+    "PA": {"animator": "flow_along_path", "rateFrom": "CO",
+           "colour": "#bff0ff", "particles": 4, "radius": 7},
+}
+
+
+def write_template(geometry, width, height):
+    """
+    Merge freshly cut geometry into template.json, preserving every binding a
+    human wrote.  Geometry is machine-owned; motion, flow and labels are not.
+    """
+    doc = {}
+    if os.path.exists(TEMPLATE_OUT):
+        with open(TEMPLATE_OUT, encoding="utf-8") as f:
+            doc = json.load(f)
+
+    doc["laminaId"] = doc.get("laminaId", "lamina_circulatory")
+    doc["artwork"] = {"src": "base.png", "width": width, "height": height}
+    # Cardiac phase windows.  They live here rather than in the renderer so
+    # they are visible and editable — but they are still not model output;
+    # they belong in a rhythm outcome once the model grows one.
+    doc["rhythm"] = doc.get("rhythm", {
+        "bind": "HR",
+        "envelopes": {"ventricular": [0.08, 0.42], "atrial": [0.8, 0.99]},
+    })
+
+    # Painter's order: the pulmonary artery crosses in front of the aortic root.
+    doc["drawOrder"] = doc.get("drawOrder", ["RA", "LA", "RV", "LV", "AO", "PA"])
+
+    places = doc.setdefault("placeholders", {})
+    for key, geom in geometry.items():
+        p = places.setdefault(key, {})
+        p["label"] = p.get("label", LABELS.get(key, key))
+        p["asset"] = f"{key.lower()}.png"
+        p["geometry"] = geom
+        p["motion"] = p.get("motion", DEFAULT_MOTION.get(key))
+        if key in DEFAULT_FLOW and "flow" not in p:
+            p["flow"] = DEFAULT_FLOW[key]
+
+    with open(TEMPLATE_OUT, "w", newline="\n", encoding="utf-8") as f:
+        json.dump(doc, f, indent=2, ensure_ascii=False)
+        f.write("\n")
 
 
 def save_rgba(rgb, alpha, path, blur=0.6):
@@ -166,17 +245,7 @@ def main():
                                        (lx0 - x0, ly0 - y0))
         layers[k] = entry
 
-    with open(TS_OUT, "w", newline="\n", encoding="utf-8") as f:
-        f.write(
-            "// Generated by tools/cut_heart_layers.py — do not edit by hand.\n"
-            "// Coordinates are base-image pixels, origin at the base's top-left.\n"
-            "import type { HeartLayerGeometry } from './heartLayers'\n\n"
-            f"export const BASE_W = {int(x1 - x0)}\n"
-            f"export const BASE_H = {int(y1 - y0)}\n\n"
-            "export const GEOMETRY: Record<string, HeartLayerGeometry> = "
-            + json.dumps(layers, indent=2)
-            + " as const\n"
-        )
+    write_template(layers, int(x1 - x0), int(y1 - y0))
 
     print(f"base {int(x1 - x0)}×{int(y1 - y0)}")
     for k, v in layers.items():

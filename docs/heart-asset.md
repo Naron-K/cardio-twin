@@ -1,15 +1,16 @@
 # The anatomical heart asset
 
-The 2D stage can render its heart two ways, switchable from the toggle above the
-stage:
+The 2D stage renders three ways, switchable from the toggle above it:
 
-| Model        | Component               | Notes                                    |
-| ------------ | ----------------------- | ---------------------------------------- |
-| `Anatomical` | `AnatomicalHeart.tsx`   | illustrated cross-section (default)      |
-| `16-bit`     | `PixelHeart.tsx`        | the hand-authored sprite                 |
+| Mode         | Component                | Notes                                   |
+| ------------ | ------------------------ | --------------------------------------- |
+| `Anatomical` | `LaminaStage.tsx`        | illustrated cross-section (default)     |
+| `Schematic`  | `SchematicOverlay.tsx`   | the same stage with its wiring showing  |
+| `16-bit`     | `PixelHeart.tsx`         | the hand-authored sprite                |
 
-Both take the same props and are driven by the same bindings, so the toggle is a
-straight A/B of the artwork, not of the physiology.
+`LaminaStage` knows nothing about hearts — it draws whatever stage template it
+is handed. See [stage-template.md](stage-template.md) for the architecture and
+the provenance rule it enforces.
 
 ## Where the pixels come from
 

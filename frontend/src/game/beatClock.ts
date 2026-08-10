@@ -12,24 +12,42 @@
  * button doesn't make the beat jump a quarter cycle.
  */
 
-/** Ventricular systole: contraction + ejection. */
+/**
+ * Fixed phase windows, kept for the 16-bit sprite and the synthesised ECG.
+ * The anatomical stage no longer uses them: it derives its windows from the
+ * model's `T_cycle` and `T_sys`, which is why a fast beat there spends a
+ * larger share of the cycle in systole and these constants do not.
+ */
 export const SYSTOLE: [number, number] = [0.08, 0.42]
 /** Atrial systole — the "atrial kick" just before the next cycle. */
 export const ATRIAL_SYSTOLE: [number, number] = [0.8, 0.99]
 
+const DEFAULT_CYCLE = 60 / 72
+
 class BeatClock {
   phase = 0
-  /** Displayed/effective rate, ramped toward `targetHr`. */
-  hr = 72
-  private targetHr = 72
+  /** Effective cycle length in seconds, ramped toward `targetCycle`. */
+  cycle = DEFAULT_CYCLE
+  private targetCycle = DEFAULT_CYCLE
   private running = false
   private paused = false
   private last = 0
   private raf: number | null = null
   private refs = 0
 
+  /** Effective rate, derived — nothing writes this directly any more. */
+  get hr(): number {
+    return 60 / this.cycle
+  }
+
+  /** Preferred entry point: cycle length straight from the model's `T_cycle`. */
+  setCycle(seconds: number) {
+    if (Number.isFinite(seconds) && seconds >= 0.2 && seconds <= 3) this.targetCycle = seconds
+  }
+
+  /** Legacy path for consumers that still think in bpm. */
   setHr(hr: number) {
-    if (Number.isFinite(hr) && hr > 20 && hr < 260) this.targetHr = hr
+    if (Number.isFinite(hr) && hr > 20 && hr < 260) this.setCycle(60 / hr)
   }
 
   setPaused(paused: boolean) {
@@ -54,9 +72,9 @@ class BeatClock {
       // Clamp dt so a backgrounded tab doesn't fast-forward dozens of beats.
       const dt = Math.min(0.1, (now - this.last) / 1000)
       this.last = now
-      this.hr += (this.targetHr - this.hr) * Math.min(1, dt * 3)
+      this.cycle += (this.targetCycle - this.cycle) * Math.min(1, dt * 3)
       if (!this.paused) {
-        this.phase = (this.phase + (dt * this.hr) / 60) % 1
+        this.phase = (this.phase + dt / this.cycle) % 1
       }
       this.raf = requestAnimationFrame(tick)
     }

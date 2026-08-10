@@ -39,7 +39,7 @@ export function SchematicOverlay({ stage, values, sources, focus = null }: Props
   // things drive this stage" rather than multiplying one violation by six.
   const rhythm = describeRhythm(template, sources)
   const tally: Record<Provenance, number> = { model: 0, sensor: 0, constant: 0, missing: 0 }
-  tally[rhythm.provenance]++
+  for (const row of rhythm) tally[row.provenance]++
   for (const id of ids) {
     for (const row of describeBindings(placeholders[id], template, sources)) {
       if (!row.shared) tally[row.provenance]++
@@ -84,11 +84,11 @@ export function SchematicOverlay({ stage, values, sources, focus = null }: Props
                            bg-surface-lowest/95 backdrop-blur-sm p-2 space-y-1 shadow-inset1"
               >
                 <p className="font-mono text-[10px] readout text-ink/50">{place.label}</p>
-                {rows.map((row) => {
+                {rows.map((row, i) => {
                   const t = TONE[row.provenance]
                   const v = row.attribute ? values[row.attribute] : undefined
                   return (
-                    <div key={row.channel} className="flex items-center gap-1.5">
+                    <div key={`${row.channel}-${row.attribute}-${i}`} className="flex items-center gap-1.5">
                       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${t.dot}`} />
                       <span className="font-mono text-[9px] readout text-ink/40 w-[52px] shrink-0">
                         {row.channel}
@@ -113,12 +113,16 @@ export function SchematicOverlay({ stage, values, sources, focus = null }: Props
         className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-el border border-white/10
                    bg-surface-lowest/90 backdrop-blur-sm px-3 py-1.5 space-y-1"
       >
-        <div className="flex items-center gap-1.5">
-          <span className={`w-1.5 h-1.5 rounded-full ${TONE[rhythm.provenance].dot}`} />
-          <span className="font-mono text-[10px] readout text-ink/40">timing</span>
-          <span className={`font-mono text-[10px] readout ${TONE[rhythm.provenance].text}`}>
-            {rhythm.attribute} · {TONE[rhythm.provenance].label}
-          </span>
+        <div className="flex items-center gap-2.5">
+          {rhythm.map((row, i) => (
+            <span key={`${row.channel}-${row.attribute}-${i}`} className="flex items-center gap-1.5">
+              <span className={`w-1.5 h-1.5 rounded-full ${TONE[row.provenance].dot}`} />
+              <span className={`font-mono text-[10px] readout ${TONE[row.provenance].text}`}>
+                {row.attribute ?? TONE[row.provenance].label}
+              </span>
+            </span>
+          ))}
+          <span className="font-mono text-[10px] readout text-ink/30">rhythm</span>
         </div>
         <div className="flex items-center gap-2.5">
           {(['model', 'sensor', 'constant'] as Provenance[]).map((p) => (

@@ -46,6 +46,34 @@ export interface Flow {
   radius: number
 }
 
+/**
+ * A phase window, anchored at one end and given a duration in seconds.
+ * Converting seconds to a phase fraction needs the live cycle length, which is
+ * the point: ejection time shrinks with rate far more slowly than the cycle
+ * does, so systole takes a larger share of a fast beat.
+ */
+export interface EnvelopeSpec {
+  /** Anchor. Exactly one of these. */
+  startFraction?: number
+  endFraction?: number
+  /** Duration in seconds from a model attribute … */
+  durationFrom?: string
+  /** … or a declared constant, for windows the model cannot describe yet. */
+  duration?: number
+}
+
+export function resolveEnvelope(
+  spec: EnvelopeSpec,
+  cycleSeconds: number,
+  values: Record<string, number>
+): [number, number] {
+  const seconds = spec.durationFrom ? values[spec.durationFrom] : spec.duration
+  const safeCycle = cycleSeconds > 0.05 ? cycleSeconds : 1
+  const len = Math.min(0.9, Math.max(0.02, (seconds ?? 0.3) / safeCycle))
+  if (spec.endFraction !== undefined) return [spec.endFraction - len, spec.endFraction]
+  return [spec.startFraction ?? 0, (spec.startFraction ?? 0) + len]
+}
+
 export interface PlaceholderGeometry {
   x: number
   y: number
@@ -70,13 +98,14 @@ export interface StageTemplate {
   laminaId: string
   artwork: { src: string; width: number; height: number }
   /**
-   * Where beat timing comes from.  `bind: "HR"` is a raw sensor — the stage
-   * surfaces that as a violation rather than hiding it, because the model does
-   * not yet emit a rhythm outcome.
+   * Where beat timing comes from.  `bind` names the attribute holding cycle
+   * length in seconds; each envelope's *duration* is likewise a model
+   * attribute in seconds where one exists, so a phase window is a real
+   * interval rather than a fixed share of the cycle.
    */
   rhythm: {
     bind: string
-    envelopes: Record<EnvelopeId, [number, number]>
+    envelopes: Record<EnvelopeId, EnvelopeSpec>
   }
   /** Painter's order — later entries draw on top. */
   drawOrder: string[]
@@ -87,7 +116,7 @@ export interface StageTemplate {
 export type Provenance = 'model' | 'sensor' | 'constant' | 'missing'
 
 export interface BindingRow {
-  channel: 'timing' | 'amplitude' | 'flow'
+  channel: 'timing' | 'envelope' | 'amplitude' | 'flow'
   attribute: string | null
   provenance: Provenance
   /**
@@ -105,17 +134,32 @@ export function provenanceOf(attribute: string, sources: Record<string, string>)
   return 'missing'
 }
 
-/** The stage-wide beat binding. */
+/**
+ * The stage-wide beat bindings: cycle length, plus each phase window whose
+ * duration the model supplies.  Windows the model cannot describe report as
+ * constants rather than passing silently.
+ */
 export function describeRhythm(
   template: StageTemplate,
   sources: Record<string, string>
-): BindingRow {
-  return {
-    channel: 'timing',
-    attribute: template.rhythm.bind,
-    provenance: provenanceOf(template.rhythm.bind, sources),
-    shared: true,
+): BindingRow[] {
+  const rows: BindingRow[] = [
+    {
+      channel: 'timing',
+      attribute: template.rhythm.bind,
+      provenance: provenanceOf(template.rhythm.bind, sources),
+      shared: true,
+    },
+  ]
+  for (const spec of Object.values(template.rhythm.envelopes)) {
+    rows.push({
+      channel: 'envelope',
+      attribute: spec.durationFrom ?? null,
+      provenance: spec.durationFrom ? provenanceOf(spec.durationFrom, sources) : 'constant',
+      shared: true,
+    })
   }
+  return rows
 }
 
 /**
@@ -130,7 +174,7 @@ export function describeBindings(
 ): BindingRow[] {
   const rows: BindingRow[] = []
   if (place.motion) {
-    rows.push(describeRhythm(template, sources))
+    rows.push(...describeRhythm(template, sources))
     const mod = place.motion.modulator
     rows.push({
       channel: 'amplitude',

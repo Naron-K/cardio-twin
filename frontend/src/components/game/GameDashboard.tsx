@@ -293,14 +293,11 @@ export function GameDashboard({ onBack }: Props) {
   const sbp = latest?.sbp ?? 120
   const dbp = latest?.dbp ?? 80
 
-  // What the stage is allowed to see.  Sensors (HR, SBP, DBP, EDV …) are not in
-  // here on purpose — the visualiser reads processed attributes only.  Beat
-  // timing is the one hold-out and goes in on its own prop, where Schematic
-  // mode can report it as the violation it currently is.
-  const modelValues = useMemo(
-    () => ({ MAP: map, CO: co, SV: sv, Q: latest?.q ?? 0 }),
-    [map, co, sv, latest]
-  )
+  // Everything the stage is allowed to see: the model's computed attributes,
+  // whole.  Sensors are absent by construction rather than by omission — this
+  // is the PRELIMINARY half of the snapshot and nothing else, beat timing
+  // included via T_cycle.
+  const modelValues = useMemo(() => latest?.computed ?? {}, [latest])
   const attributeSources = useMemo(() => {
     const out: Record<string, string> = {}
     for (const [id, a] of Object.entries(schema?.attributes ?? {})) out[id] = a.source
@@ -478,7 +475,6 @@ export function GameDashboard({ onBack }: Props) {
                     stage={stage}
                     values={modelValues}
                     sources={attributeSources}
-                    rhythmHr={hr}
                     paused={paused}
                     focus={focus}
                     mode={heartModel === 'schematic' ? 'schematic' : 'showcase'}
@@ -544,7 +540,15 @@ export function GameDashboard({ onBack }: Props) {
               ) : null
             }
           >
-            {tab === 'diagnostics' && <EcgStrip hr={hr} paused={paused} alert={alert} height={96} />}
+            {tab === 'diagnostics' && (
+              <EcgStrip
+                hr={hr}
+                cycleSeconds={modelValues.T_cycle}
+                paused={paused}
+                alert={alert}
+                height={96}
+              />
+            )}
 
             {tab === 'telemetry' && (
               <div className="grid grid-cols-4 gap-3">

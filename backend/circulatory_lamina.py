@@ -64,6 +64,8 @@ class CirculatoryLamina(UniversalTwin):
             "cardiac_filling":      self._calc_stroke_volume,
             "cardiac_pump":         self._calc_cardiac_output,
             "hemodynamic_flow":     self._calc_flow,
+            "cardiac_rhythm":       self._calc_cycle_length,
+            "systolic_interval":    self._calc_systolic_interval,
             "electrical_conduction": self._calc_lambda,
         }
 
@@ -153,6 +155,50 @@ class CirculatoryLamina(UniversalTwin):
             raise ValueError("inputs[0] (HR) and inputs[1] (SV) must be available before computing CO")
 
         return hr * sv / 1000
+
+    # ── Step 3c: Cardiac Rhythm ──────────────────────────────────────
+
+    def _calc_cycle_length(self, inputs: list) -> float:
+        """
+        T_cycle = 60 / HR   (seconds)
+
+        Arithmetically trivial on purpose.  Its job is architectural: a
+        consumer that needs beat timing reads this computed attribute rather
+        than reaching for the HR sensor, so the raw stream stays behind the
+        model.  When rhythm grows real content — conduction delay, ectopy —
+        it grows here and no consumer changes.
+        inputs: [HR]
+        """
+        hr = inputs[0]
+
+        if hr is None:
+            raise ValueError("inputs[0] (HR) must be set before computing T_cycle")
+        if hr <= 0:
+            raise ValueError(f"HR must be positive to derive a cycle length, got {hr}")
+
+        return 60.0 / hr
+
+    # ── Step 3d: Systolic Interval ───────────────────────────────────
+
+    def _calc_systolic_interval(self, inputs: list) -> float:
+        """
+        T_sys = 0.413 − 0.0017 · HR   (seconds)
+
+        Weissler's regression for left ventricular ejection time.  Ejection
+        time falls with rate far more slowly than cycle length does, so
+        systole occupies a *larger* fraction of a fast cycle — which is why a
+        fixed systolic fraction misrepresents both tachycardia and
+        bradycardia.  Population regression, not per-patient.
+        inputs: [HR]
+        """
+        hr = inputs[0]
+
+        if hr is None:
+            raise ValueError("inputs[0] (HR) must be set before computing T_sys")
+
+        # The regression goes non-physiological past ~240 bpm; floor it so a
+        # slider at the end of its travel cannot produce a negative systole.
+        return max(0.05, 0.413 - 0.0017 * hr)
 
     # ── Step 4: Hemodynamic Flow ─────────────────────────────────────
 

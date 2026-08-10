@@ -14,19 +14,21 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { FLOW_ANIMATORS, MOTION_ANIMATORS } from '../../game/animators'
 import type { AnimatorContext } from '../../game/animators'
-import { alongPath } from '../../game/stageTemplate'
+import { alongPath, resolveEnvelope } from '../../game/stageTemplate'
 import type { EnvelopeId, LoadedStage } from '../../game/stageTemplate'
 import { beatClock, bump } from '../../game/beatClock'
 import { SchematicOverlay } from './SchematicOverlay'
 
 interface Props {
   stage: LoadedStage
-  /** Model-computed attributes only — no sensors reach this component. */
+  /**
+   * Model-computed attributes only.  This is the component's *entire* data
+   * input — beat timing included, via the template's rhythm binding — so there
+   * is no route by which a sensor could reach the stage.
+   */
   values: Record<string, number>
   /** Attribute id → 'SENSOR' | 'PRELIMINARY', straight from the lamina schema. */
   sources: Record<string, string>
-  /** Beat driver. Currently a raw sensor; see the note above. */
-  rhythmHr: number
   paused?: boolean
   /** Dim everything except this placeholder (legend hover). */
   focus?: string | null
@@ -37,7 +39,6 @@ export function LaminaStage({
   stage,
   values,
   sources,
-  rhythmHr,
   paused = false,
   focus = null,
   mode = 'showcase',
@@ -55,9 +56,11 @@ export function LaminaStage({
     live.current = values
   }, [values])
 
+  // Beat rate comes from the model's cycle-length attribute, not from HR.
+  const cycleSeconds = values[template.rhythm.bind]
   useEffect(() => {
-    beatClock.setHr(rhythmHr)
-  }, [rhythmHr])
+    if (cycleSeconds !== undefined) beatClock.setCycle(cycleSeconds)
+  }, [cycleSeconds])
 
   useEffect(() => {
     beatClock.setPaused(paused)
@@ -79,8 +82,12 @@ export function LaminaStage({
       last = now
 
       const phase = beatClock.phase
+      // Windows are resolved every frame: their durations are model values in
+      // seconds, so the share of the cycle they occupy moves with the rate.
+      const cycle = live.current[template.rhythm.bind] ?? beatClock.cycle
       const ctx: AnimatorContext = {
-        envelope: (id: EnvelopeId) => bump(phase, template.rhythm.envelopes[id]),
+        envelope: (id: EnvelopeId) =>
+          bump(phase, resolveEnvelope(template.rhythm.envelopes[id], cycle, live.current)),
         value: (attribute: string) => live.current[attribute],
       }
 

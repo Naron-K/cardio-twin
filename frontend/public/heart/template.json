@@ -6,16 +6,16 @@
     "height": 756
   },
   "rhythm": {
-    "bind": "HR",
+    "bind": "T_cycle",
     "envelopes": {
-      "ventricular": [
-        0.08,
-        0.42
-      ],
-      "atrial": [
-        0.8,
-        0.99
-      ]
+      "ventricular": {
+        "startFraction": 0.08,
+        "durationFrom": "T_sys"
+      },
+      "atrial": {
+        "endFraction": 1.0,
+        "duration": 0.15
+      }
     }
   },
   "placeholders": {

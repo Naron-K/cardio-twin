@@ -14,6 +14,8 @@ import { beatClock, ecgAt } from '../../game/beatClock'
 
 interface Props {
   hr: number
+  /** Model cycle length in seconds; preferred over `hr` when present. */
+  cycleSeconds?: number
   paused?: boolean
   /** Out-of-band vitals switch the trace from oxy-blue to crimson. */
   alert?: boolean
@@ -23,7 +25,13 @@ interface Props {
 const SWEEP_PX_PER_SEC = 110
 const ERASE_WIDTH = 26
 
-export function EcgStrip({ hr, paused = false, alert = false, height = 96 }: Props) {
+export function EcgStrip({
+  hr,
+  cycleSeconds,
+  paused = false,
+  alert = false,
+  height = 96,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const live = useRef({ alert, paused })
@@ -31,9 +39,13 @@ export function EcgStrip({ hr, paused = false, alert = false, height = 96 }: Pro
     live.current = { alert, paused }
   }, [alert, paused])
 
+  // Rate comes from the model's cycle length when it is available, so this
+  // strip and the stage cannot disagree about the beat.  The *waveform* is
+  // still synthesised — the lamina takes no ECG input and emits none.
   useEffect(() => {
-    beatClock.setHr(hr)
-  }, [hr])
+    if (cycleSeconds !== undefined) beatClock.setCycle(cycleSeconds)
+    else beatClock.setHr(hr)
+  }, [cycleSeconds, hr])
 
   useEffect(() => {
     const canvas = canvasRef.current

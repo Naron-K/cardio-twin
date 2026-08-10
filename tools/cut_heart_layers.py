@@ -149,12 +149,16 @@ def write_template(geometry, width, height):
 
     doc["laminaId"] = doc.get("laminaId", "lamina_circulatory")
     doc["artwork"] = {"src": "base.png", "width": width, "height": height}
-    # Cardiac phase windows.  They live here rather than in the renderer so
-    # they are visible and editable — but they are still not model output;
-    # they belong in a rhythm outcome once the model grows one.
+    # Beat timing, read from computed attributes rather than the HR sensor.
+    # Envelope durations are seconds, so their share of the cycle moves with
+    # the rate — the atrial window is still a declared constant because the
+    # model has no atrial timing to offer.
     doc["rhythm"] = doc.get("rhythm", {
-        "bind": "HR",
-        "envelopes": {"ventricular": [0.08, 0.42], "atrial": [0.8, 0.99]},
+        "bind": "T_cycle",
+        "envelopes": {
+            "ventricular": {"startFraction": 0.08, "durationFrom": "T_sys"},
+            "atrial": {"endFraction": 1.0, "duration": 0.15},
+        },
     })
 
     # Painter's order: the pulmonary artery crosses in front of the aortic root.

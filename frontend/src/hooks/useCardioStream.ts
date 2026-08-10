@@ -52,6 +52,13 @@ export interface StreamTick {
   sv: number            // computed.SV.value  (mL)
   map: number           // computed.MAP.value (mmHg)
   q: number             // computed.Q.value   (L/min)
+  /**
+   * Every PRELIMINARY attribute by id — including ones with no named field
+   * above, such as `T_cycle`, `T_sys` and `lambda`.  Consumers that must not
+   * see raw data (the stage) take this and nothing else, so a new model
+   * output reaches them without touching this hook.
+   */
+  computed: Record<string, number>
   // ── Feedback corrections ──────────────────────────────────────────
   co_feedback: number   // computed.CO.value_feedback  (X'')
   sv_feedback: number   // computed.SV.value_feedback  (X'')
@@ -120,6 +127,9 @@ function parseSnapshot(raw: unknown): StreamTick | null {
       sv:            s.computed.SV?.value              ?? 0,
       map:           s.computed.MAP?.value             ?? 0,
       q:             s.computed.Q?.value               ?? 0,
+      computed:      Object.fromEntries(
+                       Object.entries(s.computed).map(([id, a]) => [id, a.value])
+                     ),
       co_feedback:   s.computed.CO?.value_feedback     ?? 0,
       sv_feedback:   s.computed.SV?.value_feedback     ?? 0,
       feedback_norm: s.feedback_norm                   ?? 0,

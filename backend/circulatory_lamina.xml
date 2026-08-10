@@ -217,6 +217,28 @@
       <description>Total blood output per minute</description>
     </attribute>
 
+    <attribute id="T_cycle">
+      <name>Cardiac Cycle Length</name>
+      <unit>s</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0.30</physio_min>
+      <physio_max>1.60</physio_max>
+      <computed_by>cardiac_rhythm</computed_by>
+      <depends_on>HR</depends_on>
+      <description>Duration of one cardiac cycle. Exists so consumers of the model read a computed rhythm rather than the raw HR sensor; the visualiser is not permitted to see sensor values.</description>
+    </attribute>
+
+    <attribute id="T_sys">
+      <name>Ventricular Ejection Time</name>
+      <unit>s</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0.08</physio_min>
+      <physio_max>0.42</physio_max>
+      <computed_by>systolic_interval</computed_by>
+      <depends_on>HR</depends_on>
+      <description>Left ventricular ejection time. Shortens with rate far less than the cycle does, so systole occupies a LARGER fraction of a fast cycle — the reason a fixed systolic fraction is wrong at extreme rates.</description>
+    </attribute>
+
     <attribute id="Q">
       <name>Blood Flow Rate</name>
       <unit>L/min</unit>
@@ -285,6 +307,22 @@
       <inputs>MAP, R</inputs>
       <output>Q</output>
       <description>Ohm's Law for hemodynamics. Driving pressure is the arterio-venous gradient (MAP - CVP), not MAP alone. NOTE: R here is a single-segment Poiseuille estimate, so Q's ABSOLUTE value is unreliable; trust its trend, not its magnitude (see R).</description>
+    </function>
+
+    <function id="cardiac_rhythm" step="3c">
+      <name>Cardiac Rhythm</name>
+      <formula>T_cycle = 60 / HR</formula>
+      <inputs>HR</inputs>
+      <output>T_cycle</output>
+      <description>Cycle length from rate. Arithmetically trivial, but it is what lets a consumer read rhythm as a model output instead of reaching for the HR sensor — the model carries the complexity, the consumer reads a result.</description>
+    </function>
+
+    <function id="systolic_interval" step="3d">
+      <name>Systolic Interval</name>
+      <formula>T_sys = 0.413 - 0.0017 * HR</formula>
+      <inputs>HR</inputs>
+      <output>T_sys</output>
+      <description>Weissler's regression for left ventricular ejection time (seconds, adult male resting cohort). Replaces a fixed systolic fraction: ejection time falls with rate far more slowly than cycle length does, so systole takes up a larger share of a fast cycle. Coefficients are population regression, not per-patient — worth recalibrating against a real cohort before clinical claims.</description>
     </function>
 
     <function id="electrical_conduction" step="5">
@@ -482,9 +520,9 @@
 
     <segment name="Cardiac" id="seg_cardiac">
       <description>Cardiac pump subsystem</description>
-      <attributes>EDV, HR, SV, CO</attributes>
+      <attributes>EDV, HR, SV, CO, T_cycle, T_sys</attributes>
       <composites>pump_state</composites>
-      <functions>cardiac_filling, cardiac_pump</functions>
+      <functions>cardiac_filling, cardiac_pump, cardiac_rhythm, systolic_interval</functions>
       <behavioural_outcomes>
         <outcome id="target_co" attribute="CO" target="5.0" tolerance="1.5"
                  name="Target Cardiac Output" unit="L/min">

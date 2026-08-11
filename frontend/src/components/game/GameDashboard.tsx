@@ -17,6 +17,7 @@ import { fetchSchema, uploadXML } from '../../utils/api'
 import type { Schema } from '../../utils/api'
 import { PixelHeart } from './PixelHeart'
 import { LaminaStage } from './LaminaStage'
+import { ConvergenceChart } from './ConvergenceChart'
 import { loadStage } from '../../game/stageTemplate'
 import type { LoadedStage } from '../../game/stageTemplate'
 import { Panel, Chip, VitalCard, CommandButton } from './ui'
@@ -29,7 +30,7 @@ interface Props {
   onBack: () => void
 }
 
-type Tab = 'telemetry' | 'log'
+type Tab = 'convergence' | 'telemetry' | 'log'
 type LogTone = 'info' | 'good' | 'warn' | 'cmd'
 interface LogEntry {
   id: number
@@ -48,18 +49,22 @@ const HEART_MODELS: { id: HeartModel; label: string }[] = [
 ]
 
 const TABS: { id: Tab; label: string }[] = [
+  { id: 'convergence', label: 'Convergence' },
   { id: 'telemetry', label: 'Telemetry' },
   { id: 'log', label: 'Mission Log' },
 ]
 
 export function GameDashboard({ onBack }: Props) {
-  const { ticks, status, sendControl } = useCardioStream({ tickMs: 100, bufferSize: 60 })
+  // 300 ticks ≈ 30 s of history: long enough for the convergence panel to show
+  // a disturbance and the loop settling after it, rather than a flat window.
+  // Everything else here reads only the latest tick.
+  const { ticks, status, sendControl } = useCardioStream({ tickMs: 100, bufferSize: 300 })
   const latest: StreamTick | null = ticks.length > 0 ? ticks[ticks.length - 1] : null
 
   const [schema, setSchema] = useState<Schema | null>(null)
   const [values, setValues] = useState<Record<string, number>>({})
   const [paused, setPaused] = useState(false)
-  const [tab, setTab] = useState<Tab>('telemetry')
+  const [tab, setTab] = useState<Tab>('convergence')
   const [focus, setFocus] = useState<Chamber | null>(null)
   const [heartModel, setHeartModel] = useState<HeartModel>('anatomical')
   const [stage, setStage] = useState<LoadedStage | null>(null)
@@ -522,9 +527,30 @@ export function GameDashboard({ onBack }: Props) {
           {/* Tab panel under the stage */}
           <Panel
             className="shrink-0"
-            eyebrow={tab === 'telemetry' ? 'Model readout' : 'Event stream'}
-            title={tab === 'telemetry' ? 'Model parameters' : 'Mission log'}
+            eyebrow={
+              tab === 'convergence'
+                ? 'Model output · adaptive loop'
+                : tab === 'telemetry'
+                  ? 'Model readout'
+                  : 'Event stream'
+            }
+            title={
+              tab === 'convergence'
+                ? 'Total deviation from clinical targets'
+                : tab === 'telemetry'
+                  ? 'Model parameters'
+                  : 'Mission log'
+            }
+            action={
+              tab === 'convergence' ? (
+                <span className="font-mono text-[10px] readout text-oxy/50 text-right leading-snug max-w-[240px]">
+                  Every value here is computed by the lamina — nothing is synthesised
+                </span>
+              ) : null
+            }
           >
+            {tab === 'convergence' && <ConvergenceChart ticks={ticks} height={150} />}
+
             {tab === 'telemetry' && (
               <div className="grid grid-cols-4 gap-3">
                 <Metric label="HR" value={hr.toFixed(0)} unit="bpm" />

@@ -85,18 +85,34 @@ the ventricular window grows from 0.29 to 0.33 of the cycle between 72 and
 The coefficients are a population regression from an adult male resting cohort,
 not a per-patient fit — worth recalibrating before any clinical claim.
 
-## Removed: the ECG strip
+## The panel under the stage
 
-The stage used to carry a lead-II trace. It was deleted rather than fixed: the
-lamina takes no ECG input and emits no waveform, so every sample of it was
-generated in the browser from P–QRS–T gaussians keyed to heart rate. A label
-saying "synthesised" is not enough when the thing being drawn is the most
-clinically loaded image in the room, and an Open Day audience reads a
-waveform as a measurement.
+It used to carry a lead-II ECG. That was deleted rather than fixed: the lamina
+takes no ECG input and emits no waveform, so every sample of it was generated in
+the browser from P–QRS–T gaussians keyed to heart rate. A caption saying
+"synthesised" is not enough when the thing being drawn is the most clinically
+loaded image in the room — a waveform reads as a measurement, and the caption is
+smaller than the trace.
 
-The honest replacement is a trace of something the model actually produces —
-the total normalised deviation `D` falling as the feedback loop converges is
-the obvious candidate, and it shows the loop working. Not built yet.
+`ConvergenceChart` replaced it, plotting something the model does produce:
+
+    D = Σ |actual − target| / tolerance
+
+summed over the behavioural outcomes, in units of their own tolerance so mmHg,
+L/min, mL and mm can be added at all. D = 0 is every outcome exactly on target.
+
+Two lines, both from `before_after_outcomes`: `after` is the value the loop
+produced, `before` is the same cycle recomputed with X″ zeroed everywhere. The
+gap between them is the loop's contribution, live — which is the one thing an
+ECG could never show.
+
+Series colours are the Oxygenated-Blue and warn hues re-stepped for a dark chart
+surface (`#00a5bb`, `#c8801f`); DESIGN.md's own steps sit at OKLCH L 0.81 and
+0.77 against a usable band of 0.48–0.67. The pair clears colour-vision
+separation at ΔE 19 against a target of 8.
+
+The game view buffers 300 ticks (~30 s) so a disturbance and the settling after
+it both fit in the window.
 
 ## Editing
 

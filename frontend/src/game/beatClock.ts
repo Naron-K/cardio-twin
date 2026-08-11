@@ -1,9 +1,9 @@
 /**
  * beatClock — one shared cardiac-cycle phase for the whole game view.
  *
- * The heart sprite and the ECG strip both need to be on the *same* beat, so
- * neither owns the clock: this module advances a single phase ∈ [0,1) at the
- * live heart rate and both read it from their own rAF loops.  Phase 0 is the
+ * Several views need to be on the *same* beat, so none of them owns the clock:
+ * this module advances a single phase ∈ [0,1) at the live rate and each reads
+ * it from its own rAF loop.  Phase 0 is the
  * start of the cardiac cycle; the QRS and ventricular ejection both live in
  * the SYSTOLE window below, which is what keeps the trace and the squeeze
  * visually locked together.
@@ -13,7 +13,7 @@
  */
 
 /**
- * Fixed phase windows, kept for the 16-bit sprite and the synthesised ECG.
+ * Fixed phase windows, the last consumer of which is the 16-bit sprite.
  * The anatomical stage no longer uses them: it derives its windows from the
  * model's `T_cycle` and `T_sys`, which is why a fast beat there spends a
  * larger share of the cycle in systole and these constants do not.
@@ -99,28 +99,4 @@ export function bump(phase: number, [start, end]: [number, number]): number {
   const u = (phase - start + 1) % 1
   if (u > len) return 0
   return 0.5 - 0.5 * Math.cos(2 * Math.PI * (u / len))
-}
-
-/**
- * Idealised single-lead ECG as a function of cardiac phase, in arbitrary units
- * (R peak ≈ 1).  P–QRS–T built from gaussians.
- *
- * This is a *display* waveform derived from heart rate — the lamina model
- * computes lambda/CO/MAP, not a conduction waveform — so the UI labels it as
- * synthesised rather than measured.
- */
-export function ecgAt(phase: number): number {
-  const g = (centre: number, width: number, amp: number) => {
-    let d = phase - centre
-    if (d > 0.5) d -= 1
-    if (d < -0.5) d += 1
-    return amp * Math.exp(-(d * d) / (2 * width * width))
-  }
-  return (
-    g(0.12, 0.022, 0.16) + // P
-    g(0.194, 0.006, -0.1) + // Q
-    g(0.21, 0.007, 1.0) + // R
-    g(0.232, 0.008, -0.28) + // S
-    g(0.4, 0.038, 0.3) // T
-  )
 }

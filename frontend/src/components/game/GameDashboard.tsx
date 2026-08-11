@@ -19,7 +19,6 @@ import { PixelHeart } from './PixelHeart'
 import { LaminaStage } from './LaminaStage'
 import { loadStage } from '../../game/stageTemplate'
 import type { LoadedStage } from '../../game/stageTemplate'
-import { EcgStrip } from './EcgStrip'
 import { Panel, Chip, VitalCard, CommandButton } from './ui'
 import { COMMANDS, MISSIONS, VITAL_RANGE } from '../../game/protocol'
 import type { Command } from '../../game/protocol'
@@ -30,7 +29,7 @@ interface Props {
   onBack: () => void
 }
 
-type Tab = 'diagnostics' | 'telemetry' | 'log'
+type Tab = 'telemetry' | 'log'
 type LogTone = 'info' | 'good' | 'warn' | 'cmd'
 interface LogEntry {
   id: number
@@ -49,7 +48,6 @@ const HEART_MODELS: { id: HeartModel; label: string }[] = [
 ]
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: 'diagnostics', label: 'Diagnostics' },
   { id: 'telemetry', label: 'Telemetry' },
   { id: 'log', label: 'Mission Log' },
 ]
@@ -61,7 +59,7 @@ export function GameDashboard({ onBack }: Props) {
   const [schema, setSchema] = useState<Schema | null>(null)
   const [values, setValues] = useState<Record<string, number>>({})
   const [paused, setPaused] = useState(false)
-  const [tab, setTab] = useState<Tab>('diagnostics')
+  const [tab, setTab] = useState<Tab>('telemetry')
   const [focus, setFocus] = useState<Chamber | null>(null)
   const [heartModel, setHeartModel] = useState<HeartModel>('anatomical')
   const [stage, setStage] = useState<LoadedStage | null>(null)
@@ -425,7 +423,7 @@ export function GameDashboard({ onBack }: Props) {
         <main className="min-h-0 flex flex-col gap-gutter">
           {/* No scanlines here on purpose — a 3px scanline period fights the
               sprite's ~14px pixel grid and reads as banding across the
-              chambers.  The ECG strip keeps them. */}
+              chambers. */}
           <div className="relative flex-1 min-h-0 rounded-card border border-white/10 shadow-inset1
                           bg-surface-lowest stage-grid overflow-hidden">
             {/* HUD overlays */}
@@ -524,32 +522,9 @@ export function GameDashboard({ onBack }: Props) {
           {/* Tab panel under the stage */}
           <Panel
             className="shrink-0"
-            eyebrow={tab === 'diagnostics' ? 'ECG · lead II' : tab === 'telemetry' ? 'Model readout' : 'Event stream'}
-            title={
-              tab === 'diagnostics'
-                ? 'Electrocardiogram'
-                : tab === 'telemetry'
-                  ? 'Model parameters'
-                  : 'Mission log'
-            }
-            action={
-              tab === 'diagnostics' ? (
-                <span className="font-mono text-[10px] readout text-warn/70 text-right leading-snug max-w-[230px]">
-                  Waveform synthesised from HR — the lamina model emits no waveform
-                </span>
-              ) : null
-            }
+            eyebrow={tab === 'telemetry' ? 'Model readout' : 'Event stream'}
+            title={tab === 'telemetry' ? 'Model parameters' : 'Mission log'}
           >
-            {tab === 'diagnostics' && (
-              <EcgStrip
-                hr={hr}
-                cycleSeconds={modelValues.T_cycle}
-                paused={paused}
-                alert={alert}
-                height={96}
-              />
-            )}
-
             {tab === 'telemetry' && (
               <div className="grid grid-cols-4 gap-3">
                 <Metric label="HR" value={hr.toFixed(0)} unit="bpm" />

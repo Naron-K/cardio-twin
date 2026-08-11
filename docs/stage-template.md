@@ -85,6 +85,19 @@ the ventricular window grows from 0.29 to 0.33 of the cycle between 72 and
 The coefficients are a population regression from an adult male resting cohort,
 not a per-patient fit — worth recalibrating before any clinical claim.
 
+## Removed: the ECG strip
+
+The stage used to carry a lead-II trace. It was deleted rather than fixed: the
+lamina takes no ECG input and emits no waveform, so every sample of it was
+generated in the browser from P–QRS–T gaussians keyed to heart rate. A label
+saying "synthesised" is not enough when the thing being drawn is the most
+clinically loaded image in the room, and an Open Day audience reads a
+waveform as a measurement.
+
+The honest replacement is a trace of something the model actually produces —
+the total normalised deviation `D` falling as the feedback loop converges is
+the obvious candidate, and it shows the loop working. Not built yet.
+
 ## Editing
 
 `tools/cut_heart_layers.py` owns `geometry` and rewrites it on every run.
@@ -98,9 +111,6 @@ Honest list of clinical knowledge that has not moved yet:
 - `VITAL_RANGE` in `protocol.ts`, and the `alert` flag derived from it — the
   model already ships `within_tolerance` per outcome, and two of these bands
   disagree with the XML (`CO` and `SV`)
-- `ecgAt()` — the strip's *rate* now follows `T_cycle`, but its waveform is
-  still synthesised from P–QRS–T gaussians. The model takes no ECG input and
-  emits no waveform, so this remains a decoration that the UI labels as such
 - `SYSTOLE` / `ATRIAL_SYSTOLE` in `beatClock.ts` — the fixed windows, still used
   by the 16-bit sprite. The anatomical stage no longer reads them
 - The atrial phase window is a declared constant, because no model output

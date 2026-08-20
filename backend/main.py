@@ -65,7 +65,14 @@ app.add_middleware(
 )
 
 # Path to the XML schema, relative to this file
-SCHEMA_PATH = Path(__file__).parent / "circulatory_lamina.xml"
+# Which lamina this process is running.  Overridable so "point the backend at
+# a different lamina and the visualiser follows" is a thing anyone can try
+# rather than a claim in a document — the 2D view builds itself out of
+# /api/schema and names no attribute of its own.
+SCHEMA_PATH = Path(
+    os.environ.get("CARDIOTWIN_LAMINA")
+    or Path(__file__).parent / "circulatory_lamina.xml"
+)
 
 # Path to presets folder (one level up from backend/)
 PRESETS_PATH = Path(__file__).parent.parent / "presets"
@@ -365,6 +372,27 @@ def get_schema():
             ],
         }
 
+    # Permeability gates.  Parsed from <gates> since v1 but never
+    # exposed, which left the visualiser unable to show a condition the
+    # model genuinely enforces — and pushed anyone who wanted one into
+    # typing a threshold into the UI instead.  Serialised verbatim: a
+    # gate is domain-expert knowledge declared in XML, and the frontend
+    # renders it without holding a second opinion about it.
+    gates = [
+        {
+            "attribute":      g.attribute,
+            "gate_type":      g.gate_type,
+            "min":            g.min_val,
+            "max":            g.max_val,
+            "tolerance":      g.tolerance,
+            "compare":        g.compare,
+            "action_on_fail": g.action_on_fail,
+            "flag":           g.flag,
+            "steepness":      g.steepness,
+        }
+        for g in twin.gates
+    ]
+
     # Phase B: expose feedback tag bindings so the frontend (Phase F)
     # can list them.  Polarity is serialised as a float per D7 — the
     # frontend can derive the friendly label client-side if it wants.
@@ -403,9 +431,28 @@ def get_schema():
             "behaviour_solver_type": twin.behaviour_solver_type,
             "behaviour_solver_dt": twin.behaviour_solver_dt,
             "behaviour_solver_unit": twin.behaviour_solver_unit,
+            "adaptation_kernel": twin.adaptation_kernel_type,
+            "slow_loop_cadence": twin.slow_loop_cadence,
+            "adaptation_params": twin.adaptation_params,
         },
         # Phase B: tag registry for the feedback pipeline.
         "tags": tags,
+        "gates": gates,
+        # What the engine can do, as opposed to what this lamina picked.
+        # Every mechanism in the pipeline is a named entry in a registry
+        # that the XML selects by name; without this list a reader sees
+        # "gate_kernel=sigmoid_leaky_tanh" with no way to know whether
+        # that was a choice or the only option.  Names only — the
+        # callables stay server-side.
+        "registries": {
+            "function":          sorted(twin._function_registry.keys()),
+            "coupling":          sorted(twin._coupling_registry.keys()),
+            "deviation":         sorted(twin._deviation_registry.keys()),
+            "emitter":           sorted(twin._emitter_registry.keys()),
+            "gate_kernel":       sorted(twin._gate_kernel_registry.keys()),
+            "solver":            sorted(twin._solver_registry.keys()),
+            "adaptation_kernel": sorted(twin._adaptation_kernel_registry.keys()),
+        },
     }
 
 

@@ -10,8 +10,8 @@
  * Rendered as HTML rather than inside the SVG so the type stays crisp and the
  * chips reuse the same tokens as the rest of the game UI.
  */
-import { describeBindings, describeRhythm, tallyProvenance } from '../../game/stageTemplate'
-import type { LoadedStage, Provenance } from '../../game/stageTemplate'
+import { describeBindings, describeRhythm, tallyProvenance } from '../../twin/stageTemplate'
+import type { LoadedStage, Provenance } from '../../twin/stageTemplate'
 
 interface Props {
   stage: LoadedStage

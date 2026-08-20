@@ -1,42 +1,25 @@
 import axios from 'axios'
+import type { LaminaSchema } from '../twin/schema'
 
 // ── Schema types (from GET /api/schema) ───────────────────────────────────────
+//
+// The payload is described once, in twin/schema.ts, because the universal
+// visualiser is built entirely out of it and a second partial copy here is how
+// the two drift apart.  This file re-exports the pieces the older analysis
+// views already import by these names.
 
-export interface AttributeSchema {
-  id: string
-  name: string
-  unit: string
-  source: 'SENSOR' | 'PRELIMINARY'
-  physio_min: number
-  physio_max: number
-  description: string
-  computed_by: string | null
-  depends_on: string[]
-}
+export type {
+  LaminaSchema,
+  AttributeSchema,
+  CompositeSchema,
+  FunctionSchema,
+  SegmentSchema,
+  OutcomeSchema,
+  TagSchema,
+  GateSchema,
+} from '../twin/schema'
 
-export interface CompositeSchema {
-  id: string
-  name: string
-  attribute_ids: string[]
-  description: string
-}
-
-export interface FunctionSchema {
-  id: string
-  name: string
-  step: number
-  formula: string
-  inputs: string[]
-  output: string
-  description: string
-}
-
-export interface Schema {
-  lamina_name: string
-  attributes: Record<string, AttributeSchema>
-  composites: Record<string, CompositeSchema>
-  functions: FunctionSchema[]
-}
+export type Schema = LaminaSchema
 
 // ── Result types (from POST /api/compute, /api/upload, /api/feedback/*) ───────
 

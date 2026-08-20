@@ -1,16 +1,24 @@
 # The anatomical heart asset
 
-The 2D stage renders three ways, switchable from the toggle above it:
+The 2D stage renders four ways for this lamina, switchable from the toggle
+above it:
 
 | Mode         | Component                | Notes                                   |
 | ------------ | ------------------------ | --------------------------------------- |
 | `Anatomical` | `LaminaStage.tsx`        | illustrated cross-section (default)     |
 | `Schematic`  | `SchematicOverlay.tsx`   | the same stage with its wiring showing  |
 | `16-bit`     | `PixelHeart.tsx`         | the hand-authored sprite                |
+| `Lamina map` | `LaminaMap.tsx`          | the model's own wiring, from the schema |
+
+The first three exist because `lamina_circulatory` has an entry in
+`twin/stageRegistry.tsx`. The fourth is always available and is the default for
+any lamina nobody has illustrated.
 
 `LaminaStage` knows nothing about hearts — it draws whatever stage template it
 is handed. See [stage-template.md](stage-template.md) for the architecture and
-the provenance rule it enforces.
+the provenance rule it enforces, and
+[universal-visualisation.md](universal-visualisation.md) for the screen the
+stage sits inside.
 
 ## Where the pixels come from
 
@@ -36,7 +44,8 @@ That script flood-fills from six hand-verified seed points and writes:
 - `frontend/public/heart/base.png` — everything static: myocardium, valves,
   chordae, great-vessel walls, with the background knocked out
 - `frontend/public/heart/{ra,rv,la,lv,ao,pa}.png` — the six moving regions
-- `frontend/src/game/heartLayers.generated.ts` — placement, pivots, centrelines
+- `frontend/public/heart/template.json` — placement, pivots, centrelines,
+  merged into the existing file so every hand-written binding survives the run
 
 Because all seven come out of one image, registration is exact by construction.
 Re-run the script after any change to `screen.png`; nothing is hand-tuned.
@@ -61,15 +70,22 @@ included. The aorta rises correctly and needs no special case.
 
 ## What the animation is bound to
 
-| Channel               | Source                                          |
-| --------------------- | ----------------------------------------------- |
-| beat timing           | live HR, via the shared `beatClock`             |
-| chamber squeeze       | cardiac phase — atrial kick, then systole       |
-| ejection particles    | CO — faster flow at higher cardiac output       |
-| great-vessel distension | SV — 70 mL ≈ 1×                               |
-| bloom                 | the caller's `alert` flag                       |
+| Channel                 | Source                                          |
+| ----------------------- | ----------------------------------------------- |
+| beat timing             | `T_cycle`, computed by the model                 |
+| phase windows           | `T_sys` in seconds, against the live `T_cycle`   |
+| chamber squeeze         | cardiac phase — atrial kick, then systole        |
+| ejection particles      | `CO` / `Q` — faster flow at higher output        |
+| great-vessel distension | `SV` — 70 mL ≈ 1×                                |
+| bloom                   | an outcome outside the tolerance the model set   |
 
-Beat timing and the ECG are *synthesised from HR*, and the UI says so. The
-lamina model is steady-state algebra with no pulsatility, so it emits no
-waveform and no per-chamber volumes; showing real circulation needs the 0D
-closed-loop upgrade, which is still outstanding.
+Every one of those is a PRELIMINARY attribute. Beat timing used to be
+synthesised in the browser from the HR sensor; it now comes from `T_cycle`,
+which the model computes precisely so that consumers never reach for the
+sensor. The ECG that used to sit under the stage was deleted rather than
+relabelled — see [stage-template.md](stage-template.md).
+
+The lamina remains steady-state algebra with no pulsatility: it emits no
+waveform and no per-chamber volumes, so the two atria move on a declared
+constant and the strip above the stage says so. Showing real circulation needs
+the 0D closed-loop upgrade, which is still outstanding.

@@ -13,8 +13,8 @@
  * alarm colour because a raw sensor reaching the stage is the one thing the
  * architecture forbids — and it currently reads zero, which is worth showing.
  */
-import { constantRegions, tallyProvenance } from '../../game/stageTemplate'
-import type { LoadedStage, Provenance } from '../../game/stageTemplate'
+import { constantRegions, tallyProvenance } from '../../twin/stageTemplate'
+import type { LoadedStage, Provenance } from '../../twin/stageTemplate'
 
 interface Props {
   stage: LoadedStage
@@ -46,18 +46,20 @@ export function ProvenanceStrip({ stage, sources }: Props) {
         Data source
       </span>
 
-      <div className="flex items-center gap-2.5">
+      <div className="flex items-center gap-2.5 shrink-0">
         {order.map((p) =>
           tally[p] === 0 && p !== 'sensor' ? null : (
-            <span key={p} className="flex items-center gap-1.5">
+            <span key={p} className="flex items-center gap-1.5 shrink-0">
               <span className={`w-1.5 h-1.5 rounded-full ${TONE[p].dot}`} />
-              <span className={`font-mono text-[10px] readout ${TONE[p].text}`}>
+              <span className={`font-mono text-[10px] readout whitespace-nowrap ${TONE[p].text}`}>
                 {tally[p]} {TONE[p].label}
               </span>
             </span>
           )
         )}
-        <span className="font-mono text-[10px] readout text-ink/25">/ {total} bindings</span>
+        <span className="font-mono text-[10px] readout text-ink/25 whitespace-nowrap">
+          / {total} bindings
+        </span>
       </div>
 
       {constants.length > 0 && (

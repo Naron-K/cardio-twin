@@ -20,9 +20,9 @@ import {
   ATRIA,
   VENTRICLES,
   VESSELS,
-} from '../../game/heartSprite'
-import type { Chamber } from '../../game/heartSprite'
-import { beatClock, bump, SYSTOLE, ATRIAL_SYSTOLE } from '../../game/beatClock'
+} from '../../twin/heartSprite'
+import type { Chamber } from '../../twin/heartSprite'
+import { beatClock, bump, SYSTOLE, ATRIAL_SYSTOLE } from '../../twin/beatClock'
 
 interface Props {
   /**

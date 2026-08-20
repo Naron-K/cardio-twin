@@ -23,13 +23,20 @@
  * value cannot be trusted is the model's sentence, not ours.
  */
 import type { BeforeAfter } from '../../hooks/useCardioStream'
-import type { Schema } from '../../utils/api'
-import { bandOf, deviationBands, orderedOutcomes } from '../../game/outcomes'
-import type { Outcomes } from '../../game/outcomes'
+import { bandOf, deviationBands, orderedOutcomes } from '../../twin/outcomes'
+import type { Outcomes } from '../../twin/outcomes'
+import type { LaminaIndex } from '../../twin/schema'
 
 interface Props {
   outcomes: Outcomes
-  schema: Schema | null
+  index: LaminaIndex
+}
+
+/** The model's own words about this attribute — description + its function's. */
+function modelNote(index: LaminaIndex, attributeId: string): string {
+  const attr = index.attribute(attributeId)
+  const fn = index.functionByOutput[attributeId]
+  return [attr?.description, fn?.description].filter(Boolean).join(' · ')
 }
 
 /** Percent position of a value on the attribute's physiological scale. */
@@ -43,13 +50,7 @@ function fmt(v: number): string {
   return a >= 100 ? v.toFixed(0) : a >= 10 ? v.toFixed(1) : v.toFixed(2)
 }
 
-/** The model's own words about this attribute — description + its function's. */
-function modelNote(schema: Schema | null, attributeId: string): string {
-  if (!schema) return ''
-  const attr = schema.attributes[attributeId]
-  const fn = schema.functions.find((f) => f.output === attributeId)
-  return [attr?.description, fn?.description].filter(Boolean).join(' · ')
-}
+
 
 function Row({ o, note }: { o: BeforeAfter; note: string }) {
   const lo = o.physio_min
@@ -135,7 +136,7 @@ function Row({ o, note }: { o: BeforeAfter; note: string }) {
   )
 }
 
-export function OutcomePanel({ outcomes, schema }: Props) {
+export function OutcomePanel({ outcomes, index }: Props) {
   const rows = orderedOutcomes(outcomes)
 
   if (rows.length === 0) {
@@ -154,7 +155,7 @@ export function OutcomePanel({ outcomes, schema }: Props) {
           outcomes or an attribute carries a longer note. */}
       <div className="max-h-[276px] overflow-y-auto pr-1 space-y-2">
         {rows.map(({ id, o }) => (
-          <Row key={id} o={o} note={modelNote(schema, o.attribute_id)} />
+          <Row key={id} o={o} note={modelNote(index, o.attribute_id)} />
         ))}
       </div>
 

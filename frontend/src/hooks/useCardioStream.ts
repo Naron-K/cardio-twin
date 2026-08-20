@@ -40,14 +40,34 @@ export interface Adaptation {
   updates: number
 }
 
+/** One outcome as the model evaluated it this cycle, before the shadow pass. */
+export interface OutcomeEvaluation {
+  outcome_id: string
+  attribute_id?: string
+  target?: number
+  actual?: number
+  deviation?: number
+  deviation_pct?: number
+  within_tolerance?: boolean
+  status?: string
+}
+
 /** One tick of streaming data extracted from a backend snapshot. */
 export interface StreamTick {
   tick: number          // cycle counter from cycle_report.cycle
-  // ── Sensors ──────────────────────────────────────────────────────
+  /**
+   * Every SENSOR attribute by id.  Raw input: this is the half of the snapshot
+   * the stage is never handed.  It exists so a control rail can be generated
+   * from the schema rather than from a list of ids typed into a component.
+   */
+  sensors: Record<string, number>
+  // ── Named conveniences for the circulatory analysis views ────────
+  // StreamingDashboard and the charts beside it are explicitly a
+  // circulatory read-out and address these directly.  The 2D twin view
+  // uses the maps above and below instead, and names no attribute at all.
   hr: number            // sensors.HR.value  (bpm)
   sbp: number           // sensors.SBP.value (mmHg)
   dbp: number           // sensors.DBP.value (mmHg)
-  // ── Computed hemodynamics ─────────────────────────────────────────
   co: number            // computed.CO.value  (L/min, X' + X'')
   sv: number            // computed.SV.value  (mL)
   map: number           // computed.MAP.value (mmHg)
@@ -79,6 +99,20 @@ export interface StreamTick {
   adaptation: Record<string, Adaptation> // slow-loop records, keyed by outcome
   // ── Before vs after the loop (shadow-pass), keyed by outcome id ────
   beforeAfter: Record<string, BeforeAfter>
+  // ── Composite vector space ────────────────────────────────────────
+  /**
+   * Per composite, its members' current normalised values, and the same
+   * weighted by the composite's absorption vector.  The snapshot has carried
+   * both since v1 and no view has ever drawn them: a composite is the address
+   * a tag fans a correction into, so this is where the loop's arithmetic
+   * actually lands.  Keyed by composite id, then attribute id.
+   */
+  vectors: Record<string, Record<string, number>>
+  absorption: Record<string, Record<string, number>>
+  /** The model's raw outcome evaluations, keyed by segment id. */
+  outcomes: Record<string, OutcomeEvaluation[]>
+  /** Gate failures the twin logged this cycle. */
+  warnings: string[]
 }
 
 export type StreamStatus = 'connecting' | 'open' | 'closed'
@@ -120,6 +154,18 @@ type RawSnapshot = {
   feedback_norm: number
   cycle_report: RawCycleReport
   before_after?: Record<string, BeforeAfter>
+  vectors?: Record<string, Record<string, number>>
+  absorption?: Record<string, Record<string, number>>
+  outcomes?: Record<string, OutcomeEvaluation[]>
+  warnings?: string[]
+}
+
+/** Attribute map over one half of the snapshot, picking one of the X columns. */
+function column(
+  entries: Record<string, AttrEntry>,
+  field: keyof AttrEntry
+): Record<string, number> {
+  return Object.fromEntries(Object.entries(entries).map(([id, a]) => [id, a[field]]))
 }
 
 function parseSnapshot(raw: unknown): StreamTick | null {
@@ -128,6 +174,7 @@ function parseSnapshot(raw: unknown): StreamTick | null {
     const r = s.cycle_report
     return {
       tick:          r.cycle,
+      sensors:       column(s.sensors, 'value'),
       hr:            s.sensors.HR?.value              ?? 0,
       sbp:           s.sensors.SBP?.value             ?? 0,
       dbp:           s.sensors.DBP?.value             ?? 0,
@@ -135,15 +182,9 @@ function parseSnapshot(raw: unknown): StreamTick | null {
       sv:            s.computed.SV?.value              ?? 0,
       map:           s.computed.MAP?.value             ?? 0,
       q:             s.computed.Q?.value               ?? 0,
-      computed:      Object.fromEntries(
-                       Object.entries(s.computed).map(([id, a]) => [id, a.value])
-                     ),
-      computedExternal: Object.fromEntries(
-                       Object.entries(s.computed).map(([id, a]) => [id, a.value_external])
-                     ),
-      computedFeedback: Object.fromEntries(
-                       Object.entries(s.computed).map(([id, a]) => [id, a.value_feedback])
-                     ),
+      computed:         column(s.computed, 'value'),
+      computedExternal: column(s.computed, 'value_external'),
+      computedFeedback: column(s.computed, 'value_feedback'),
       co_feedback:   s.computed.CO?.value_feedback     ?? 0,
       sv_feedback:   s.computed.SV?.value_feedback     ?? 0,
       feedback_norm: s.feedback_norm                   ?? 0,
@@ -153,6 +194,10 @@ function parseSnapshot(raw: unknown): StreamTick | null {
       diverged:      r.diverged                        ?? false,
       adaptation:    r.adaptation                      ?? {},
       beforeAfter:   s.before_after                    ?? {},
+      vectors:       s.vectors                         ?? {},
+      absorption:    s.absorption                      ?? {},
+      outcomes:      s.outcomes                        ?? {},
+      warnings:      s.warnings                        ?? [],
     }
   } catch {
     return null

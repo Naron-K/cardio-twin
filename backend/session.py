@@ -15,6 +15,7 @@ Lifecycle
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +28,12 @@ from feedback_controller import (
 from snapshot import _simulation_snapshot, before_after_outcomes
 from universal_twin import resolve_polarity
 
-_SCHEMA_PATH = Path(__file__).parent / "circulatory_lamina.xml"
+# Same override as main.SCHEMA_PATH, read independently so a Session created
+# outside the app (tests, scripts) picks up the same lamina the API is serving.
+_SCHEMA_PATH = Path(
+    os.environ.get("CARDIOTWIN_LAMINA")
+    or Path(__file__).parent / "circulatory_lamina.xml"
+)
 
 
 class Session:

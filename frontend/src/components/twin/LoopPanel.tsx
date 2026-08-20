@@ -23,12 +23,12 @@
  */
 import { useMemo } from 'react'
 import type { Adaptation, StreamTick } from '../../hooks/useCardioStream'
-import type { Schema } from '../../utils/api'
+import type { LaminaIndex } from '../../twin/schema'
 
 interface Props {
   ticks: StreamTick[]
   latest: StreamTick | null
-  schema: Schema | null
+  index: LaminaIndex
 }
 
 const POSITIVE = '#00a5bb'
@@ -56,13 +56,13 @@ function latestAdaptation(ticks: StreamTick[]): Record<string, Adaptation> {
   return held
 }
 
-export function LoopPanel({ ticks, latest, schema }: Props) {
+export function LoopPanel({ ticks, latest, index }: Props) {
   const gains = useMemo(() => gainSeries(ticks), [ticks])
   const adaptation = useMemo(() => latestAdaptation(ticks), [ticks])
 
   const corrections = useMemo(() => {
     const rows = Object.entries(latest?.computedFeedback ?? {}).map(([id, xpp]) => {
-      const attr = schema?.attributes[id]
+      const attr = index.attribute(id)
       const span = attr ? Math.max(1e-9, attr.physio_max - attr.physio_min) : 0
       return {
         id,
@@ -75,7 +75,7 @@ export function LoopPanel({ ticks, latest, schema }: Props) {
       }
     })
     return rows.sort((a, b) => Math.abs(b.fraction) - Math.abs(a.fraction))
-  }, [latest, schema])
+  }, [latest, index])
 
   // Scale the bars to the largest correction on screen, floored so a settled
   // loop doesn't magnify rounding dust into a full-width bar.

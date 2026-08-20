@@ -4,6 +4,13 @@ The visualiser must never read raw data. It reads processed model attributes,
 and nothing else. That is the whole rule; everything below exists to make it
 checkable rather than aspirational.
 
+This describes the **artwork layer** — the illustrated stage at the centre of
+the 2D view. The screen around it is built from the lamina's own schema and
+names no attribute at all; see
+[universal-visualisation.md](universal-visualisation.md) for that. A lamina
+with no artwork is not a broken case, it is the ordinary one: it gets the
+lamina map in the centre instead, and everything else is identical.
+
 ## The pieces
 
 | Concept       | Here                                              |
@@ -34,10 +41,16 @@ model's own labels rather than holding a second opinion:
 - `SENSOR` — raw input, including `HR` ("Heart rate from Apple Watch"). **Not
   allowed.**
 
-`LaminaStage` takes exactly one data prop, `values`, and `GameDashboard` fills
+`LaminaStage` takes exactly one data prop, `values`, and `TwinDashboard` fills
 it from the `computed` half of the snapshot — every PRELIMINARY attribute, and
 nothing else. Sensors are absent by construction rather than by omission: there
 is no prop through which one could arrive.
+
+Which artwork a lamina gets is decided in `twin/stageRegistry.tsx`, the one
+file in the visualiser allowed to name a lamina. Artwork cannot be derived —
+nothing in the XML says a heart is what its attributes look like — so the
+exception is quarantined to one screen of code instead of spreading through
+the renderer.
 
 Each binding therefore resolves to one of four provenances, which Schematic mode
 colours: `model` (oxy), `sensor` (danger), `constant` (warn), `missing` (dim).
@@ -87,6 +100,10 @@ not a per-patient fit — worth recalibrating before any clinical claim.
 
 ## The panel under the stage
 
+It carries the view tabs, which come from the view registry rather than from a
+list in the dashboard: a view declares what it needs from the schema and is
+simply absent when the lamina does not provide it.
+
 It used to carry a lead-II ECG. That was deleted rather than fixed: the lamina
 takes no ECG input and emits no waveform, so every sample of it was generated in
 the browser from P–QRS–T gaussians keyed to heart rate. A caption saying
@@ -122,12 +139,18 @@ template is fetched at runtime, so bindings can change without a rebuild.
 
 ## Still hard-coded in the UI
 
-Honest list of clinical knowledge that has not moved yet:
+Honest list of what has not moved yet:
 
-- `VITAL_RANGE` in `protocol.ts`, and the `alert` flag derived from it — the
-  model already ships `within_tolerance` per outcome, and two of these bands
-  disagree with the XML (`CO` and `SV`)
-- `SYSTOLE` / `ATRIAL_SYSTOLE` in `beatClock.ts` — the fixed windows, still used
-  by the 16-bit sprite. The anatomical stage no longer reads them
-- The atrial phase window is a declared constant, because no model output
-  describes atrial timing
+- `SYSTOLE` / `ATRIAL_SYSTOLE` in `beatClock.ts` — fixed phase windows, still
+  read by the 16-bit sprite. The template-driven stage resolves its windows
+  from `T_cycle` and `T_sys` and no longer touches them
+- The atrial phase window in `template.json` is a declared constant, because no
+  model output describes atrial timing. It is declared rather than hidden, and
+  the provenance strip counts it in every mode
+- Artwork itself: the six placeholder rectangles, their pivots and the vessel
+  centrelines are generated from `screen.png` by `tools/cut_heart_layers.py`,
+  which is lamina-specific by nature
+
+`VITAL_RANGE` and the `alert` flag derived from it are gone. Every band and
+verdict on the screen is now the model's: `target ± tolerance` off the outcome,
+`within_tolerance` off the tick, `physio_min`/`physio_max` off the schema.

@@ -20,7 +20,7 @@ import { FeedbackPanel } from './components/FeedbackPanel'
 import type { NormPoint } from './components/FeedbackPanel'
 import { useToast } from './components/Toast'
 import { StreamingDashboard } from './components/StreamingDashboard'
-import { GameDashboard } from './components/game/GameDashboard'
+import { TwinDashboard } from './components/twin/TwinDashboard'
 
 // Computed attributes shown as gauges (most clinically significant)
 const GAUGE_ATTRS = ['MAP', 'CO', 'Q']
@@ -84,11 +84,14 @@ export default function App() {
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { showToast } = useToast()
-  // Deep-linkable view: #game / #stream open straight into that screen, which
-  // also makes the app scriptable for headless screenshots.
-  const [mode, setMode] = useState<'analysis' | 'stream' | 'game'>(() => {
+  // Deep-linkable view: #twin / #stream open straight into that screen, which
+  // also makes the app scriptable for headless screenshots.  #game still
+  // resolves — the 2D screen was the game view before it became the
+  // schema-driven one, and old links should not break.
+  const [mode, setMode] = useState<'analysis' | 'stream' | 'twin'>(() => {
     const hash = window.location.hash.replace('#', '')
-    return hash === 'game' || hash === 'stream' ? hash : 'analysis'
+    if (hash === 'twin' || hash === 'game') return 'twin'
+    return hash === 'stream' ? 'stream' : 'analysis'
   })
 
   // Keep the URL in step with the view so the current screen is shareable.
@@ -316,9 +319,9 @@ export default function App() {
     return <StreamingDashboard onBack={() => setMode('analysis')} />
   }
 
-  // ── 2D game mode — full-page interactive stage ──────────────────────────────
-  if (mode === 'game') {
-    return <GameDashboard onBack={() => setMode('analysis')} />
+  // ── 2D twin view — full-page, built from the lamina's own schema ────────────
+  if (mode === 'twin') {
+    return <TwinDashboard onBack={() => setMode('analysis')} />
   }
 
   // ── Loading screen (before schema arrives) ──────────────────────────────────
@@ -365,11 +368,11 @@ export default function App() {
           </div>
           <div className="flex items-center gap-2 shrink-0 ml-4">
             <button
-              onClick={() => setMode('game')}
+              onClick={() => setMode('twin')}
               className="px-3 py-1.5 bg-rose-900/50 hover:bg-rose-800/60 text-rose-300
                          text-xs rounded-md border border-rose-800/60 transition-colors"
             >
-              🎮 2D Stage
+              ◈ 2D Twin
             </button>
             <button
               onClick={() => setMode('stream')}

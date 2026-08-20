@@ -29,7 +29,7 @@ import {
   YAxis,
 } from 'recharts'
 import type { StreamTick } from '../../hooks/useCardioStream'
-import { totalDeviation } from '../../game/outcomes'
+import { totalDeviation } from '../../twin/outcomes'
 
 interface Props {
   ticks: StreamTick[]

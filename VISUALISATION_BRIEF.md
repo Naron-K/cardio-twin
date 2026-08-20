@@ -138,13 +138,14 @@ Each placeholder's motion splits into independently bound channels — `timing`,
 shared beat instead of freezing, while its amplitude falls back to a constant
 that is **declared in the template and displayed**, not hidden in code.
 
-### Three display modes, one template
+### Four display modes, one template
 
 | Mode | What it shows |
 | --- | --- |
 | `Anatomical` | the illustration, animated. The showcase view |
 | `Schematic` | the same stage with placeholder frames coloured by data provenance |
 | `16-bit` | a pixel-art sprite, kept for artwork comparison |
+| `Lamina map` | the model's own wiring, laid out from the schema |
 
 Schematic mode is the compliance proof: every channel is coloured **model**
 (computed), **sensor** (violation), **constant** (declared), or **missing**, and
@@ -152,11 +153,35 @@ tallied. It currently reads **8 model · 0 sensor · 3 constant**. The three
 constants are both atrial amplitudes and the atrial phase window — because no
 model output describes an atrium.
 
+### The screen is generated, not designed
+
+The rest of the 2D view is built from `/api/schema` — the backend parsing the
+lamina XML — and contains no attribute id, unit or threshold of its own. The
+schema declares the attributes, the functions and their formulae, the segments,
+the composites and their weight vectors, the outcomes, the tags that wire a
+deviation back into the loop, the permeability gates, and the registry of
+mechanisms the engine offered for the XML to choose from. Views are filtered by
+a predicate over that schema, so a lamina with no composites simply has no
+vector-space tab. Point the backend at a different lamina file
+(`CARDIOTWIN_LAMINA=…`) and the screen rebuilds itself.
+
+The one exception is artwork, which cannot be derived: a single registry maps
+lamina id → illustration, and a lamina with no entry gets the lamina map in the
+centre instead. See `docs/universal-visualisation.md`.
+
 ### The panel below the stage
 
-Plots `D = Σ |actual − target| / tolerance` over the outcomes, in units of
-tolerance so mmHg, L/min, mL and mm can be summed. Two lines: with the loop, and
-the shadow pass without it. The gap is the loop's live contribution.
+Tabs over the same model state: the declared computations with live values
+substituted into each formula; each segment's attributes on their declared
+ranges; each outcome on its own tolerance band beside the shadow pass; the
+convergence chart; X″ per attribute with the tag table that put it there; the
+composite vectors; and the pipeline configuration beside the registries it was
+selected from.
+
+The convergence chart plots `D = Σ |actual − target| / tolerance` over the
+outcomes, in units of tolerance so mmHg, L/min, mL and mm can be summed. Two
+lines: with the loop, and the shadow pass without it. The gap is the loop's live
+contribution.
 
 An ECG strip previously sat here and was **deleted**, not fixed: every sample of
 it was fabricated in the browser from gaussians. A caption reading "synthesised"
@@ -174,7 +199,13 @@ measurement.
   compute. This is why the ECG is gone.
 - **The illustration stays.** Artwork direction is settled.
 - **No second opinion on clinical thresholds.** Targets and tolerances come from
-  the model, not from constants in the UI.
+  the model, not from constants in the UI. The UI now holds none at all: every
+  band, range, gate and verdict on screen is read off the schema or the tick.
+- **The visualiser is generic; the compute layer is not yet.** A brand-new
+  lamina draws itself with no code change, but still needs a Python
+  implementation registered per declared function. Evaluating the `<formula>`
+  strings is not the fix — they are prose, and an evaluator would silently
+  disagree with the code that actually runs.
 
 ---
 

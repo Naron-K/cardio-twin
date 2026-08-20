@@ -12,11 +12,11 @@
  * than letting it pass quietly.
  */
 import { useEffect, useMemo, useRef } from 'react'
-import { FLOW_ANIMATORS, MOTION_ANIMATORS } from '../../game/animators'
-import type { AnimatorContext } from '../../game/animators'
-import { alongPath, resolveEnvelope } from '../../game/stageTemplate'
-import type { EnvelopeId, LoadedStage } from '../../game/stageTemplate'
-import { beatClock, bump } from '../../game/beatClock'
+import { FLOW_ANIMATORS, MOTION_ANIMATORS } from '../../twin/animators'
+import type { AnimatorContext } from '../../twin/animators'
+import { alongPath, resolveEnvelope } from '../../twin/stageTemplate'
+import type { EnvelopeId, LoadedStage } from '../../twin/stageTemplate'
+import { beatClock, bump } from '../../twin/beatClock'
 import { SchematicOverlay } from './SchematicOverlay'
 
 interface Props {

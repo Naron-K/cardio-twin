@@ -17,17 +17,19 @@
  * are one tolerance band off in total, however that is distributed.
  */
 import {
+  Area,
   CartesianGrid,
+  ComposedChart,
   Legend,
   Line,
-  LineChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts'
-import type { BeforeAfter, StreamTick } from '../../hooks/useCardioStream'
+import type { StreamTick } from '../../hooks/useCardioStream'
+import { totalDeviation } from '../../game/outcomes'
 
 interface Props {
   ticks: StreamTick[]
@@ -42,26 +44,27 @@ const WITH_LOOP = '#00a5bb'
 const WITHOUT_LOOP = '#c8801f'
 const INK_DIM = 'rgba(216,227,251,0.55)'
 
-/** Σ |actual − target| / tolerance, in tolerance bands. */
-function totalDeviation(outcomes: Record<string, BeforeAfter>, field: 'before' | 'after') {
-  let d = 0
-  for (const o of Object.values(outcomes)) {
-    if (!o.tolerance) continue
-    d += Math.abs(o[field] - o.target) / o.tolerance
-  }
-  return d
-}
-
 export function ConvergenceChart({ ticks, height = 150 }: Props) {
   // Ticks that arrived before the first outcome evaluation would otherwise
   // plot as a run of zeros, which reads as "perfectly on target".
   const data = ticks
     .filter((t) => Object.keys(t.beforeAfter).length > 0)
-    .map((t) => ({
-      tick: t.tick,
-      withLoop: totalDeviation(t.beforeAfter, 'after'),
-      withoutLoop: totalDeviation(t.beforeAfter, 'before'),
-    }))
+    .map((t) => {
+      const withLoop = totalDeviation(t.beforeAfter, 'after')
+      const withoutLoop = totalDeviation(t.beforeAfter, 'before')
+      return {
+        tick: t.tick,
+        withLoop,
+        withoutLoop,
+        // Shaded between the two lines: the distance the loop is closing right
+        // now.  A range series rather than a stacked one, so it stays correct
+        // when the loop is *losing* ground and the shadow sits lower.
+        contribution: [
+          Math.min(withLoop, withoutLoop),
+          Math.max(withLoop, withoutLoop),
+        ] as [number, number],
+      }
+    })
 
   const latest = data[data.length - 1]
   const outcomeCount = ticks.length ? Object.keys(ticks[ticks.length - 1].beforeAfter).length : 0
@@ -90,7 +93,7 @@ export function ConvergenceChart({ ticks, height = 150 }: Props) {
       </div>
 
       <ResponsiveContainer width="100%" height={height}>
-        <LineChart data={data} margin={{ top: 4, right: 10, bottom: 0, left: -18 }}>
+        <ComposedChart data={data} margin={{ top: 4, right: 10, bottom: 0, left: -18 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
           <XAxis
             dataKey="tick"
@@ -121,7 +124,14 @@ export function ConvergenceChart({ ticks, height = 150 }: Props) {
             }}
             labelStyle={{ color: INK_DIM }}
             labelFormatter={(v) => `cycle ${v}`}
-            formatter={(value, name) => [`${Number(value).toFixed(3)} bands`, name]}
+            formatter={(value, name) => {
+              // The shaded band arrives as [lo, hi]; report the gap it spans.
+              if (Array.isArray(value)) {
+                const [lo, hi] = value as [number, number]
+                return [`${(hi - lo).toFixed(3)} bands`, name]
+              }
+              return [`${Number(value).toFixed(3)} bands`, name]
+            }}
           />
           <Legend
             wrapperStyle={{ fontSize: 10, paddingTop: 2 }}
@@ -139,6 +149,18 @@ export function ConvergenceChart({ ticks, height = 150 }: Props) {
               fill: 'rgba(216,227,251,0.35)',
               fontSize: 9,
             }}
+          />
+
+          {/* Drawn first so both lines sit on top of it. */}
+          <Area
+            type="monotone"
+            dataKey="contribution"
+            name="What the loop is closing"
+            stroke="none"
+            fill={WITH_LOOP}
+            fillOpacity={0.16}
+            isAnimationActive={false}
+            activeDot={false}
           />
 
           <Line
@@ -160,13 +182,15 @@ export function ConvergenceChart({ ticks, height = 150 }: Props) {
             dot={false}
             isAnimationActive={false}
           />
-        </LineChart>
+        </ComposedChart>
       </ResponsiveContainer>
 
       <p className="font-mono text-[10px] readout text-ink/30 leading-relaxed mt-1">
         D = Σ |actual − target| ÷ tolerance, over the model's behavioural outcomes.
         Counted in tolerance bands so mmHg, L/min, mL and mm can be summed at all.
-        Dashed = the same cycle recomputed with feedback zeroed; the gap is the loop's work.
+        Dashed = the same cycle recomputed with feedback zeroed; the shaded gap is the loop's work.
+        Which outcome contributes what — including any the model flags as unreliable — is broken
+        out per row under Outcomes.
       </p>
     </div>
   )

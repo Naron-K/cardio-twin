@@ -5,11 +5,11 @@
  * SVG attributes; React never re-renders per frame.  What the animation is
  * actually bound to:
  *
- *   • beat timing        ← live HR (via the shared beatClock)
+ *   • beat timing        ← the model's T_cycle (via the shared beatClock)
  *   • chamber squeeze    ← cardiac phase (atrial kick, then ventricular systole)
  *   • ejection particles ← CO (faster flow at higher cardiac output)
  *   • stroke distension  ← SV (bigger stroke volume → aorta bulges more)
- *   • alert bloom        ← caller's `alert` flag (out-of-band vitals)
+ *   • alert bloom        ← caller's `alert` flag (an outcome out of tolerance)
  */
 import { useEffect, useMemo, useRef } from 'react'
 import {
@@ -25,10 +25,17 @@ import type { Chamber } from '../../game/heartSprite'
 import { beatClock, bump, SYSTOLE, ATRIAL_SYSTOLE } from '../../game/beatClock'
 
 interface Props {
-  hr: number
+  /**
+   * Cycle length in seconds, from the model's `T_cycle`.  This used to be raw
+   * HR straight off the wearable, which made the 16-bit mode the one place a
+   * sensor still reached the picture — the anatomical stage had already moved
+   * to the model's own rhythm.  Both modes now beat from the same computed
+   * quantity, so switching artwork no longer changes where the data came from.
+   */
+  cycleSeconds: number
   co: number
   sv: number
-  /** Vitals outside the safe band — sprite gets a breathing crimson bloom. */
+  /** An outcome outside its tolerance — sprite gets a breathing crimson bloom. */
   alert?: boolean
   paused?: boolean
   /** Dim every chamber except this one (legend hover). */
@@ -42,7 +49,7 @@ const STREAMS: { chamber: Chamber; x: number; from: number; to: number; color: s
 ]
 const PARTICLES_PER_STREAM = 3
 
-export function PixelHeart({ hr, co, sv, alert = false, paused = false, focus = null }: Props) {
+export function PixelHeart({ cycleSeconds, co, sv, alert = false, paused = false, focus = null }: Props) {
   const { pixels, geometry } = useMemo(() => buildHeartPixels(), [])
 
   const rootRef = useRef<SVGGElement | null>(null)
@@ -57,8 +64,8 @@ export function PixelHeart({ hr, co, sv, alert = false, paused = false, focus = 
   }, [co, sv, alert])
 
   useEffect(() => {
-    beatClock.setHr(hr)
-  }, [hr])
+    beatClock.setCycle(cycleSeconds)
+  }, [cycleSeconds])
 
   useEffect(() => {
     beatClock.setPaused(paused)

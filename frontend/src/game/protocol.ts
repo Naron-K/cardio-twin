@@ -54,14 +54,20 @@ export const COMMANDS: Command[] = [
   },
 ]
 
+/**
+ * An objective names one of the model's *behavioural outcomes* and asks the
+ * player to settle it.  It deliberately carries no band of its own: the band is
+ * `target ± tolerance` as the outcome declares them, read live off the tick, so
+ * an edit to `circulatory_lamina.xml` moves the goalposts here without a code
+ * change.  A mission over a quantity the model does not evaluate would have no
+ * band to check against, which is why every entry is an outcome id.
+ */
 export interface Mission {
   id: string
   brief: string
-  metric: 'map' | 'co' | 'hr'
-  lo: number
-  hi: number
-  unit: string
-  /** Seconds the metric must stay inside the band to complete. */
+  /** Behavioural outcome id, as declared in the lamina XML. */
+  outcomeId: string
+  /** Seconds the outcome must stay inside its tolerance to complete. */
   holdSec: number
   reward: number
 }
@@ -69,41 +75,23 @@ export interface Mission {
 export const MISSIONS: Mission[] = [
   {
     id: 'perfusion',
-    brief: 'Hold mean arterial pressure inside the safe perfusion band',
-    metric: 'map',
-    lo: 70,
-    hi: 100,
-    unit: 'mmHg',
+    brief: 'Settle mean arterial pressure inside the tolerance the model sets for it',
+    outcomeId: 'target_map',
     holdSec: 18,
     reward: 250,
   },
   {
     id: 'output',
-    brief: 'Bring cardiac output back to resting level and keep it there',
-    metric: 'co',
-    lo: 4.2,
-    hi: 6.2,
-    unit: 'L/min',
+    brief: 'Bring cardiac output back to its target and hold it there',
+    outcomeId: 'target_co',
     holdSec: 18,
     reward: 300,
   },
   {
-    id: 'rhythm',
-    brief: 'Bring heart rate into the physiological band without dropping perfusion',
-    metric: 'hr',
-    lo: 60,
-    hi: 85,
-    unit: 'bpm',
+    id: 'filling',
+    brief: 'Restore stroke volume — the heart pumps what it receives, so work on filling',
+    outcomeId: 'target_sv',
     holdSec: 15,
     reward: 350,
   },
 ]
-
-/** Display ranges for the vitals bars (game HUD, not model limits). */
-export const VITAL_RANGE = {
-  hr:  { min: 40,  max: 180, safeLo: 60,  safeHi: 100 },
-  map: { min: 40,  max: 140, safeLo: 70,  safeHi: 100 },
-  co:  { min: 1,   max: 12,  safeLo: 4.2, safeHi: 6.2 },
-  sbp: { min: 70,  max: 200, safeLo: 100, safeHi: 130 },
-  sv:  { min: 20,  max: 140, safeLo: 55,  safeHi: 95  },
-} as const

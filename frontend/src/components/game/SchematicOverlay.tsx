@@ -10,7 +10,7 @@
  * Rendered as HTML rather than inside the SVG so the type stays crisp and the
  * chips reuse the same tokens as the rest of the game UI.
  */
-import { describeBindings, describeRhythm } from '../../game/stageTemplate'
+import { describeBindings, describeRhythm, tallyProvenance } from '../../game/stageTemplate'
 import type { LoadedStage, Provenance } from '../../game/stageTemplate'
 
 interface Props {
@@ -35,17 +35,10 @@ export function SchematicOverlay({ stage, values, sources, focus = null }: Props
   const { artwork, placeholders, drawOrder } = template
   const ids = drawOrder.filter((id) => placeholders[id])
 
-  // Shared bindings are counted once, so the tally reads as "how many distinct
-  // things drive this stage" rather than multiplying one violation by six.
+  // Counted by the template module so the always-on strip above the stage and
+  // this overlay can never disagree about what drives what.
   const rhythm = describeRhythm(template, sources)
-  const tally: Record<Provenance, number> = { model: 0, sensor: 0, constant: 0, missing: 0 }
-  for (const row of rhythm) tally[row.provenance]++
-  for (const id of ids) {
-    for (const row of describeBindings(placeholders[id], template, sources)) {
-      if (!row.shared) tally[row.provenance]++
-    }
-  }
-  const total = tally.model + tally.sensor + tally.constant + tally.missing
+  const { tally, total } = tallyProvenance(template, sources)
 
   return (
     <div className="absolute inset-0 pointer-events-none">
@@ -77,6 +70,21 @@ export function SchematicOverlay({ stage, values, sources, focus = null }: Props
             >
               {id}
             </span>
+
+            {/* Named on the frame rather than hidden behind a hover: a region
+                the model cannot describe should announce that to anyone
+                looking at the stage, not only to whoever thinks to inspect
+                it. */}
+            {worst === 'constant' && (
+              <span
+                className="absolute inset-x-1 bottom-1 font-mono text-[8px] leading-tight
+                           readout text-warn/80 text-center"
+              >
+                declared constant
+                <br />
+                no model output describes this
+              </span>
+            )}
 
             {open && (
               <div

@@ -192,6 +192,58 @@ export function describeBindings(
   return rows
 }
 
+/**
+ * Count every distinct binding on the stage by where its data comes from.
+ *
+ * Shared bindings — beat timing, which drives all six placeholders — are
+ * counted once, so the tally reads as "how many distinct things drive this
+ * stage" rather than multiplying one violation by six.
+ *
+ * Lives here rather than in the overlay because the count is a property of the
+ * template, not of one way of drawing it: the showcase view reports the same
+ * numbers as the schematic, which is the point of reporting them at all.
+ */
+export function tallyProvenance(
+  template: StageTemplate,
+  sources: Record<string, string>
+): { tally: Record<Provenance, number>; total: number } {
+  const tally: Record<Provenance, number> = { model: 0, sensor: 0, constant: 0, missing: 0 }
+  for (const row of describeRhythm(template, sources)) tally[row.provenance]++
+  for (const id of template.drawOrder) {
+    const place = template.placeholders[id]
+    if (!place) continue
+    for (const row of describeBindings(place, template, sources)) {
+      if (!row.shared) tally[row.provenance]++
+    }
+  }
+  return { tally, total: tally.model + tally.sensor + tally.constant + tally.missing }
+}
+
+/**
+ * Placeholders whose amplitude is a declared constant, with their labels.
+ *
+ * These are the regions the model has nothing to say about — currently both
+ * atria, because no model output describes an atrium.  Naming them is the
+ * point: an unbound region that quietly keeps moving is indistinguishable from
+ * a bound one, and a viewer has no way to tell which parts of the picture are
+ * carrying information.
+ */
+export function constantRegions(
+  template: StageTemplate,
+  sources: Record<string, string>
+): { id: string; label: string }[] {
+  const out: { id: string; label: string }[] = []
+  for (const id of template.drawOrder) {
+    const place = template.placeholders[id]
+    if (!place) continue
+    const own = describeBindings(place, template, sources).filter((r) => !r.shared)
+    if (own.length > 0 && own.every((r) => r.provenance === 'constant')) {
+      out.push({ id, label: place.label })
+    }
+  }
+  return out
+}
+
 /** Resolved template plus the base URL its assets are relative to. */
 export interface LoadedStage {
   template: StageTemplate

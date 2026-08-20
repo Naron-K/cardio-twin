@@ -96,13 +96,21 @@ interface VitalCardProps {
   label: string
   value: number
   unit: string
+  /** Display scale — the attribute's physiological range, from the schema. */
   min: number
   max: number
-  safeLo: number
-  safeHi: number
+  /**
+   * The tolerance band, from the model's behavioural outcome for this
+   * attribute.  Omitted when the model declares no outcome: the card then
+   * shows the value with no verdict rather than inventing a band for it.
+   */
+  safeLo?: number
+  safeHi?: number
   decimals?: number
   /** Optional second line, e.g. "SBP / DBP". */
   sub?: string
+  /** Shown in place of the band footer when the model judges nothing here. */
+  unjudgedNote?: string
 }
 
 export function VitalCard({
@@ -116,12 +124,14 @@ export function VitalCard({
   safeHi,
   decimals = 0,
   sub,
+  unjudgedNote = 'no model target',
 }: VitalCardProps) {
+  const judged = safeLo !== undefined && safeHi !== undefined
   const span = Math.max(1e-6, max - min)
   const pct = clampPct(((value - min) / span) * 100)
-  const bandLeft = clampPct(((safeLo - min) / span) * 100)
-  const bandWidth = clampPct(((safeHi - safeLo) / span) * 100)
-  const out = value < safeLo || value > safeHi
+  const bandLeft = judged ? clampPct(((safeLo - min) / span) * 100) : 0
+  const bandWidth = judged ? clampPct(((safeHi - safeLo) / span) * 100) : 0
+  const out = judged && (value < safeLo || value > safeHi)
 
   return (
     <div
@@ -149,24 +159,34 @@ export function VitalCard({
 
       {sub && <p className="font-mono text-[10px] readout text-ink/35 mt-1">{sub}</p>}
 
-      {/* Thick rounded vitals bar with the safe band marked underneath. */}
+      {/* Thick rounded vitals bar with the tolerance band marked underneath. */}
       <div className="relative mt-3 h-2.5 rounded-full bg-surface-lowest overflow-hidden">
-        <div
-          className="absolute inset-y-0 bg-white/[0.07]"
-          style={{ left: `${bandLeft}%`, width: `${bandWidth}%` }}
-        />
+        {judged && (
+          <div
+            className="absolute inset-y-0 bg-white/[0.07]"
+            style={{ left: `${bandLeft}%`, width: `${bandWidth}%` }}
+          />
+        )}
         <div
           className={`absolute inset-y-0 left-0 rounded-full transition-[width,background-color] duration-300 ${
-            out ? 'bg-crimson-container shadow-bloom-sm' : 'bg-oxy-container shadow-oxybloom-sm'
+            out
+              ? 'bg-crimson-container shadow-bloom-sm'
+              : judged
+                ? 'bg-oxy-container shadow-oxybloom-sm'
+                : 'bg-ink/30'
           }`}
           style={{ width: `${pct}%` }}
         />
       </div>
       <div className="flex justify-between mt-1 font-mono text-[9px] readout text-ink/25">
         <span>{fmt(min)}</span>
-        <span className={out ? 'text-crimson-container/80' : 'text-oxy/50'}>
-          {fmt(safeLo)}–{fmt(safeHi)}
-        </span>
+        {judged ? (
+          <span className={out ? 'text-crimson-container/80' : 'text-oxy/50'}>
+            {fmt(safeLo)}–{fmt(safeHi)}
+          </span>
+        ) : (
+          <span className="text-ink/30">{unjudgedNote}</span>
+        )}
         <span>{fmt(max)}</span>
       </div>
     </div>

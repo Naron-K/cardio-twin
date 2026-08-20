@@ -7,6 +7,14 @@
  * mission that only completes if the twin actually settles inside a target
  * band.  Sliders are still one click away in the streaming view.
  *
+ * Every band, threshold and verdict on this screen belongs to the model.  The
+ * objective's band is its outcome's `target ± tolerance`, the vitals cards take
+ * their scale from each attribute's declared physiological range and their band
+ * from the outcome that judges it, and "unstable" means an outcome left its
+ * tolerance.  A quantity the model evaluates no outcome for — heart rate, blood
+ * pressure — is shown with no band at all rather than measured against one this
+ * file invented.
+ *
  * Layout follows DESIGN.md: 32px page margin, 24px gutter, card-centric with
  * 24px safe areas, tonal layers + glows instead of drop shadows.
  */
@@ -18,11 +26,15 @@ import type { Schema } from '../../utils/api'
 import { PixelHeart } from './PixelHeart'
 import { LaminaStage } from './LaminaStage'
 import { ConvergenceChart } from './ConvergenceChart'
+import { OutcomePanel } from './OutcomePanel'
+import { LoopPanel } from './LoopPanel'
+import { ProvenanceStrip } from './ProvenanceStrip'
 import { loadStage } from '../../game/stageTemplate'
 import type { LoadedStage } from '../../game/stageTemplate'
 import { Panel, Chip, VitalCard, CommandButton } from './ui'
-import { COMMANDS, MISSIONS, VITAL_RANGE } from '../../game/protocol'
+import { COMMANDS, MISSIONS } from '../../game/protocol'
 import type { Command } from '../../game/protocol'
+import { anyOutOfBand, bandOf, outcomeForAttribute } from '../../game/outcomes'
 import { CHAMBER_LABEL, CHAMBER_SWATCH } from '../../game/heartSprite'
 import type { Chamber } from '../../game/heartSprite'
 
@@ -30,7 +42,7 @@ interface Props {
   onBack: () => void
 }
 
-type Tab = 'convergence' | 'telemetry' | 'log'
+type Tab = 'convergence' | 'outcomes' | 'loop' | 'telemetry' | 'log'
 type LogTone = 'info' | 'good' | 'warn' | 'cmd'
 interface LogEntry {
   id: number
@@ -50,9 +62,20 @@ const HEART_MODELS: { id: HeartModel; label: string }[] = [
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'convergence', label: 'Convergence' },
+  { id: 'outcomes', label: 'Outcomes' },
+  { id: 'loop', label: 'Feedback Loop' },
   { id: 'telemetry', label: 'Telemetry' },
   { id: 'log', label: 'Mission Log' },
 ]
+
+/** Panel header text per tab — kept out of the JSX so the tree stays readable. */
+const PANEL_COPY: Record<Tab, { eyebrow: string; title: string }> = {
+  convergence: { eyebrow: 'Model output · adaptive loop', title: 'Total deviation from the model’s targets' },
+  outcomes:    { eyebrow: 'Behavioural outcomes',        title: 'Each outcome on its own tolerance band' },
+  loop:        { eyebrow: 'X = X′ + X″',        title: 'What the feedback loop is holding' },
+  telemetry:   { eyebrow: 'Model readout',               title: 'Model parameters' },
+  log:         { eyebrow: 'Event stream',                title: 'Mission log' },
+}
 
 export function GameDashboard({ onBack }: Props) {
   // 300 ticks ≈ 30 s of history: long enough for the convergence panel to show
@@ -180,8 +203,12 @@ export function GameDashboard({ onBack }: Props) {
       const tick = latestRef.current
       if (!tick || pausedRef.current) return
       const m = MISSIONS[missionIdxRef.current]
-      const v = m.metric === 'map' ? tick.map : m.metric === 'co' ? tick.co : tick.hr
-      const inBand = v >= m.lo && v <= m.hi
+      // The verdict is the outcome's own `within_tolerance`, computed by the
+      // lamina against the target and tolerance declared in its XML.  Nothing
+      // here decides what counts as good.
+      const outcome = tick.beforeAfter[m.outcomeId]
+      if (!outcome) return  // outcome not evaluated yet — nothing to judge
+      const inBand = outcome.within_after
 
       if (inBand) setScore((s) => s + 1)
 
@@ -307,14 +334,38 @@ export function GameDashboard({ onBack }: Props) {
     return out
   }, [schema])
 
-  const missionValue = mission.metric === 'map' ? map : mission.metric === 'co' ? co : hr
-  const inBand = latest !== null && missionValue >= mission.lo && missionValue <= mission.hi
-  const alert =
-    latest !== null &&
-    (map < VITAL_RANGE.map.safeLo ||
-      map > VITAL_RANGE.map.safeHi ||
-      hr > VITAL_RANGE.hr.safeHi ||
-      hr < VITAL_RANGE.hr.safeLo)
+  // Every band and verdict below is the model's, arriving on the tick: the
+  // outcome carries its own target, tolerance, physiological range and
+  // within-tolerance flag.  The UI holds no clinical thresholds of its own.
+  const outcomes = useMemo(() => latest?.beforeAfter ?? {}, [latest])
+  const missionOutcome = outcomes[mission.outcomeId]
+  const missionValue = missionOutcome?.after ?? 0
+  const missionBand = missionOutcome ? bandOf(missionOutcome) : null
+  const inBand = missionOutcome?.within_after ?? false
+
+  // "Unstable" now means the model says at least one outcome left its
+  // tolerance — not that a number left a range typed into this file.
+  const alert = anyOutOfBand(outcomes)
+
+  /** Physiological display scale for an attribute, as the schema declares it. */
+  const scaleOf = useCallback(
+    (id: string) => {
+      const a = schema?.attributes[id]
+      return a ? { min: a.physio_min, max: a.physio_max } : null
+    },
+    [schema]
+  )
+
+  /** The tolerance band for an attribute, when the model declares an outcome. */
+  const bandFor = useCallback(
+    (attributeId: string) => {
+      const o = outcomeForAttribute(outcomes, attributeId)
+      if (!o) return {}
+      const [safeLo, safeHi] = bandOf(o)
+      return { safeLo, safeHi }
+    },
+    [outcomes]
+  )
 
   const runtime = fmtClock(elapsed)
 
@@ -390,37 +441,54 @@ export function GameDashboard({ onBack }: Props) {
             </nav>
           </Panel>
 
+          {/* Scales are each attribute's declared physiological range; bands
+              exist only where the model declares a behavioural outcome.  HR and
+              blood pressure are raw sensor input the model sets no target for,
+              so they are shown unjudged rather than measured against a range
+              this file made up. */}
           <div className="flex flex-col gap-3">
-            <VitalCard
-              sensorId="SNS-01"
-              label="BPM"
-              value={hr}
-              unit="bpm"
-              {...VITAL_RANGE.hr}
-            />
-            <VitalCard
-              sensorId="SNS-02"
-              label="BP"
-              value={sbp}
-              unit="mmHg"
-              sub={`${sbp.toFixed(0)} / ${dbp.toFixed(0)} systolic / diastolic`}
-              {...VITAL_RANGE.sbp}
-            />
-            <VitalCard
-              sensorId="CMP-01"
-              label="MAP"
-              value={map}
-              unit="mmHg"
-              {...VITAL_RANGE.map}
-            />
-            <VitalCard
-              sensorId="CMP-02"
-              label="Cardiac output"
-              value={co}
-              unit="L/min"
-              decimals={2}
-              {...VITAL_RANGE.co}
-            />
+            {scaleOf('HR') && (
+              <VitalCard
+                sensorId="SNS-01"
+                label="BPM"
+                value={hr}
+                unit="bpm"
+                {...scaleOf('HR')!}
+                unjudgedNote="sensor input · no model outcome"
+              />
+            )}
+            {scaleOf('SBP') && (
+              <VitalCard
+                sensorId="SNS-02"
+                label="BP"
+                value={sbp}
+                unit="mmHg"
+                sub={`${sbp.toFixed(0)} / ${dbp.toFixed(0)} systolic / diastolic`}
+                {...scaleOf('SBP')!}
+                unjudgedNote="sensor input · no model outcome"
+              />
+            )}
+            {scaleOf('MAP') && (
+              <VitalCard
+                sensorId="CMP-01"
+                label="MAP"
+                value={map}
+                unit="mmHg"
+                {...scaleOf('MAP')!}
+                {...bandFor('MAP')}
+              />
+            )}
+            {scaleOf('CO') && (
+              <VitalCard
+                sensorId="CMP-02"
+                label="Cardiac output"
+                value={co}
+                unit="L/min"
+                decimals={2}
+                {...scaleOf('CO')!}
+                {...bandFor('CO')}
+              />
+            )}
           </div>
         </aside>
 
@@ -472,7 +540,16 @@ export function GameDashboard({ onBack }: Props) {
                 } ${alert ? 'drop-shadow-[0_0_28px_rgba(255,82,95,0.45)]' : ''}`}
               >
                 {heartModel === 'pixel' ? (
-                  <PixelHeart hr={hr} co={co} sv={sv} alert={alert} paused={paused} focus={focus} />
+                  // 0 is not a cycle length — the beat clock rejects it and
+                  // holds its current rate until T_cycle arrives.
+                  <PixelHeart
+                    cycleSeconds={modelValues.T_cycle ?? 0}
+                    co={co}
+                    sv={sv}
+                    alert={alert}
+                    paused={paused}
+                    focus={focus}
+                  />
                 ) : stage ? (
                   <LaminaStage
                     stage={stage}
@@ -524,25 +601,19 @@ export function GameDashboard({ onBack }: Props) {
             )}
           </div>
 
+          {/* Where the stage gets its numbers — on screen in every mode, not
+              only when Schematic is selected. */}
+          {stage && heartModel !== 'pixel' && (
+            <ProvenanceStrip stage={stage} sources={attributeSources} />
+          )}
+
           {/* Tab panel under the stage */}
           <Panel
             className="shrink-0"
-            eyebrow={
-              tab === 'convergence'
-                ? 'Model output · adaptive loop'
-                : tab === 'telemetry'
-                  ? 'Model readout'
-                  : 'Event stream'
-            }
-            title={
-              tab === 'convergence'
-                ? 'Total deviation from clinical targets'
-                : tab === 'telemetry'
-                  ? 'Model parameters'
-                  : 'Mission log'
-            }
+            eyebrow={PANEL_COPY[tab].eyebrow}
+            title={PANEL_COPY[tab].title}
             action={
-              tab === 'convergence' ? (
+              tab === 'convergence' || tab === 'outcomes' || tab === 'loop' ? (
                 <span className="font-mono text-[10px] readout text-oxy/50 text-right leading-snug max-w-[240px]">
                   Every value here is computed by the lamina — nothing is synthesised
                 </span>
@@ -550,6 +621,10 @@ export function GameDashboard({ onBack }: Props) {
             }
           >
             {tab === 'convergence' && <ConvergenceChart ticks={ticks} height={150} />}
+
+            {tab === 'outcomes' && <OutcomePanel outcomes={outcomes} schema={schema} />}
+
+            {tab === 'loop' && <LoopPanel ticks={ticks} latest={latest} schema={schema} />}
 
             {tab === 'telemetry' && (
               <div className="grid grid-cols-4 gap-3">
@@ -631,11 +706,16 @@ export function GameDashboard({ onBack }: Props) {
                   inBand ? 'text-oxy-container' : 'text-crimson-container'
                 }`}
               >
-                {missionValue.toFixed(mission.metric === 'co' ? 2 : 0)}
+                {missionOutcome ? missionValue.toFixed(missionValue < 10 ? 2 : 1) : '—'}
               </span>
-              <span className="font-mono text-[11px] readout text-ink/40">{mission.unit}</span>
+              <span className="font-mono text-[11px] readout text-ink/40">
+                {missionOutcome?.unit ?? ''}
+              </span>
+              {/* target ± tolerance, straight off the outcome */}
               <span className="ml-auto font-mono text-[11px] readout text-ink/40">
-                target {mission.lo}–{mission.hi}
+                {missionBand
+                  ? `target ${fmtBand(missionBand[0])}–${fmtBand(missionBand[1])}`
+                  : 'awaiting evaluation'}
               </span>
             </div>
 
@@ -754,6 +834,11 @@ function MiniHeart({ beating }: { beating: boolean }) {
 
 function clamp(v: number, lo: number, hi: number) {
   return v < lo ? lo : v > hi ? hi : v
+}
+
+/** Band endpoints read best without trailing noise: 3.5, 6.5, 70, 100. */
+function fmtBand(v: number) {
+  return Number.isInteger(v) ? String(v) : v.toFixed(1)
 }
 
 function fmtClock(seconds: number) {

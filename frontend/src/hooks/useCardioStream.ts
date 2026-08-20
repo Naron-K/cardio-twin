@@ -60,6 +60,14 @@ export interface StreamTick {
    */
   computed: Record<string, number>
   // ── Feedback corrections ──────────────────────────────────────────
+  /**
+   * The X = X' + X'' split for every PRELIMINARY attribute, not just the two
+   * that happened to get named fields.  `computed` above is X; these are the
+   * two halves it was built from, so a panel can show what the loop is
+   * holding on any attribute the model computes.
+   */
+  computedExternal: Record<string, number>   // X'
+  computedFeedback: Record<string, number>   // X''
   co_feedback: number   // computed.CO.value_feedback  (X'')
   sv_feedback: number   // computed.SV.value_feedback  (X'')
   feedback_norm: number // top-level L2 norm of all value_feedback
@@ -129,6 +137,12 @@ function parseSnapshot(raw: unknown): StreamTick | null {
       q:             s.computed.Q?.value               ?? 0,
       computed:      Object.fromEntries(
                        Object.entries(s.computed).map(([id, a]) => [id, a.value])
+                     ),
+      computedExternal: Object.fromEntries(
+                       Object.entries(s.computed).map(([id, a]) => [id, a.value_external])
+                     ),
+      computedFeedback: Object.fromEntries(
+                       Object.entries(s.computed).map(([id, a]) => [id, a.value_feedback])
                      ),
       co_feedback:   s.computed.CO?.value_feedback     ?? 0,
       sv_feedback:   s.computed.SV?.value_feedback     ?? 0,

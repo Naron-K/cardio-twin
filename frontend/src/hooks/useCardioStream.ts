@@ -113,6 +113,13 @@ export interface StreamTick {
   outcomes: Record<string, OutcomeEvaluation[]>
   /** Gate failures the twin logged this cycle. */
   warnings: string[]
+  /**
+   * What is producing these readings.  Reported by the backend rather than
+   * assumed here: today every reading on this socket is generated, and a
+   * screen full of convincingly wobbling numbers should say so rather than
+   * leave a viewer to work it out.
+   */
+  source: { kind: string; detail: string }
 }
 
 export type StreamStatus = 'connecting' | 'open' | 'closed'
@@ -158,6 +165,7 @@ type RawSnapshot = {
   absorption?: Record<string, Record<string, number>>
   outcomes?: Record<string, OutcomeEvaluation[]>
   warnings?: string[]
+  source?: { kind: string; detail: string }
 }
 
 /** Attribute map over one half of the snapshot, picking one of the X columns. */
@@ -198,6 +206,7 @@ function parseSnapshot(raw: unknown): StreamTick | null {
       absorption:    s.absorption                      ?? {},
       outcomes:      s.outcomes                        ?? {},
       warnings:      s.warnings                        ?? [],
+      source:        s.source ?? { kind: 'unknown', detail: '' },
     }
   } catch {
     return null

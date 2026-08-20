@@ -140,6 +140,7 @@ export function TwinDashboard({ onBack }: Props) {
   const alert = anyOutOfBand(outcomes)
   const within = withinByOutcome(latest)
   const activeView = views.find((v) => v.id === tab)
+  const feed = latest?.source ?? { kind: 'unknown', detail: '' }
 
   if (schemaError) {
     return (
@@ -186,8 +187,18 @@ export function TwinDashboard({ onBack }: Props) {
         </div>
 
         <Chip tone={status === 'open' ? 'oxy' : 'crimson'} dot pulse={status !== 'open'}>
-          {status === 'open' ? 'Live' : status === 'connecting' ? 'Reconnecting' : 'Offline'}
+          {status === 'open' ? 'Streaming' : status === 'connecting' ? 'Reconnecting' : 'Offline'}
         </Chip>
+
+        {/* What is producing the readings, as the backend reports it. The
+            socket being open says the connection is live; it says nothing
+            about whether a patient is on the other end of it, and a screen of
+            convincingly wobbling numbers should not leave that to be assumed. */}
+        {feed.kind === 'simulated' && (
+          <Chip tone="warn" title={feed.detail}>
+            Simulated feed
+          </Chip>
+        )}
 
         <div className="ml-auto flex items-center gap-3">
           <Readout label="Cycle" value={String(latest?.tick ?? 0)} />
@@ -222,6 +233,7 @@ export function TwinDashboard({ onBack }: Props) {
             <InputRail
               index={index}
               values={latest?.sensors ?? {}}
+              sourceKind={feed.kind}
               disabled={paused}
               onChange={setSensor}
             />

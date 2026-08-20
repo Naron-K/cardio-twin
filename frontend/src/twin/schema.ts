@@ -31,6 +31,17 @@ export interface AttributeSchema {
   physio_min: number
   physio_max: number
   description: string
+  /**
+   * Where a synthetic feed rests, and how far it wanders — declared per SENSOR
+   * attribute in the lamina XML, null where it declares neither.
+   *
+   * `baseline` is what a control should display: the value that was *set*.
+   * The reading arriving on the tick is that value plus noise, and showing the
+   * reading in the control makes the slider look like it is fighting whoever
+   * drags it. They are two different quantities and the UI shows both.
+   */
+  baseline: number | null
+  noise_sigma: number | null
   /** Function id that produces this attribute; null for a raw input. */
   computed_by: string | null
   depends_on: string[]
@@ -88,7 +99,11 @@ export interface TagSchema {
   deviation_type: string
   emitter: string
   gate_kernel: string
-  /** −1 corrective, +1 amplifying, 0 monitor-only. */
+  /**
+   * Which way the target composites are pushed when the outcome sits above
+   * target: negative down, positive up, 0 not at all. Whether that *corrects*
+   * depends on the coupling — see `polarityLabel` below.
+   */
   polarity: number
   targets: TagTargetSchema[]
   params: Record<string, number>

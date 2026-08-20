@@ -319,6 +319,13 @@ def get_schema():
             "description": attr.description,
             "computed_by": attr.computed_by,
             "depends_on": attr.depends_on,
+            # Where a synthetic feed rests, and how far it wanders.  Exposed
+            # because a control needs to show the value that was *set*, not the
+            # jittered reading coming back — conflating the two makes a slider
+            # look like it is fighting whoever drags it.  None where the lamina
+            # declares nothing.
+            "baseline": attr.baseline,
+            "noise_sigma": attr.noise_sigma,
         }
 
     composites = {}
@@ -752,7 +759,17 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100):
         # regulating between fresh readings.
         if flags["paused"]:
             return None
-        return session.tick(sample or {})
+        snapshot = session.tick(sample or {})
+        # Say what is producing these readings.  Every number on this socket is
+        # generated — Gaussian noise around the baselines the lamina declares —
+        # and until now nothing on the wire said so, which left a screen full of
+        # convincingly wobbling values with no way to tell them from a patient.
+        # The frontend reports whatever this says rather than assuming.
+        snapshot["source"] = {
+            "kind": source.KIND,
+            "detail": source.describe(),
+        }
+        return snapshot
 
     async def _send(snapshot: dict) -> None:
         # jsonable_encoder handles any numpy scalars inside vectors/outcomes.

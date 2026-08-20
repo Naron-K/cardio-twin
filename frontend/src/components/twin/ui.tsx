@@ -68,14 +68,18 @@ export function Chip({
   tone = 'neutral',
   dot = false,
   pulse = false,
+  title,
 }: {
   children: ReactNode
   tone?: ChipTone
   dot?: boolean
   pulse?: boolean
+  /** Hover detail, for a chip whose label is a summary of something longer. */
+  title?: string
 }) {
   return (
     <span
+      title={title}
       className={`inline-flex items-center gap-1.5 rounded-full border-2 px-2.5 py-1
                   font-mono text-[11px] font-bold readout uppercase ${CHIP_TONE[tone]}`}
     >

@@ -39,6 +39,12 @@ _FALLBACK_SIGMA_FRACTION = 0.002
 class SignalSource(ABC):
     """Minimal interface for a sensor reading producer."""
 
+    #: What kind of feed this is, reported on the wire so a consumer can say so
+    #: on screen.  A real device feed would set this to something else, and the
+    #: distinction is the whole point: nothing downstream should have to guess
+    #: whether it is looking at a patient or at generated numbers.
+    KIND: str = "unknown"
+
     @abstractmethod
     def next(self) -> dict[str, float]:
         """Return one tick's sensor readings as {attr_id: value}."""
@@ -61,6 +67,8 @@ class SimulatedSource(SignalSource):
     noise_sigma : per-sensor overrides for the declared noise.
     seed        : RNG seed for reproducible streams (useful in tests).
     """
+
+    KIND = "simulated"
 
     def __init__(
         self,

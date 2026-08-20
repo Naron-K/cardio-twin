@@ -1,7 +1,7 @@
 """
 CardioTwin - FastAPI Backend
 =============================
-Wraps the CirculatoryLamina simulation engine in a REST API.
+Wraps the UniversalTwin simulation engine in a REST API.
 
 Endpoints:
   GET  /health          - Health check
@@ -31,14 +31,15 @@ from pydantic import BaseModel, Field
 # Ensure backend package is importable when running from project root
 sys.path.insert(0, str(Path(__file__).parent))
 
-from circulatory_lamina import CirculatoryLamina
+from laminae import lamina_path, load_twin
+from universal_twin import UniversalTwin
 from feedback_controller import (
     FeedbackController,
     DEFAULT_EPSILON_RATIO,
     DEFAULT_MAX_NORM,
 )
 from session import Session
-from signal_source import SimulatedCardioSource, _DEFAULT_BASELINE
+from signal_source import SimulatedSource
 from streaming_runtime import StreamingRuntime
 from snapshot import (
     _KSTATE_SEP,
@@ -65,14 +66,12 @@ app.add_middleware(
 )
 
 # Path to the XML schema, relative to this file
-# Which lamina this process is running.  Overridable so "point the backend at
-# a different lamina and the visualiser follows" is a thing anyone can try
-# rather than a claim in a document — the 2D view builds itself out of
-# /api/schema and names no attribute of its own.
-SCHEMA_PATH = Path(
-    os.environ.get("CARDIOTWIN_LAMINA")
-    or Path(__file__).parent / "circulatory_lamina.xml"
-)
+# Which lamina this process is running.  Overridable via CARDIOTWIN_LAMINA so
+# "point the backend at a different lamina and the visualiser follows" is a
+# thing anyone can try rather than a claim in a document — the 2D view builds
+# itself out of /api/schema and names no attribute of its own.  laminae.py
+# pairs the file with the class holding its arithmetic.
+SCHEMA_PATH = lamina_path()
 
 # Path to presets folder (one level up from backend/)
 PRESETS_PATH = Path(__file__).parent.parent / "presets"
@@ -145,10 +144,10 @@ class FeedbackRunRequest(BaseModel):
 
 def _run_simulation(sensor_data: Dict[str, float]) -> Dict[str, Any]:
     """
-    Initialise a fresh CirculatoryLamina, feed sensor values,
+    Initialise a fresh twin for the loaded lamina, feed sensor values,
     run compute_all(), and return a structured results dict.
     """
-    twin = CirculatoryLamina(str(SCHEMA_PATH))
+    twin = load_twin(SCHEMA_PATH)
 
     # Feed each sensor value
     for attr_id, value in sensor_data.items():
@@ -222,7 +221,7 @@ def _run_simulation(sensor_data: Dict[str, float]) -> Dict[str, Any]:
 # _restore_kernel_state now live in snapshot.py (shared with Session).
 
 
-def _apply_tag_overrides(twin: CirculatoryLamina,
+def _apply_tag_overrides(twin: UniversalTwin,
                           overrides: Dict[str, "TagOverride"]):
     """
     Mutate the parsed Tag registry in place per client overrides.
@@ -254,12 +253,12 @@ def _apply_tag_overrides(twin: CirculatoryLamina,
 
 
 def _build_feedback_twin(sensor_data: Dict[str, float],
-                          tag_overrides: Dict[str, "TagOverride"]) -> CirculatoryLamina:
+                          tag_overrides: Dict[str, "TagOverride"]) -> UniversalTwin:
     """
     Fresh twin per request (stateless server).  Applies sensor values
     and any tag overrides before the controller is wired up.
     """
-    twin = CirculatoryLamina(str(SCHEMA_PATH))
+    twin = load_twin(SCHEMA_PATH)
     _apply_tag_overrides(twin, tag_overrides)
 
     for attr_id, value in sensor_data.items():
@@ -299,7 +298,7 @@ def get_schema():
     """
     print("[LOG] GET /api/schema")
     try:
-        twin = CirculatoryLamina(str(SCHEMA_PATH))
+        twin = load_twin(SCHEMA_PATH)
     except Exception as e:
         print(f"[ERROR] Failed to load schema: {e}")
         raise HTTPException(status_code=500, detail={
@@ -711,7 +710,7 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100):
     """
     Stream the feedback loop to the browser over WebSocket.
 
-    On connect: an isolated Session + SimulatedCardioSource are created
+    On connect: an isolated Session + SimulatedSource are created
     and a background ticker fires every `tick_ms` milliseconds, sending
     a simulation snapshot as JSON.
 
@@ -727,8 +726,13 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100):
     await websocket.accept()
     print(f"[WS] /ws/feedback connected  tick_ms={tick_ms}")
 
-    session = Session(dict(_DEFAULT_BASELINE))
-    source  = SimulatedCardioSource()
+    # The feed is built from the loaded lamina's own sensor declarations, and
+    # the session starts at the baselines that feed reports — so a lamina this
+    # file has never heard of streams without a line of change here.
+    session = Session()
+    source  = SimulatedSource(session.twin)
+    session.seed(source.starting_state())
+    print(f"[WS] feed: {source.describe()}")
     flags   = {"paused": False}
 
     # ── Layer 1 streaming runtime ────────────────────────────────────

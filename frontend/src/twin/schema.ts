@@ -297,9 +297,24 @@ export function fmtValue(v: number | undefined): string {
   return v.toFixed(3)
 }
 
-/** The XML's word for what a tag does to its targets. */
+/**
+ * What a tag's polarity does, stated mechanically.
+ *
+ * This used to read "corrective" and "amplifying", which sounds like a fact
+ * about the tag and is not one. The kernel computes
+ * `raw = polarity · gain · w · G · d`, so the sign decides which way the target
+ * composite is pushed when the outcome sits above target — nothing more.
+ * Whether that push *corrects* depends on which way the composite's attributes
+ * move the outcome, and the model declares that nowhere.
+ *
+ * A respiratory lamina made the difference visible: PaCO2 = 0.863·VCO2/V_A is
+ * inversely coupled, so its corrective tag carries a positive polarity, and
+ * calling it "amplifying" on screen was the UI stating the opposite of what
+ * was happening. These labels say what the number does and leave the judgement
+ * to the reader, who can see the coupling in the map.
+ */
 export function polarityLabel(polarity: number): string {
-  if (polarity < 0) return 'corrective'
-  if (polarity > 0) return 'amplifying'
+  if (polarity < 0) return 'pushes target down on rise'
+  if (polarity > 0) return 'pushes target up on rise'
   return 'monitor only'
 }

@@ -146,25 +146,51 @@ through which a sensor could arrive.
 ## Running a different lamina
 
 ```bash
-CARDIOTWIN_LAMINA=/path/to/other_lamina.xml python -m uvicorn main:app --port 8000
+CARDIOTWIN_LAMINA=backend/respiratory_lamina.xml python -m uvicorn main:app --port 8000
 ```
 
-Both `main.py` and `session.py` read that variable, so the API and the
-streaming session agree on which lamina is loaded.
+`laminae.py` reads the XML's own `id` and pairs it with the class holding that
+lamina's arithmetic; `main.py` and `session.py` both go through it, so the API
+and the streaming session always agree on which lamina is loaded.
+
+### It has been done, not just claimed
+
+`lamina_respiratory` is the second lamina, and it was written to break this
+skeleton if it could. 25 attributes against 18, a ten-layer chain against
+eight, twelve sensors that force the map's first column to wrap, a function
+taking four inputs, a segment declaring no outcome at all, a composite no tag
+writes into, a tag fanning into two composites, and a tag with polarity 0 that
+evaluates and corrects nothing.
+
+The frontend needed no change. Not a line — the lamina map took the centre
+because no artwork is registered for it, the input rail generated twelve
+controls grouped by segment, thirteen function cards appeared in declared step
+order with live values substituted into each formula, and the tab strip dropped
+nothing because this lamina happens to declare all seven views' worth of
+structure.
+
+Two things did change, and both were the UI making claims the model does not
+support. Polarity was being labelled "corrective" and "amplifying" — printed
+beside a tag that was correcting through an inversely coupled composite, which
+made it exactly wrong; the labels now say what the sign does. And a function
+that raises used to leave a stale value on screen looking live, so compute
+errors now reach the snapshot's warnings.
+
+Both, and the modelling trap that produced them, are written up in
+[laminae.md](laminae.md).
 
 ### The honest limit
 
 **The visualiser is universal. The compute layer is not yet.**
 
 `UniversalTwin` resolves a function by looking its id up in
-`_function_registry`, and `CirculatoryLamina._register_functions()` is what
-populates that registry. Functions receive generic positional inputs and are
-not coupled to attribute names — the decoupling is real and deliberate — but a
-brand-new lamina still needs a subclass registering a Python implementation per
-declared function. Without one the twin logs
-`WARNING: No function registered for '…'` and the attribute stays unset; the
-visualiser then draws a dash rather than a zero, because zero is a measurement
-and a blank is not.
+`_function_registry`, and a subclass is what populates that registry. Functions
+receive generic positional inputs and are not coupled to attribute names — the
+decoupling is real and deliberate — but a brand-new lamina still needs a
+subclass registering a Python implementation per declared function. Without one
+the twin logs `WARNING: No function registered for '…'` and the attribute stays
+unset; the visualiser then draws a dash rather than a zero, because zero is a
+measurement and a blank is not.
 
 Making the engine read arithmetic straight from the XML is the obvious next
 step and is **not** something to do by evaluating the `<formula>` strings: they
@@ -173,11 +199,3 @@ are written for humans (`SV = k * EDV (with Starling limit)`,
 silently disagree with the Python that actually runs. A machine-readable
 expression alongside the prose formula would be the way in, and it is a change
 to the model, not to the visualiser.
-
-### What was checked
-
-The skeleton was run against a synthetic lamina from an unrelated domain — a
-battery thermal loop with four inputs, three functions, two segments (one of
-which declares no outcome at all), two composites, one tag and one one-sided
-gate. It indexed correctly, laid out across eight layers, and produced fifteen
-nodes and seventeen edges with no overlapping boxes and no dangling edges.

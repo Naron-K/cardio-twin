@@ -52,6 +52,13 @@ from datetime import datetime
 # validate_gates() flow keeps working unchanged.  Feedback-side rollback
 # uses the new `rollback_feedback()` method.
 # ──────────────────────────────────────────────────────────────────────
+def _opt_float(text: Optional[str]) -> Optional[float]:
+    """Parse an optional numeric XML element; absent or blank stays None."""
+    if text is None or not text.strip():
+        return None
+    return float(text)
+
+
 @dataclass
 class Attribute:
     """
@@ -68,6 +75,16 @@ class Attribute:
     physio_min: float                # lower physiological bound
     physio_max: float                # upper physiological bound
     description: str = ""            # human-readable description
+    # Resting value a synthetic feed should sit at, when the domain expert
+    # declares one.  A midpoint of the physiological range is NOT a substitute:
+    # the midpoint of an FiO2 range of 0.21–1.0 is 0.6, which is a patient on
+    # heavy respiratory support rather than anyone at rest.  Absent → the
+    # midpoint is used and the twin simply starts somewhere legal.
+    baseline: Optional[float] = None
+    # Noise std dev for a synthetic feed, in the attribute's own unit.  Absent
+    # → a small fraction of the declared range, which keeps a trace alive
+    # without pretending to a measurement error anyone characterised.
+    noise_sigma: Optional[float] = None
     value_external: Optional[float] = None  # X' — external/computed input
     value_feedback: float = 0.0             # X'' — feedback-loop delta
     normalised: Optional[float] = None  # value in [0, 1] vector space
@@ -1020,6 +1037,8 @@ class UniversalTwin:
                 physio_min=float(attr_el.findtext("physio_min", "0")),
                 physio_max=float(attr_el.findtext("physio_max", "1")),
                 description=attr_el.findtext("description", ""),
+                baseline=_opt_float(attr_el.findtext("baseline")),
+                noise_sigma=_opt_float(attr_el.findtext("noise_sigma")),
                 computed_by=attr_el.findtext("computed_by"),
                 depends_on=depends,
             )

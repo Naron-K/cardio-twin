@@ -1,7 +1,7 @@
 """
 Session — Phase 1 of the streaming dashboard.
 
-Holds one live CirculatoryLamina twin + FeedbackController that persist
+Holds one live twin + FeedbackController that persist
 across many tick() calls.  This is the stateful counterpart to the
 stateless /api/feedback/* HTTP endpoints.
 
@@ -19,7 +19,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from circulatory_lamina import CirculatoryLamina
+from laminae import load_twin
 from feedback_controller import (
     DEFAULT_EPSILON_RATIO,
     DEFAULT_MAX_NORM,
@@ -28,31 +28,41 @@ from feedback_controller import (
 from snapshot import _simulation_snapshot, before_after_outcomes
 from universal_twin import resolve_polarity
 
-# Same override as main.SCHEMA_PATH, read independently so a Session created
-# outside the app (tests, scripts) picks up the same lamina the API is serving.
-_SCHEMA_PATH = Path(
-    os.environ.get("CARDIOTWIN_LAMINA")
-    or Path(__file__).parent / "circulatory_lamina.xml"
-)
-
-
 class Session:
     """One long-lived twin + controller driven by repeated tick() calls."""
 
     def __init__(
         self,
-        sensor_data: dict[str, float],
+        sensor_data: dict[str, float] | None = None,
         tag_overrides: dict | None = None,
         epsilon_ratio: float = DEFAULT_EPSILON_RATIO,
         max_norm: float = DEFAULT_MAX_NORM,
     ) -> None:
-        self.twin = CirculatoryLamina(str(_SCHEMA_PATH))
+        # Which lamina, and which class implements it, is laminae.py's call —
+        # a Session created outside the app (tests, scripts) therefore picks up
+        # the same lamina the API is serving.
+        self.twin = load_twin()
         if tag_overrides:
             self._apply_overrides(tag_overrides)
-        for attr_id, value in sensor_data.items():
-            self.twin.set_sensor(attr_id, value)
-        self.twin.compute_all()
+        self.seed(sensor_data or {})
         self.controller = FeedbackController(self.twin, epsilon_ratio, max_norm)
+
+    def seed(self, sensor_data: dict[str, float]) -> None:
+        """
+        Write starting sensor values and derive the chain from them.
+
+        Separate from __init__ because the synthetic feed is built *from* the
+        twin and so cannot exist before it.  Values addressed to attributes
+        this lamina does not declare are skipped rather than raising: a caller
+        holding a baseline for another lamina is making a mistake worth
+        surviving, and the twin keeps whatever it already had.
+        """
+        for attr_id, value in sensor_data.items():
+            try:
+                self.twin.set_sensor(attr_id, value)
+            except (KeyError, ValueError):
+                continue
+        self.twin.compute_all()
 
     # ── Public API ────────────────────────────────────────────────────
 

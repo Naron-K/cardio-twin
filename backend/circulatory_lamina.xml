@@ -78,6 +78,15 @@
   <!-- ============================================================== -->
   <!-- ATTRIBUTES: Each attribute is an object with full metadata      -->
   <!-- source: SENSOR = external measurement, PRELIMINARY = computed   -->
+  <!--                                                                  -->
+  <!-- baseline / noise_sigma (optional, SENSOR only)                   -->
+  <!--   Where a synthetic feed should sit at rest, and how much it     -->
+  <!--   should wander.  These used to be a table in signal_source.py,  -->
+  <!--   which meant the resting state of the twin was a fact about a   -->
+  <!--   Python file rather than about the patient.  The midpoint of a  -->
+  <!--   physiological range is not a substitute: it is legal, not      -->
+  <!--   healthy.  Omit both and the feed falls back to the midpoint    -->
+  <!--   with 0.2% jitter.                                             -->
   <!-- ============================================================== -->
   <attributes>
 
@@ -88,6 +97,8 @@
       <source>SENSOR</source>
       <physio_min>90</physio_min>
       <physio_max>180</physio_max>
+      <baseline>120</baseline>
+      <noise_sigma>2.0</noise_sigma>
       <description>Peak pressure during ventricular contraction</description>
     </attribute>
 
@@ -97,6 +108,8 @@
       <source>SENSOR</source>
       <physio_min>60</physio_min>
       <physio_max>120</physio_max>
+      <baseline>80</baseline>
+      <noise_sigma>1.0</noise_sigma>
       <description>Minimum pressure during ventricular relaxation</description>
     </attribute>
 
@@ -106,6 +119,8 @@
       <source>SENSOR</source>
       <physio_min>3.0</physio_min>
       <physio_max>4.0</physio_max>
+      <baseline>3.5</baseline>
+      <noise_sigma>0.05</noise_sigma>
       <description>Dynamic viscosity of blood</description>
     </attribute>
 
@@ -115,6 +130,8 @@
       <source>SENSOR</source>
       <physio_min>1.0</physio_min>
       <physio_max>100.0</physio_max>
+      <baseline>50</baseline>
+      <noise_sigma>0.5</noise_sigma>
       <description>Length of ONE representative vessel segment (not the whole systemic tree). Used by the single-segment Poiseuille estimate for R.</description>
     </attribute>
 
@@ -124,6 +141,8 @@
       <source>SENSOR</source>
       <physio_min>0.01</physio_min>
       <physio_max>1.5</physio_max>
+      <baseline>0.15</baseline>
+      <noise_sigma>0.001</noise_sigma>
       <description>Internal radius of ONE representative vessel segment (not the whole systemic tree). Drives R via the r^4 term — the model is extremely sensitive to it.</description>
     </attribute>
 
@@ -133,6 +152,8 @@
       <source>SENSOR</source>
       <physio_min>50</physio_min>
       <physio_max>250</physio_max>
+      <baseline>120</baseline>
+      <noise_sigma>2.0</noise_sigma>
       <description>Volume of blood in ventricle before contraction</description>
     </attribute>
 
@@ -142,6 +163,8 @@
       <source>SENSOR</source>
       <physio_min>40</physio_min>
       <physio_max>200</physio_max>
+      <baseline>72</baseline>
+      <noise_sigma>1.0</noise_sigma>
       <description>Heart rate from Apple Watch</description>
     </attribute>
 
@@ -151,6 +174,8 @@
       <source>SENSOR</source>
       <physio_min>1000</physio_min>
       <physio_max>10000</physio_max>
+      <baseline>5000</baseline>
+      <noise_sigma>50</noise_sigma>
       <description>Membrane resistance of a unit length of cable (cable theory r_m, units ohm.cm)</description>
     </attribute>
 
@@ -160,6 +185,8 @@
       <source>SENSOR</source>
       <physio_min>100</physio_min>
       <physio_max>500</physio_max>
+      <baseline>200</baseline>
+      <noise_sigma>5</noise_sigma>
       <description>Axial resistance inside the cell, per unit length (cable theory r_i, units ohm/cm)</description>
     </attribute>
 
@@ -169,6 +196,8 @@
       <source>SENSOR</source>
       <physio_min>100</physio_min>
       <physio_max>500</physio_max>
+      <baseline>300</baseline>
+      <noise_sigma>5</noise_sigma>
       <description>Axial resistance of the extracellular space, per unit length (cable theory r_e, units ohm/cm)</description>
     </attribute>
 

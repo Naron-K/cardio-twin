@@ -1,0 +1,742 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Respiratory Lamina - Attribute Definition File
+
+  The second lamina. It exists to make the universal claim checkable: the
+  visualiser is built entirely out of /api/schema and names no attribute of its
+  own, so a lamina it has never seen should draw itself on first load. This is
+  that lamina — different quantities, different units, a deeper computation
+  chain, and four cases the circulatory lamina never exercises:
+
+    · a segment that declares no behavioural outcome  (seg_mechanics)
+    · a composite no tag ever writes into             (mechanics_state)
+    · a tag that fans into two composites             (PACO2_DEVIATION)
+    · a tag with polarity 0 — watches, corrects nothing (AA_MONITOR)
+
+  Physiology is steady-state algebra, which is what <behaviour_solver
+  type="algebraic_chain"> means. Every relation below is a standard clinical
+  equation, cited in the function description and implemented in
+  respiratory_lamina.py.
+
+  Scope, stated once so it is not inferred: this is a teaching and demonstration
+  model of gas exchange at rest. It has no time integration, no V/Q
+  distribution, no shunt fraction and no CO2 dissociation curve. It is not a
+  ventilator management tool and nothing in it is calibrated per patient.
+-->
+
+<lamina name="Respiratory" id="lamina_respiratory" version="1.0" level="1">
+
+  <upper_lamina id="none" />
+  <lower_lamina id="none" />
+
+  <coupling type="additive" />
+  <behaviour_solver type="algebraic_chain" dt="1.0" unit="second" />
+
+  <!-- Same slow-loop mechanism as the circulatory lamina, which is the point:
+       a lamina inherits the entire adaptive loop by copying a block like this.
+       Cadence is slower and gains are lower because respiratory outcomes here
+       sit on wider tolerances than cardiac ones. -->
+  <adaptation kernel="model_free" cadence="25">
+    <param name="perf_alpha"  value="0.10" />
+    <param name="gain_rate"   value="0.02" />
+    <param name="gain_min"    value="0.30" />
+    <param name="gain_max"    value="1.20" />
+    <param name="op_rate"     value="0.10" />
+    <param name="op_min"      value="-0.30" />
+    <param name="op_max"      value="0.30" />
+    <param name="settle_band" value="0.50" />
+  </adaptation>
+
+  <channel_mappings>
+    <mapping attribute_id="RR"     channel_id="ch_manual_slider" />
+    <mapping attribute_id="V_T"    channel_id="ch_manual_slider" />
+    <mapping attribute_id="V_D"    channel_id="ch_manual_slider" />
+    <mapping attribute_id="VO2"    channel_id="ch_manual_slider" />
+    <mapping attribute_id="R_q"    channel_id="ch_manual_slider" />
+    <mapping attribute_id="FiO2"   channel_id="ch_manual_slider" />
+    <mapping attribute_id="P_atm"  channel_id="ch_manual_slider" />
+    <mapping attribute_id="SpO2"   channel_id="ch_manual_slider" />
+    <mapping attribute_id="Hb"     channel_id="ch_manual_slider" />
+    <mapping attribute_id="CO_ref" channel_id="ch_manual_slider" />
+    <mapping attribute_id="C_rs"   channel_id="ch_manual_slider" />
+    <mapping attribute_id="PEEP"   channel_id="ch_manual_slider" />
+  </channel_mappings>
+
+  <!-- ============================================================== -->
+  <!-- ATTRIBUTES                                                      -->
+  <!-- baseline / noise_sigma describe where a synthetic feed sits at  -->
+  <!-- rest. The values below are a healthy 70 kg adult breathing room -->
+  <!-- air, and every behavioural outcome lands inside tolerance there.-->
+  <!-- ============================================================== -->
+  <attributes>
+
+    <!-- ── SENSOR: measured at the bedside ─────────────────────────── -->
+
+    <attribute id="RR">
+      <name>Respiratory Rate</name>
+      <unit>/min</unit>
+      <source>SENSOR</source>
+      <physio_min>6</physio_min>
+      <physio_max>40</physio_max>
+      <baseline>12</baseline>
+      <noise_sigma>0.4</noise_sigma>
+      <description>Breaths per minute, from a chest band or capnograph.</description>
+    </attribute>
+
+    <attribute id="V_T">
+      <name>Tidal Volume</name>
+      <unit>mL</unit>
+      <source>SENSOR</source>
+      <physio_min>150</physio_min>
+      <physio_max>900</physio_max>
+      <baseline>500</baseline>
+      <noise_sigma>8</noise_sigma>
+      <description>Volume of one breath, from a spirometer or ventilator.</description>
+    </attribute>
+
+    <attribute id="V_D">
+      <name>Dead Space Volume</name>
+      <unit>mL</unit>
+      <source>SENSOR</source>
+      <physio_min>50</physio_min>
+      <physio_max>400</physio_max>
+      <baseline>150</baseline>
+      <noise_sigma>2</noise_sigma>
+      <description>Anatomical dead space — airway that ventilates but does not exchange gas. Estimated at roughly 2.2 mL per kg of ideal body weight rather than measured directly, so treat it as a configured constant.</description>
+    </attribute>
+
+    <attribute id="VO2">
+      <name>Oxygen Consumption</name>
+      <unit>mL/min</unit>
+      <source>SENSOR</source>
+      <physio_min>100</physio_min>
+      <physio_max>3000</physio_max>
+      <baseline>250</baseline>
+      <noise_sigma>5</noise_sigma>
+      <description>Whole-body oxygen uptake, from indirect calorimetry. Resting adult is about 3.5 mL/kg/min.</description>
+    </attribute>
+
+    <attribute id="R_q">
+      <name>Respiratory Quotient</name>
+      <unit>ratio</unit>
+      <source>SENSOR</source>
+      <physio_min>0.67</physio_min>
+      <physio_max>1.0</physio_max>
+      <baseline>0.8</baseline>
+      <noise_sigma>0.005</noise_sigma>
+      <description>CO2 produced per O2 consumed. 1.0 on pure carbohydrate, 0.7 on pure fat; a mixed diet sits near 0.8.</description>
+    </attribute>
+
+    <attribute id="FiO2">
+      <name>Inspired Oxygen Fraction</name>
+      <unit>fraction</unit>
+      <source>SENSOR</source>
+      <physio_min>0.21</physio_min>
+      <physio_max>1.0</physio_max>
+      <baseline>0.21</baseline>
+      <noise_sigma>0.002</noise_sigma>
+      <description>Oxygen fraction of inspired gas — a delivery-device setting, 0.21 on room air.</description>
+    </attribute>
+
+    <attribute id="P_atm">
+      <name>Barometric Pressure</name>
+      <unit>mmHg</unit>
+      <source>SENSOR</source>
+      <physio_min>450</physio_min>
+      <physio_max>800</physio_max>
+      <baseline>760</baseline>
+      <noise_sigma>0.5</noise_sigma>
+      <description>Ambient pressure. 760 mmHg at sea level; about 525 at 3000 m, which is why altitude lowers alveolar oxygen without changing FiO2.</description>
+    </attribute>
+
+    <attribute id="SpO2">
+      <name>Peripheral Oxygen Saturation</name>
+      <unit>%</unit>
+      <source>SENSOR</source>
+      <physio_min>60</physio_min>
+      <physio_max>100</physio_max>
+      <baseline>97</baseline>
+      <noise_sigma>0.3</noise_sigma>
+      <description>Haemoglobin saturation from a pulse oximeter. Optical estimate of arterial saturation, and it reads high in carbon monoxide poisoning and unreliably at low perfusion.</description>
+    </attribute>
+
+    <attribute id="Hb">
+      <name>Haemoglobin Concentration</name>
+      <unit>g/dL</unit>
+      <source>SENSOR</source>
+      <physio_min>5</physio_min>
+      <physio_max>20</physio_max>
+      <baseline>15</baseline>
+      <noise_sigma>0.05</noise_sigma>
+      <description>Blood haemoglobin, from a laboratory count. Changes over days, not breaths.</description>
+    </attribute>
+
+    <attribute id="CO_ref">
+      <name>Cardiac Output (external)</name>
+      <unit>L/min</unit>
+      <source>SENSOR</source>
+      <physio_min>2</physio_min>
+      <physio_max>12</physio_max>
+      <baseline>5.0</baseline>
+      <noise_sigma>0.05</noise_sigma>
+      <description>Cardiac output, supplied from outside this lamina because oxygen delivery is a circulatory quantity as much as a respiratory one. It enters as an external reading in v1; when lamina-to-lamina coupling lands, this is the seam where lamina_circulatory's computed CO attaches. Named CO_ref rather than CO so nobody mistakes it for something this lamina computed.</description>
+    </attribute>
+
+    <attribute id="C_rs">
+      <name>Respiratory System Compliance</name>
+      <unit>mL/cmH2O</unit>
+      <source>SENSOR</source>
+      <physio_min>10</physio_min>
+      <physio_max>120</physio_max>
+      <baseline>60</baseline>
+      <noise_sigma>0.5</noise_sigma>
+      <description>Volume change per unit pressure of lung and chest wall together. Healthy adult 50-80; stiff lungs fall well below 40.</description>
+    </attribute>
+
+    <attribute id="PEEP">
+      <name>Positive End-Expiratory Pressure</name>
+      <unit>cmH2O</unit>
+      <source>SENSOR</source>
+      <physio_min>0</physio_min>
+      <physio_max>24</physio_max>
+      <baseline>5</baseline>
+      <noise_sigma>0.1</noise_sigma>
+      <description>Airway pressure held at end of expiration — a ventilator setting. 5 cmH2O approximates the intrinsic level of a spontaneously breathing adult.</description>
+    </attribute>
+
+    <!-- ── PRELIMINARY: computed by this lamina ────────────────────── -->
+
+    <attribute id="V_E">
+      <name>Minute Ventilation</name>
+      <unit>L/min</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>1</physio_min>
+      <physio_max>30</physio_max>
+      <computed_by>minute_ventilation</computed_by>
+      <depends_on>RR, V_T</depends_on>
+      <description>Total gas moved per minute. Includes dead space, so it overstates the volume that actually reaches the alveoli.</description>
+    </attribute>
+
+    <attribute id="V_A">
+      <name>Alveolar Ventilation</name>
+      <unit>L/min</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0.5</physio_min>
+      <physio_max>22</physio_max>
+      <computed_by>alveolar_ventilation</computed_by>
+      <depends_on>RR, V_T, V_D</depends_on>
+      <description>The part of ventilation that reaches gas-exchanging alveoli. This, not minute ventilation, is what sets arterial CO2 — rapid shallow breathing can raise V_E while lowering V_A.</description>
+    </attribute>
+
+    <attribute id="V_D_frac">
+      <name>Dead Space Fraction</name>
+      <unit>ratio</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0.05</physio_min>
+      <physio_max>0.9</physio_max>
+      <computed_by>dead_space_fraction</computed_by>
+      <depends_on>V_D, V_T</depends_on>
+      <description>Wasted fraction of each breath. Normally 0.2-0.35; this is the anatomical ratio, not the Bohr-Enghoff physiological dead space, which needs expired CO2 this lamina does not take.</description>
+    </attribute>
+
+    <attribute id="VCO2">
+      <name>Carbon Dioxide Production</name>
+      <unit>mL/min</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>70</physio_min>
+      <physio_max>3000</physio_max>
+      <computed_by>co2_production</computed_by>
+      <depends_on>VO2, R_q</depends_on>
+      <description>CO2 produced per minute, at STPD.</description>
+    </attribute>
+
+    <attribute id="PaCO2">
+      <name>Arterial CO2 Tension</name>
+      <unit>mmHg</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>15</physio_min>
+      <physio_max>100</physio_max>
+      <computed_by>arterial_co2</computed_by>
+      <depends_on>VCO2, V_A</depends_on>
+      <description>Arterial partial pressure of CO2, assumed equal to the alveolar value. The assumption is good in health and fails where dead space is high.</description>
+    </attribute>
+
+    <attribute id="PAO2">
+      <name>Alveolar O2 Tension</name>
+      <unit>mmHg</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>30</physio_min>
+      <physio_max>700</physio_max>
+      <computed_by>alveolar_gas</computed_by>
+      <depends_on>FiO2, P_atm, PaCO2, R_q</depends_on>
+      <description>Oxygen tension in the alveolus — what is available to cross into blood. Not measurable directly; it is computed, which is exactly why the gradient below is worth having.</description>
+    </attribute>
+
+    <attribute id="PaO2">
+      <name>Arterial O2 Tension</name>
+      <unit>mmHg</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>25</physio_min>
+      <physio_max>600</physio_max>
+      <computed_by>arterial_o2</computed_by>
+      <depends_on>SpO2</depends_on>
+      <description>Arterial oxygen tension, back-computed from saturation. Above about 97% saturation the dissociation curve is flat, so a small saturation error becomes a large tension error and this value should not be trusted there — a blood gas measures it directly.</description>
+    </attribute>
+
+    <attribute id="A_a">
+      <name>Alveolar-arterial Gradient</name>
+      <unit>mmHg</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0</physio_min>
+      <physio_max>80</physio_max>
+      <computed_by>aa_gradient</computed_by>
+      <depends_on>PAO2, PaO2</depends_on>
+      <description>How much oxygen tension is lost between alveolus and artery. Separates hypoxaemia caused by the lung itself (gradient widens) from hypoventilation or altitude (gradient stays normal). Expected value rises with age, roughly 2.5 + 0.21 x age, which this lamina does not model because it takes no age. Read it as the difference between two independent estimates: PAO2 comes from the gas equation, PaO2 from an oximeter inversion, and nothing here forces them to agree. Lower the respiratory rate without also lowering the measured saturation and the two cross over, which is inconsistent input rather than physiology; the value clamps at zero instead of going negative.</description>
+    </attribute>
+
+    <attribute id="PF_ratio">
+      <name>PaO2 / FiO2 Ratio</name>
+      <unit>mmHg</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>50</physio_min>
+      <physio_max>600</physio_max>
+      <computed_by>oxygenation_index</computed_by>
+      <depends_on>PaO2, FiO2</depends_on>
+      <description>Oxygenation normalised to inspired oxygen. The Berlin definition grades ARDS on it at 300, 200 and 100 mmHg, on the assumption of at least 5 cmH2O PEEP.</description>
+    </attribute>
+
+    <attribute id="CaO2">
+      <name>Arterial Oxygen Content</name>
+      <unit>mL/dL</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>4</physio_min>
+      <physio_max>26</physio_max>
+      <computed_by>oxygen_content</computed_by>
+      <depends_on>Hb, SpO2, PaO2</depends_on>
+      <description>Oxygen carried per decilitre of blood. Dominated by haemoglobin; the dissolved term is about 1.5% of the total, which is why anaemia starves tissue at a perfect saturation.</description>
+    </attribute>
+
+    <attribute id="DO2">
+      <name>Oxygen Delivery</name>
+      <unit>mL/min</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>150</physio_min>
+      <physio_max>2500</physio_max>
+      <computed_by>oxygen_delivery</computed_by>
+      <depends_on>CaO2, CO_ref</depends_on>
+      <description>Oxygen reaching the tissues per minute — the endpoint the whole chain exists to serve. Depends on a cardiac output this lamina does not compute, so read it as a joint result rather than a respiratory one.</description>
+    </attribute>
+
+    <attribute id="P_plat">
+      <name>Plateau Pressure</name>
+      <unit>cmH2O</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0</physio_min>
+      <physio_max>60</physio_max>
+      <computed_by>plateau_pressure</computed_by>
+      <depends_on>V_T, C_rs, PEEP</depends_on>
+      <description>End-inspiratory alveolar pressure under static conditions. Estimated from compliance here rather than measured on an inspiratory hold, so it ignores airway resistance and intrinsic PEEP.</description>
+    </attribute>
+
+    <attribute id="dP">
+      <name>Driving Pressure</name>
+      <unit>cmH2O</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0</physio_min>
+      <physio_max>40</physio_max>
+      <computed_by>driving_pressure</computed_by>
+      <depends_on>P_plat, PEEP</depends_on>
+      <description>Tidal volume scaled to the compliance that is left to receive it. The variable most strongly associated with mortality in ventilated ARDS (Amato 2015). Deliberately carries no behavioural outcome in this lamina: it is a strong association in a specific population, not a target to steer a healthy resting model toward.</description>
+    </attribute>
+
+  </attributes>
+
+  <!-- ============================================================== -->
+  <!-- FUNCTIONS                                                       -->
+  <!-- ============================================================== -->
+  <functions>
+
+    <function id="minute_ventilation" step="1a">
+      <name>Minute Ventilation</name>
+      <formula>V_E = RR * V_T / 1000</formula>
+      <inputs>RR, V_T</inputs>
+      <output>V_E</output>
+      <description>Rate times tidal volume, converted mL to L.</description>
+    </function>
+
+    <function id="alveolar_ventilation" step="1b">
+      <name>Alveolar Ventilation</name>
+      <formula>V_A = RR * (V_T - V_D) / 1000</formula>
+      <inputs>RR, V_T, V_D</inputs>
+      <output>V_A</output>
+      <description>Only the part of each breath past the dead space reaches an alveolus. Floored at a small positive value: a tidal volume below dead space means no effective ventilation at all, which is a real clinical state but not one this steady-state model can express.</description>
+    </function>
+
+    <function id="dead_space_fraction" step="1c">
+      <name>Dead Space Fraction</name>
+      <formula>V_D_frac = V_D / V_T</formula>
+      <inputs>V_D, V_T</inputs>
+      <output>V_D_frac</output>
+      <description>Wasted fraction of a breath.</description>
+    </function>
+
+    <function id="co2_production" step="1d">
+      <name>CO2 Production</name>
+      <formula>VCO2 = VO2 * R_q</formula>
+      <inputs>VO2, R_q</inputs>
+      <output>VCO2</output>
+      <description>Definition of the respiratory quotient, rearranged.</description>
+    </function>
+
+    <function id="arterial_co2" step="2">
+      <name>Arterial CO2</name>
+      <formula>PaCO2 = 0.863 * VCO2 / V_A</formula>
+      <inputs>VCO2, V_A</inputs>
+      <output>PaCO2</output>
+      <description>The alveolar ventilation equation. 0.863 converts VCO2 in mL/min STPD against V_A in L/min BTPS. Arterial CO2 is inversely proportional to alveolar ventilation: halve V_A and PaCO2 doubles.</description>
+    </function>
+
+    <function id="alveolar_gas" step="3">
+      <name>Alveolar Gas Equation</name>
+      <formula>PAO2 = FiO2 * (P_atm - 47) - PaCO2 / R_q</formula>
+      <inputs>FiO2, P_atm, PaCO2, R_q</inputs>
+      <output>PAO2</output>
+      <description>47 mmHg is the saturated water vapour pressure at 37 C, subtracted because inspired gas is humidified before it reaches the alveolus. The CO2 term is why hypoventilation lowers alveolar oxygen without any lung disease.</description>
+    </function>
+
+    <function id="arterial_o2" step="4">
+      <name>Arterial O2 from Saturation</name>
+      <formula>ln(PaO2) = -0.385*ln((1/S)-1) + 3.32 - 1/(72*S) - S^6/6</formula>
+      <inputs>SpO2</inputs>
+      <output>PaO2</output>
+      <description>Severinghaus's inversion of his own oxyhaemoglobin dissociation equation (J Appl Physiol 1979), with S the saturation as a fraction. Assumes a standard curve — normal pH, temperature and 2,3-DPG — so it shifts wrong in acidosis, fever or stored blood. Checked against the textbook curve at 97/90/75% saturation, giving 90/58/40 mmHg.</description>
+    </function>
+
+    <function id="aa_gradient" step="5">
+      <name>Alveolar-arterial Gradient</name>
+      <formula>A_a = PAO2 - PaO2</formula>
+      <inputs>PAO2, PaO2</inputs>
+      <output>A_a</output>
+      <description>Difference between the two oxygen tensions computed above.</description>
+    </function>
+
+    <function id="oxygenation_index" step="6">
+      <name>Oxygenation Index</name>
+      <formula>PF_ratio = PaO2 / FiO2</formula>
+      <inputs>PaO2, FiO2</inputs>
+      <output>PF_ratio</output>
+      <description>Arterial oxygen tension per unit of inspired oxygen.</description>
+    </function>
+
+    <function id="oxygen_content" step="7">
+      <name>Arterial Oxygen Content</name>
+      <formula>CaO2 = 1.34 * Hb * SpO2/100 + 0.003 * PaO2</formula>
+      <inputs>Hb, SpO2, PaO2</inputs>
+      <output>CaO2</output>
+      <description>1.34 mL of oxygen bound per gram of haemoglobin (Hufner's number, in vivo; the theoretical figure is 1.39) plus 0.003 mL/dL per mmHg dissolved in plasma.</description>
+    </function>
+
+    <function id="oxygen_delivery" step="8">
+      <name>Oxygen Delivery</name>
+      <formula>DO2 = CaO2 * CO_ref * 10</formula>
+      <inputs>CaO2, CO_ref</inputs>
+      <output>DO2</output>
+      <description>Content times flow. The factor 10 converts mL/dL against L/min to give mL/min.</description>
+    </function>
+
+    <function id="plateau_pressure" step="9">
+      <name>Plateau Pressure</name>
+      <formula>P_plat = V_T / C_rs + PEEP</formula>
+      <inputs>V_T, C_rs, PEEP</inputs>
+      <output>P_plat</output>
+      <description>Compliance rearranged: the pressure a tidal volume needs, on top of the pressure already held at end-expiration.</description>
+    </function>
+
+    <function id="driving_pressure" step="10">
+      <name>Driving Pressure</name>
+      <formula>dP = P_plat - PEEP</formula>
+      <inputs>P_plat, PEEP</inputs>
+      <output>dP</output>
+      <description>The pressure swing each breath imposes on the lung.</description>
+    </function>
+
+  </functions>
+
+  <!-- ============================================================== -->
+  <!-- COMPOSITES                                                      -->
+  <!-- mechanics_state is deliberately left with no tag pointing at    -->
+  <!-- it: a composite is a grouping first and a feedback address      -->
+  <!-- second, and the visualiser should say which of the two it is.   -->
+  <!-- ============================================================== -->
+  <composites>
+
+    <composite id="ventilation_state">
+      <name>Ventilation State</name>
+      <attributes>RR, V_T, V_E, V_A</attributes>
+      <description>How much gas is moving and how much of it counts</description>
+      <absorption_vector>
+        <weight attribute="RR">0.25</weight>
+        <weight attribute="V_T">0.25</weight>
+        <weight attribute="V_E">0.25</weight>
+        <weight attribute="V_A">0.25</weight>
+      </absorption_vector>
+      <distribution_vector>
+        <weight attribute="RR">0.35</weight>
+        <weight attribute="V_T">0.35</weight>
+        <weight attribute="V_E">0.15</weight>
+        <weight attribute="V_A">0.15</weight>
+      </distribution_vector>
+    </composite>
+
+    <composite id="gas_exchange_state">
+      <name>Gas Exchange State</name>
+      <attributes>FiO2, PAO2, PaO2, A_a</attributes>
+      <description>Whether oxygen is crossing from alveolus to blood</description>
+      <absorption_vector>
+        <weight attribute="FiO2">0.25</weight>
+        <weight attribute="PAO2">0.25</weight>
+        <weight attribute="PaO2">0.25</weight>
+        <weight attribute="A_a">0.25</weight>
+      </absorption_vector>
+      <distribution_vector>
+        <weight attribute="FiO2">0.50</weight>
+        <weight attribute="PAO2">0.20</weight>
+        <weight attribute="PaO2">0.20</weight>
+        <weight attribute="A_a">0.10</weight>
+      </distribution_vector>
+    </composite>
+
+    <composite id="transport_state">
+      <name>Transport State</name>
+      <attributes>Hb, SpO2, CaO2, DO2</attributes>
+      <description>Whether the oxygen that crossed is reaching tissue</description>
+      <absorption_vector>
+        <weight attribute="Hb">0.25</weight>
+        <weight attribute="SpO2">0.25</weight>
+        <weight attribute="CaO2">0.25</weight>
+        <weight attribute="DO2">0.25</weight>
+      </absorption_vector>
+      <distribution_vector>
+        <weight attribute="Hb">0.30</weight>
+        <weight attribute="SpO2">0.40</weight>
+        <weight attribute="CaO2">0.15</weight>
+        <weight attribute="DO2">0.15</weight>
+      </distribution_vector>
+    </composite>
+
+    <composite id="mechanics_state">
+      <name>Mechanics State</name>
+      <attributes>C_rs, PEEP, P_plat, dP</attributes>
+      <description>What it costs in pressure to move that gas. Grouped for reading, not written to by any tag — nothing in this lamina steers mechanics.</description>
+      <absorption_vector>
+        <weight attribute="C_rs">0.25</weight>
+        <weight attribute="PEEP">0.25</weight>
+        <weight attribute="P_plat">0.25</weight>
+        <weight attribute="dP">0.25</weight>
+      </absorption_vector>
+      <distribution_vector>
+        <weight attribute="C_rs">0.25</weight>
+        <weight attribute="PEEP">0.25</weight>
+        <weight attribute="P_plat">0.25</weight>
+        <weight attribute="dP">0.25</weight>
+      </distribution_vector>
+    </composite>
+
+  </composites>
+
+  <!-- ============================================================== -->
+  <!-- GATES                                                           -->
+  <!-- Two of these sit on attributes with no behavioural outcome,     -->
+  <!-- which is the honest shape of the knowledge: a limit worth       -->
+  <!-- flagging is not the same as a target worth steering toward.     -->
+  <!-- ============================================================== -->
+  <gates>
+
+    <gate attribute="PaO2" type="soft_range">
+      <min>60</min>
+      <max>500</max>
+      <steepness>1.5</steepness>
+      <flag>hypoxaemia / hyperoxia</flag>
+    </gate>
+
+    <gate attribute="PaCO2" type="soft_range">
+      <min>30</min>
+      <max>60</max>
+      <steepness>1.5</steepness>
+      <flag>hypo/hypercapnia</flag>
+    </gate>
+
+    <gate attribute="P_plat" type="soft_range">
+      <min>0</min>
+      <max>30</max>
+      <steepness>2.0</steepness>
+      <flag>barotrauma risk above 30 cmH2O</flag>
+    </gate>
+
+    <gate attribute="dP" type="soft_range">
+      <min>0</min>
+      <max>15</max>
+      <steepness>2.0</steepness>
+      <flag>driving pressure above 15 cmH2O</flag>
+    </gate>
+
+  </gates>
+
+  <!-- ============================================================== -->
+  <!-- SEGMENTS                                                        -->
+  <!-- seg_mechanics declares no behavioural outcome on purpose: the   -->
+  <!-- lamina tracks pressure without claiming to know what pressure   -->
+  <!-- a healthy resting adult should be steered to.                   -->
+  <!-- ============================================================== -->
+  <segments>
+
+    <segment name="Ventilation" id="seg_ventilation">
+      <description>Moving gas in and out, and how much of it reaches an alveolus</description>
+      <attributes>RR, V_T, V_D, VO2, R_q, V_E, V_A, V_D_frac, VCO2, PaCO2</attributes>
+      <composites>ventilation_state</composites>
+      <functions>minute_ventilation, alveolar_ventilation, dead_space_fraction, co2_production, arterial_co2</functions>
+      <behavioural_outcomes>
+        <outcome id="target_paco2" attribute="PaCO2" target="40" tolerance="5"
+                 name="Target Arterial CO2" unit="mmHg">
+          <description>Normal arterial CO2 is 35-45 mmHg; the band is the definition of eucapnia</description>
+        </outcome>
+        <outcome id="target_ve" attribute="V_E" target="6.0" tolerance="2.0"
+                 name="Target Minute Ventilation" unit="L/min">
+          <description>Resting adult minute ventilation is about 4-8 L/min</description>
+        </outcome>
+      </behavioural_outcomes>
+    </segment>
+
+    <segment name="Gas Exchange" id="seg_gas_exchange">
+      <description>Oxygen crossing from alveolus into arterial blood</description>
+      <attributes>FiO2, P_atm, SpO2, PAO2, PaO2, A_a, PF_ratio</attributes>
+      <composites>gas_exchange_state</composites>
+      <functions>alveolar_gas, arterial_o2, aa_gradient, oxygenation_index</functions>
+      <behavioural_outcomes>
+        <outcome id="target_pf" attribute="PF_ratio" target="400" tolerance="100"
+                 name="Target Oxygenation Index" unit="mmHg">
+          <description>Healthy lungs on room air give 400-500; below 300 meets the Berlin ARDS threshold</description>
+        </outcome>
+        <outcome id="target_aa" attribute="A_a" target="10" tolerance="8"
+                 name="Target A-a Gradient" unit="mmHg">
+          <description>Young adult gradient is under 10-15 mmHg on room air; the expected value rises with age, which this lamina does not take</description>
+        </outcome>
+      </behavioural_outcomes>
+    </segment>
+
+    <segment name="Oxygen Transport" id="seg_oxygen_transport">
+      <description>Carrying the oxygen that crossed out to the tissues</description>
+      <attributes>Hb, CO_ref, CaO2, DO2</attributes>
+      <composites>transport_state</composites>
+      <functions>oxygen_content, oxygen_delivery</functions>
+      <behavioural_outcomes>
+        <outcome id="target_do2" attribute="DO2" target="1000" tolerance="250"
+                 name="Target Oxygen Delivery" unit="mL/min">
+          <description>Resting adult delivers roughly 1000 mL/min against a consumption near 250, a four-fold reserve</description>
+        </outcome>
+      </behavioural_outcomes>
+    </segment>
+
+    <segment name="Mechanics" id="seg_mechanics">
+      <description>The pressure cost of ventilation. Tracked and gated, but given no target: driving pressure is a strong association in ventilated ARDS, not a set point for a healthy resting model.</description>
+      <attributes>C_rs, PEEP, P_plat, dP</attributes>
+      <composites>mechanics_state</composites>
+      <functions>plateau_pressure, driving_pressure</functions>
+      <behavioural_outcomes>
+      </behavioural_outcomes>
+    </segment>
+
+  </segments>
+
+  <!-- ============================================================== -->
+  <!-- TAGS                                                            -->
+  <!--                                                                 -->
+  <!-- PACO2_DEVIATION fans into two composites, because a CO2         -->
+  <!-- disturbance is answered mostly by ventilation but partly by     -->
+  <!-- gas exchange — the alveolar gas equation carries PaCO2 into     -->
+  <!-- PAO2, so the two are genuinely coupled.  The weights say which  -->
+  <!-- matters more.                                                   -->
+  <!--                                                                 -->
+  <!-- Its polarity is POSITIVE, and that is not a mistake.  The gate  -->
+  <!-- kernel computes raw = polarity * gain * w * G * d, so a         -->
+  <!-- "negative" tag pushes every attribute in its target composites  -->
+  <!-- DOWN when the outcome sits above target.  That is corrective    -->
+  <!-- only where the composite's attributes rise with the outcome.    -->
+  <!-- PaCO2 = 0.863 * VCO2 / V_A is inverse: arterial CO2 is brought  -->
+  <!-- down by ventilating MORE.  A "negative" tag here drives V_A     -->
+  <!-- down, which raises PaCO2, which drives V_A down further —       -->
+  <!-- measured, it reached PaCO2 = 1928 mmHg and a negative alveolar  -->
+  <!-- ventilation within two cycles.                                  -->
+  <!--                                                                 -->
+  <!-- So polarity is about the sign of the coupling between composite -->
+  <!-- and outcome, not about "corrective versus amplifying" in the    -->
+  <!-- everyday sense.  Every relation in the circulatory lamina is    -->
+  <!-- positive, so nothing there ever showed this.  Any new lamina    -->
+  <!-- must ask, per tag: does raising this composite raise or lower   -->
+  <!-- the outcome it watches?                                         -->
+  <!--                                                                 -->
+  <!-- AA_MONITOR has polarity 0: it evaluates and logs, and emits no  -->
+  <!-- correction at all.  A widened A-a gradient means the lung is    -->
+  <!-- failing to transfer oxygen, and no amount of adjusting the      -->
+  <!-- numbers in this model repairs a lung.  Declaring the outcome    -->
+  <!-- and refusing to act on it is the honest encoding of that.       -->
+  <!-- ============================================================== -->
+  <tags>
+
+    <tag id="PACO2_DEVIATION" outcome="target_paco2"
+         deviation_type="absolute" emitter="binary"
+         gate_kernel="sigmoid_leaky_tanh" polarity="positive">
+      <targets>
+        <target address="ventilation_state" weight="1.0" />
+        <target address="gas_exchange_state" weight="0.4" />
+      </targets>
+      <!-- gain 0.7 measured: 1.5 overshoots and rings between 28 and 55 mmHg
+           for twenty cycles before the slow loop damps it, 1.0 rings 10 mmHg,
+           0.7 approaches monotonically.  All three settle at the same point. -->
+      <params gain="0.7" decay="0.10" threshold_k="4.0"
+              saturation="0.3" epsilon_ratio="0.001" />
+    </tag>
+
+    <tag id="VE_DEVIATION" outcome="target_ve"
+         deviation_type="absolute" emitter="binary"
+         gate_kernel="sigmoid_leaky_tanh" polarity="negative">
+      <targets>
+        <target address="ventilation_state" weight="1.0" />
+      </targets>
+      <params gain="0.6" decay="0.10" threshold_k="4.0"
+              saturation="0.3" epsilon_ratio="0.001" />
+    </tag>
+
+    <tag id="PF_DEVIATION" outcome="target_pf"
+         deviation_type="absolute" emitter="binary"
+         gate_kernel="sigmoid_leaky_tanh" polarity="negative">
+      <targets>
+        <target address="gas_exchange_state" weight="1.0" />
+      </targets>
+      <params gain="0.6" decay="0.10" threshold_k="4.0"
+              saturation="0.3" epsilon_ratio="0.001" />
+    </tag>
+
+    <tag id="AA_MONITOR" outcome="target_aa"
+         deviation_type="absolute" emitter="binary"
+         gate_kernel="sigmoid_leaky_tanh" polarity="0">
+      <targets>
+        <target address="gas_exchange_state" weight="1.0" />
+      </targets>
+      <params gain="1.0" decay="0.10" threshold_k="4.0"
+              saturation="0.3" epsilon_ratio="0.001" />
+    </tag>
+
+    <tag id="DO2_DEVIATION" outcome="target_do2"
+         deviation_type="absolute" emitter="binary"
+         gate_kernel="sigmoid_leaky_tanh" polarity="negative">
+      <targets>
+        <target address="transport_state" weight="1.0" />
+      </targets>
+      <params gain="2.0" decay="0.10" threshold_k="4.0"
+              saturation="0.3" epsilon_ratio="0.001" />
+    </tag>
+
+  </tags>
+
+</lamina>

@@ -43,8 +43,17 @@ def _simulation_snapshot(twin) -> Dict[str, Any]:
             "name":           attr.name,
         }
 
+    # `ERROR computing` matters as much as a gate here, and used to be dropped.
+    # When a function raises, `_resolve` logs and moves on: the attribute keeps
+    # whatever it held last cycle and every consumer — the visualiser included —
+    # sees a number that looks live and is not being computed. Surfacing the
+    # line is the cheap half of the fix; the attribute is still stale, but at
+    # least the screen says something went wrong rather than nothing.
     warnings = [line for line in twin.get_log()
-                if "GATE FAIL" in line or "GATE SOFT" in line]
+                if "GATE FAIL" in line
+                or "GATE SOFT" in line
+                or "ERROR computing" in line
+                or "No function registered" in line]
     return {
         "sensors":       sensors_out,
         "computed":      computed_out,

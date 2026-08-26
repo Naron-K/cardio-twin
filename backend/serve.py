@@ -13,8 +13,11 @@ this script sets before importing the app.  A launcher exists because
 PowerShell — the two shells disagree about the one line anybody actually wants
 to type.
 
-Only the backend changes.  The 2D view builds itself from /api/schema and names
-no attribute of its own, so the browser needs a reload and nothing more.
+This sets the *default* lamina — what a request that names none will get.  It
+is no longer the only way to change lamina: the 2D view has a picker, and both
+/api/schema and /ws/feedback take a `lamina` id per request, so switching does
+not need a restart and two tabs can hold two laminae at once.  What this script
+still decides is where a bare `#twin` lands.
 """
 from __future__ import annotations
 

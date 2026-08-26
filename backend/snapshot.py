@@ -8,10 +8,31 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+from universal_twin import INTER_LAMINA, PRELIMINARY, SENSOR
+
 # Wire-format separator for kernel_state keys.  Tuples don't survive
 # JSON, so "(tag_id, attr_id)" becomes "tag_id|attr_id" on the wire.
 # Pipe is safe because neither tag ids nor attribute ids contain it.
 _KSTATE_SEP = "|"
+
+# What the snapshot says about an INTER_LAMINA attribute nothing has
+# coupled to yet (G9).  The value beside it is the baseline the domain
+# expert declared, and it is indistinguishable from a live coupled value
+# unless the payload says which it is — the same failure mode as a stale
+# computed value looking live, one layer up.
+_UNCOUPLED = {"state": "uncoupled", "detail": "baseline (uncoupled)"}
+
+
+def _attr_entry(attr) -> Dict[str, Any]:
+    """The value columns every attribute carries, whatever its source."""
+    return {
+        "value":          attr.value,
+        "value_external": attr.value_external,
+        "value_feedback": attr.value_feedback,
+        "normalised":     attr.normalised,
+        "unit":           attr.unit,
+        "name":           attr.name,
+    }
 
 
 def _simulation_snapshot(twin) -> Dict[str, Any]:
@@ -20,42 +41,61 @@ def _simulation_snapshot(twin) -> Dict[str, Any]:
     composite vectors, outcomes, feedback_norm, warnings.
     """
     sensors_out: Dict[str, Any] = {}
-    for attr_id in twin.list_attributes("SENSOR"):
-        attr = twin.attributes[attr_id]
-        sensors_out[attr_id] = {
-            "value":          attr.value,
-            "value_external": attr.value_external,
-            "value_feedback": attr.value_feedback,
-            "normalised":     attr.normalised,
-            "unit":           attr.unit,
-            "name":           attr.name,
-        }
+    for attr_id in twin.list_attributes(SENSOR):
+        sensors_out[attr_id] = _attr_entry(twin.attributes[attr_id])
 
-    computed_out: Dict[str, Any] = {}
-    for attr_id in twin.list_attributes("PRELIMINARY"):
+    # Inter-lamina inputs get their own section rather than joining
+    # `sensors`.  Both are X' this lamina did not compute, but "sensor"
+    # carries a specific claim — measured, from a device, sacred because
+    # it is ground truth — and widening it to mean "anything I did not
+    # compute" would erase the distinction the whole coupling design is
+    # built on (G1).  A consumer that wants every input reads both keys;
+    # one that wants readings reads `sensors` and still gets readings.
+    inbound_out: Dict[str, Any] = {}
+    for attr_id in twin.list_attributes(INTER_LAMINA):
         attr = twin.attributes[attr_id]
-        computed_out[attr_id] = {
-            "value":          attr.value,
-            "value_external": attr.value_external,
-            "value_feedback": attr.value_feedback,
-            "normalised":     attr.normalised,
-            "unit":           attr.unit,
-            "name":           attr.name,
-        }
+        entry = _attr_entry(attr)
+        entry["provenance"] = (
+            {"state": "coupled", **attr.provenance}
+            if attr.provenance else dict(_UNCOUPLED)
+        )
+        inbound_out[attr_id] = entry
+
+    # `stale` and `error` are the other half of the fix the warnings list
+    # started.  A warning says something went wrong somewhere; these say
+    # WHICH number you should stop believing, which is what a value
+    # renderer needs in order to draw it differently.  stale is True when
+    # this attribute did not compute on the last pass — the value beside
+    # it is either last cycle's or absent, never this cycle's.
+    failed = twin.failed_attributes
+    computed_out: Dict[str, Any] = {}
+    for attr_id in twin.list_attributes(PRELIMINARY):
+        attr = twin.attributes[attr_id]
+        entry = _attr_entry(attr)
+        entry["stale"] = attr_id in failed
+        entry["error"] = failed.get(attr_id)
+        computed_out[attr_id] = entry
 
     # `ERROR computing` matters as much as a gate here, and used to be dropped.
     # When a function raises, `_resolve` logs and moves on: the attribute keeps
     # whatever it held last cycle and every consumer — the visualiser included —
-    # sees a number that looks live and is not being computed. Surfacing the
-    # line is the cheap half of the fix; the attribute is still stale, but at
-    # least the screen says something went wrong rather than nothing.
+    # sees a number that looks live and is not being computed. The log line is
+    # what tells a reader what broke; the per-attribute `stale` flag above is
+    # what tells the screen which value to stop drawing as live.
     warnings = [line for line in twin.get_log()
                 if "GATE FAIL" in line
                 or "GATE SOFT" in line
                 or "ERROR computing" in line
                 or "No function registered" in line]
     return {
+        # Which lamina produced these numbers.  A page fetches its structure
+        # once and then reads values off a socket forever; without this the two
+        # halves cannot be checked against each other, and a stream that starts
+        # sending another lamina's values looks exactly like the one that was
+        # asked for.  One line here is what makes that detectable at all.
+        "lamina_id":     twin.lamina_id,
         "sensors":       sensors_out,
+        "inbound":       inbound_out,
         "computed":      computed_out,
         "vectors":       twin.get_all_vectors(),
         "absorption":    twin.get_all_absorbed_vectors(),

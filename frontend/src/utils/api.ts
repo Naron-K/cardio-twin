@@ -1,5 +1,6 @@
 import axios from 'axios'
 import type { LaminaSchema } from '../twin/schema'
+import type { OrganismSchema } from '../twin/organism'
 
 // ── Schema types (from GET /api/schema) ───────────────────────────────────────
 //
@@ -20,6 +21,35 @@ export type {
 } from '../twin/schema'
 
 export type Schema = LaminaSchema
+
+// ── The body (GET /api/organism) ──────────────────────────────────────────────
+//
+// Described in twin/organism.ts for the same reason the lamina schema is
+// described in twin/schema.ts: the diagram is built entirely out of the
+// payload, and a second partial copy of the shape here is how the two drift.
+
+export type {
+  OrganismSchema,
+  OrganismLamina,
+  GateSpec,
+  GateState,
+  GateProvenance,
+  TransferSpec,
+} from '../twin/organism'
+
+/**
+ * The body's declaration: which laminae, and the seams between them.
+ *
+ * `organism` names a file; omit it for the backend's default. The backend
+ * loads the laminae to check the rules a gate can only break against them, so
+ * a 400 here is a badly declared body rather than a missing one.
+ */
+export async function fetchOrganism(organism?: string | null): Promise<OrganismSchema> {
+  const res = await axios.get<OrganismSchema>('/api/organism', {
+    params: organism ? { organism } : undefined,
+  })
+  return res.data
+}
 
 // ── Result types (from POST /api/compute, /api/upload, /api/feedback/*) ───────
 
@@ -82,8 +112,40 @@ export interface FeedbackRunResponse {
 
 // ── API functions ──────────────────────────────────────────────────────────────
 
-export async function fetchSchema(): Promise<Schema> {
-  const res = await axios.get<Schema>('/api/schema')
+/**
+ * One lamina this backend can serve.  `implemented` is false where the XML
+ * declares a structure whose arithmetic nobody has written: it loads, draws its
+ * whole shape, and shows a dash on every computed node.  That is a legitimate
+ * thing to open, so it is offered and marked rather than hidden.
+ */
+export interface LaminaOption {
+  id: string
+  name: string
+  level: number
+  file: string
+  implemented: boolean
+}
+
+export interface LaminaeResponse {
+  laminae: LaminaOption[]
+  /** The one a request naming no lamina will get. */
+  default: string
+}
+
+export async function fetchLaminae(): Promise<LaminaeResponse> {
+  const res = await axios.get<LaminaeResponse>('/api/laminae')
+  return res.data
+}
+
+/**
+ * The structure of one lamina.  Pass the id the socket was opened with, never
+ * a different one and never nothing-when-the-socket-had-something: the guard in
+ * the dashboard can only hold if both halves were told the same thing.
+ */
+export async function fetchSchema(laminaId?: string | null): Promise<Schema> {
+  const res = await axios.get<Schema>('/api/schema', {
+    params: laminaId ? { lamina: laminaId } : undefined,
+  })
   return res.data
 }
 

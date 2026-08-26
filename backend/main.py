@@ -5,10 +5,13 @@ Wraps the UniversalTwin simulation engine in a REST API.
 
 Endpoints:
   GET  /health          - Health check
-  GET  /api/schema      - Return slider configs from XML schema
+  GET  /api/laminae     - List the laminae this backend can serve
+  GET  /api/schema      - Return slider configs from XML schema (?lamina=<id>)
   POST /api/compute     - Run simulation with JSON sensor data
   POST /api/upload      - Upload patient XML file, run simulation
   POST /api/download    - Convert results to downloadable XML
+  WS   /ws/feedback     - Stream one lamina (?lamina=<id>)
+  WS   /ws/organism     - Stream a whole body (?organism=<file>)
 
 Run:
     uvicorn main:app --reload --port 8000
@@ -17,11 +20,12 @@ Run:
 import asyncio
 import os
 import sys
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
@@ -31,14 +35,22 @@ from pydantic import BaseModel, Field
 # Ensure backend package is importable when running from project root
 sys.path.insert(0, str(Path(__file__).parent))
 
-from laminae import lamina_path, load_twin
-from universal_twin import UniversalTwin
+from laminae import (
+    LAMINA_DIR,
+    UnknownLamina,
+    available_laminae,
+    lamina_path,
+    load_twin,
+    resolve_lamina,
+)
+from universal_twin import INTER_LAMINA, UniversalTwin
 from feedback_controller import (
     FeedbackController,
     DEFAULT_EPSILON_RATIO,
     DEFAULT_MAX_NORM,
 )
-from session import Session
+from organism import OrganismError, load_organism
+from session import OrganismSession, Session
 from signal_source import SimulatedSource
 from streaming_runtime import StreamingRuntime
 from snapshot import (
@@ -185,7 +197,35 @@ def _run_simulation(sensor_data: Dict[str, float]) -> Dict[str, Any]:
             "name": attr.name,
         }
 
+    # Inter-lamina inputs — X' this lamina did not compute and did not
+    # measure either.  Kept out of `sensors` for the reason spelled out in
+    # snapshot.py: widening "sensor" to mean "anything I did not compute"
+    # erases the distinction the coupling design rests on (G1).
+    inbound_out: Dict[str, Any] = {}
+    for attr_id in twin.list_attributes(INTER_LAMINA):
+        attr = twin.attributes[attr_id]
+        inbound_out[attr_id] = {
+            "value": attr.value,
+            "value_external": attr.value_external,
+            "value_feedback": attr.value_feedback,
+            "normalised": attr.normalised,
+            "unit": attr.unit,
+            "name": attr.name,
+            "provenance": (
+                {"state": "coupled", **attr.provenance}
+                if attr.provenance
+                else {"state": "uncoupled", "detail": "baseline (uncoupled)"}
+            ),
+        }
+
     # Collect computed (preliminary) values
+    #
+    # `stale` / `error` mirror _simulation_snapshot() in snapshot.py — this
+    # endpoint builds its own dict rather than sharing that one, so the two
+    # have to be kept in step by hand.  Both carry it because a client
+    # reading either one has the same problem: a value that failed to
+    # compute looks exactly like a value that computed fine (0-C).
+    failed = twin.failed_attributes
     computed_out: Dict[str, Any] = {}
     for attr_id in twin.list_attributes("PRELIMINARY"):
         attr = twin.attributes[attr_id]
@@ -196,6 +236,8 @@ def _run_simulation(sensor_data: Dict[str, float]) -> Dict[str, Any]:
             "normalised": attr.normalised,
             "unit": attr.unit,
             "name": attr.name,
+            "stale": attr_id in failed,
+            "error": failed.get(attr_id),
         }
 
     # Collect gate warnings (hard fails + soft out-of-range monitors)
@@ -207,6 +249,7 @@ def _run_simulation(sensor_data: Dict[str, float]) -> Dict[str, Any]:
 
     return {
         "sensors":    sensors_out,
+        "inbound":    inbound_out,
         "computed":   computed_out,
         "vectors":    vectors,
         "absorption": twin.get_all_absorbed_vectors(),
@@ -286,19 +329,157 @@ def health():
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
 
 
-@app.get("/api/schema")
-def get_schema():
+def _resolve_or_400(lamina: Optional[str]) -> Path:
     """
-    Return the full schema from circulatory_lamina.xml.
+    Turn a requested lamina id into a file, or refuse by name.
+
+    Refusing matters more than it looks.  Falling back to the default for an
+    id nobody serves would hand back a schema for a lamina the caller did not
+    ask for, which is the exact mismatch this parameter exists to prevent —
+    and it would arrive looking like a success.
+    """
+    try:
+        return resolve_lamina(lamina)
+    except UnknownLamina as e:
+        raise HTTPException(status_code=404, detail={
+            "error": str(e),
+            "requested": e.lamina_id,
+            "available": e.available,
+            "timestamp": datetime.now().isoformat(),
+        })
+
+
+@app.get("/api/laminae")
+def get_laminae():
+    """
+    Every lamina this backend can serve, and whether its maths is written.
+
+    The picker in the UI is built from this rather than from a list typed into
+    the frontend: adding a lamina is dropping an XML file into `backend/`, and
+    it should show up without a second edit somewhere else.  `default` is the
+    one a request that names none will get.
+    """
+    print("[LOG] GET /api/laminae")
+    laminae = available_laminae()
+    default_id = ""
+    for entry in laminae:
+        if (LAMINA_DIR / entry["file"]).resolve() == SCHEMA_PATH.resolve():
+            default_id = entry["id"]
+            break
+    return {"laminae": laminae, "default": default_id}
+
+
+@app.get("/api/organism")
+def get_organism(organism: Optional[str] = Query(
+        default=None,
+        description="Path to an organism file; omit for backend/organism.xml.")):
+    """
+    The body-level declaration: which laminae, and the seams between them.
+
+    The counterpart of `/api/schema`, one level up.  A page fetches its
+    structure here once and then reads live values off `/ws/organism`
+    forever, exactly the way a single-lamina page uses `/api/schema` and
+    `/ws/feedback`.  Which means this endpoint answers "what is this body
+    made of" and never "what is it doing" — every number in the response
+    is a declared one.
+
+    Gates come back fully resolved rather than as raw XML attributes,
+    including the two boundaries and the transfer settings, because the
+    thing that reads this has to draw a valve and label it, and a reader
+    that has to re-derive the controller's contract from attribute names
+    is a reader that will get it wrong in a different way from the
+    backend.
+
+    The laminae are loaded, not merely listed: rules 2 and 3 can only be
+    checked against what the laminae actually declare, so an organism
+    that names a composite nobody has is refused here rather than at the
+    first tick of a socket somebody already opened.
+    """
+    print(f"[LOG] GET /api/organism  organism={organism or '(default)'}")
+    try:
+        spec, twins = load_organism(organism)
+    except (OrganismError, FileNotFoundError, ET.ParseError) as e:
+        raise HTTPException(status_code=404 if isinstance(e, FileNotFoundError)
+                            else 400,
+                            detail={
+                                "error": str(e),
+                                "type": type(e).__name__,
+                                "requested": organism,
+                                "timestamp": datetime.now().isoformat(),
+                            })
+
+    return {
+        "organism_id": spec.id,
+        "version":     spec.version,
+        "name":        spec.name,
+        "description": spec.description,
+        "laminae": [
+            {
+                "id":         lamina_id,
+                "name":       twins[lamina_id].lamina_name,
+                "sensors":    twins[lamina_id].list_attributes("SENSOR"),
+                "inbound":    twins[lamina_id].list_attributes(INTER_LAMINA),
+                "composites": sorted(twins[lamina_id].composites),
+            }
+            for lamina_id in spec.lamina_ids
+        ],
+        "gates": [
+            {
+                "id":          gate.id,
+                "from":        str(gate.source),
+                "to":          str(gate.dest),
+                "from_lamina": gate.source.lamina,
+                "from_member": gate.source.member,
+                "to_lamina":   gate.dest.lamina,
+                "to_member":   gate.dest.member,
+                "controller":  gate.controller,
+                "extract":     gate.extract,
+                "description": gate.description,
+                # Rule 1, as a value the reader can show rather than a
+                # promise it has to take on trust.
+                "starts_closed": gate.starts_closed,
+                "controller_params": gate.controller_args(),
+                "transfer": {
+                    "mode":       gate.transfer.mode,
+                    "rate":       gate.transfer.rate,
+                    "time_delay": gate.transfer.time_delay,
+                    "on_close":   gate.transfer.on_close,
+                    "confidence": gate.transfer.confidence,
+                    "band_min":   gate.transfer.band_min,
+                    "band_max":   gate.transfer.band_max,
+                },
+                "learnables": [
+                    {"name": lrn.name, "initial": lrn.initial,
+                     "min": lrn.min, "max": lrn.max}
+                    for lrn in gate.learnables
+                ],
+            }
+            for gate in spec.gates
+        ],
+        "timestamp": datetime.now().isoformat(),
+    }
+
+
+@app.get("/api/schema")
+def get_schema(lamina: Optional[str] = Query(default=None,
+                                             description="Lamina id; omit for the process default.")):
+    """
+    Return the full schema for one lamina.
+
+    The lamina is a property of the request, not of the process: two tabs can
+    hold two laminae at once, and a page can move between them without the
+    backend restarting.  `CARDIOTWIN_LAMINA` remains the default for a request
+    that names none.
 
     Response includes:
       - attributes: slider configs (id, name, unit, physio_min, physio_max, source)
       - composites: grouping definitions for charts
       - functions: step-ordered computation models
     """
-    print("[LOG] GET /api/schema")
+    print(f"[LOG] GET /api/schema  lamina={lamina or '(default)'}")
+    path = _resolve_or_400(lamina)
     try:
-        twin = load_twin(SCHEMA_PATH)
+        twin = load_twin(path)
     except Exception as e:
         print(f"[ERROR] Failed to load schema: {e}")
         raise HTTPException(status_code=500, detail={
@@ -713,13 +894,20 @@ def download(request: DownloadRequest):
 # ── WebSocket streaming endpoint (Phase 3) ───────────────────────────────────
 
 @app.websocket("/ws/feedback")
-async def ws_feedback(websocket: WebSocket, tick_ms: int = 100):
+async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
+                      lamina: Optional[str] = None):
     """
     Stream the feedback loop to the browser over WebSocket.
 
     On connect: an isolated Session + SimulatedSource are created
     and a background ticker fires every `tick_ms` milliseconds, sending
     a simulation snapshot as JSON.
+
+    `lamina` names which lamina this connection runs, resolved by the same id
+    the schema endpoint takes, so a client can guarantee that the structure it
+    drew and the values it is reading came from the same place.  Omit it for
+    the process default.  An unknown id closes the socket rather than streaming
+    a lamina nobody asked for.
 
     Inbound control messages (JSON):
       {"type": "set_sensor",        "id": "HR",        "value": 110.0}
@@ -730,13 +918,25 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100):
     On disconnect: the ticker task is cancelled and the session is freed.
     One ticker task per connection — sessions are never shared.
     """
+    # Resolved before accepting: a socket that opens and then closes looks
+    # like a network fault, and this is a request for something that does not
+    # exist.  1008 (policy violation) with the reason on the close frame says
+    # which, and the client reports it instead of retrying forever.
+    try:
+        path = resolve_lamina(lamina)
+    except UnknownLamina as e:
+        await websocket.accept()
+        await websocket.close(code=1008, reason=str(e)[:120])
+        print(f"[WS] /ws/feedback rejected  unknown lamina={lamina}")
+        return
+
     await websocket.accept()
-    print(f"[WS] /ws/feedback connected  tick_ms={tick_ms}")
+    print(f"[WS] /ws/feedback connected  tick_ms={tick_ms}  lamina={lamina or '(default)'}")
 
     # The feed is built from the loaded lamina's own sensor declarations, and
     # the session starts at the baselines that feed reports — so a lamina this
     # file has never heard of streams without a line of change here.
-    session = Session()
+    session = Session(lamina=path)
     source  = SimulatedSource(session.twin)
     session.seed(source.starting_state())
     print(f"[WS] feed: {source.describe()}")
@@ -832,3 +1032,122 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100):
             pass
         await runtime.stop()
         print("[WS] /ws/feedback disconnected")
+
+
+# ── WebSocket streaming endpoint — an organism (Phase 2) ─────────────────────
+
+@app.websocket("/ws/organism")
+async def ws_organism(websocket: WebSocket, tick_ms: int = 100,
+                      organism: Optional[str] = None):
+    """
+    Stream a whole body — several laminae and the gates between them.
+
+    Stands beside `/ws/feedback` rather than replacing it.  A client
+    asking for one lamina gets exactly the payload it always got; a client
+    asking for a body knows it is asking for a body, and the two shapes
+    never arrive on the same socket by surprise.
+
+    `organism` names an organism file; omit it for `backend/organism.xml`.
+
+    Payload per tick:
+        {
+          "organism_id": str,
+          "laminae": {lamina_id: <the same snapshot one lamina sends>},
+          "gates": [...],               # declaration + live state per seam
+          "organism_report": {cycle, gates, cycle_reports, warnings, ...}
+        }
+
+    Inbound control messages carry a lamina, because on a body "set HR"
+    is ambiguous and silently guessing which lamina meant it is the kind
+    of thing that looks like it works:
+      {"type": "set_sensor", "lamina": "lamina_circulatory",
+       "id": "HR", "value": 110.0}
+      {"type": "pause"} / {"type": "resume"} / {"type": "reset"}
+    """
+    try:
+        session = OrganismSession(organism)
+    except (OrganismError, FileNotFoundError, ET.ParseError) as e:
+        # Refused before the socket starts streaming, for the same reason
+        # an unknown lamina is: a socket that opens and then closes looks
+        # like a network fault, and this is a request for something that
+        # does not exist or does not parse.
+        await websocket.accept()
+        await websocket.close(code=1008, reason=str(e)[:120])
+        print(f"[WS] /ws/organism rejected  organism={organism}: {e}")
+        return
+
+    await websocket.accept()
+    print(f"[WS] /ws/organism connected  tick_ms={tick_ms}  "
+          f"organism={organism or '(default)'}  "
+          f"laminae={list(session.organism.twins)}")
+
+    flags = {"paused": False}
+    period_s = tick_ms / 1000.0
+
+    def _control(sample):
+        if flags["paused"]:
+            return None
+        snapshot = session.tick(sample or {})
+        snapshot["source"] = {
+            "kind": "simulated",
+            "detail": "; ".join(
+                f"{lamina_id}: {src.describe()}"
+                for lamina_id, src in session.sources.items()
+            ),
+        }
+        return snapshot
+
+    async def _send(snapshot: dict) -> None:
+        await websocket.send_json(jsonable_encoder(snapshot))
+
+    runtime = StreamingRuntime(
+        process=_control,
+        emit=_send,
+        period_s=period_s,
+        refractory_s=period_s * 0.5,
+    )
+
+    async def _ingest() -> None:
+        try:
+            while True:
+                await asyncio.sleep(period_s)
+                runtime.submit(session.sample())
+        except asyncio.CancelledError:
+            raise
+
+    runtime.start()
+    ingest_task = asyncio.create_task(_ingest())
+
+    try:
+        async for msg in websocket.iter_json():
+            if not isinstance(msg, dict):
+                continue
+
+            msg_type = msg.get("type", "")
+
+            if msg_type == "set_sensor":
+                lamina_id = str(msg.get("lamina", ""))
+                sensor_id = str(msg.get("id", ""))
+                raw = msg.get("value")
+                if lamina_id and sensor_id and raw is not None:
+                    session.set_sensor(lamina_id, sensor_id, float(raw))
+
+            elif msg_type == "pause":
+                flags["paused"] = True
+
+            elif msg_type == "resume":
+                flags["paused"] = False
+
+            elif msg_type == "reset":
+                session.reset()
+
+    except WebSocketDisconnect:
+        pass
+    finally:
+        ingest_task.cancel()
+        try:
+            await ingest_task
+        except asyncio.CancelledError:
+            pass
+        await runtime.stop()
+        print("[WS] /ws/organism disconnected")

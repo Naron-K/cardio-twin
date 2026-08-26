@@ -21,7 +21,16 @@
 
 // ── Wire types — one per XML element the backend serialises ──────────────────
 
-export type Source = 'SENSOR' | 'PRELIMINARY'
+/**
+ * Who is allowed to write this attribute's X'.
+ *
+ * INTER_LAMINA is neither a reading nor something this lamina computes: it is
+ * another lamina's value, arriving through a permeability gate declared in
+ * organism.xml. It sits with the inputs because that is what it is, and apart
+ * from the sensors because "sensor" carries a claim — measured, from a device —
+ * that a value crossing from another model does not.
+ */
+export type Source = 'SENSOR' | 'PRELIMINARY' | 'INTER_LAMINA'
 
 export interface AttributeSchema {
   id: string
@@ -166,6 +175,11 @@ export interface LaminaIndex {
   schema: LaminaSchema
   /** Raw inputs, in declaration order. */
   sensors: AttributeSchema[]
+  /**
+   * Inputs supplied by another lamina through a permeability gate. Empty for a
+   * lamina that declares none, which is every lamina until one is coupled.
+   */
+  inbound: AttributeSchema[]
   /** Model-computed attributes, in the order their functions run. */
   computed: AttributeSchema[]
   attribute: (id: string) => AttributeSchema | undefined
@@ -193,7 +207,7 @@ export interface LaminaIndex {
   gates: GateSchema[]
   /** attribute id → gates declared on it. */
   gatesOfAttribute: Record<string, GateSchema[]>
-  /** attribute id → 'SENSOR' | 'PRELIMINARY', for the provenance rule. */
+  /** attribute id → its declared Source, for the provenance rule. */
   sources: Record<string, string>
 }
 
@@ -266,7 +280,15 @@ export function indexLamina(raw: LaminaSchema): LaminaIndex {
   return {
     schema: raw,
     sensors: all.filter((a) => a.source === 'SENSOR'),
-    computed: all.filter((a) => a.source !== 'SENSOR').sort((a, b) => stepOf(a) - stepOf(b)),
+    // Inputs that arrive from another lamina rather than from a device. They
+    // are not computed here, so `computed` now asks for PRELIMINARY rather
+    // than excluding SENSOR — the old filter would have swept them into the
+    // model's output list, where a value nobody computed would sit beside
+    // values that were, labelled as one of them.
+    inbound: all.filter((a) => a.source === 'INTER_LAMINA'),
+    computed: all
+      .filter((a) => a.source === 'PRELIMINARY')
+      .sort((a, b) => stepOf(a) - stepOf(b)),
     attribute: (id: string) => attributes[id],
     functions,
     functionById,

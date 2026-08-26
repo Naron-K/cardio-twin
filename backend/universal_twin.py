@@ -14,6 +14,8 @@ Developers add new function models in child classes.
 """
 
 import math
+import sys
+
 import numpy as np
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -59,6 +61,51 @@ def _opt_float(text: Optional[str]) -> Optional[float]:
     return float(text)
 
 
+# ──────────────────────────────────────────────────────────────────────
+# Attribute sources
+# ──────────────────────────────────────────────────────────────────────
+#
+# `<source>` answers one question: who is allowed to write this
+# attribute's X'.  There were two answers; inter-lamina coupling adds a
+# third, and it is deliberately NOT a kind of sensor.
+#
+#   SENSOR        measured outside the model.  Written by set_sensor().
+#                 Sacred (D12) — the feedback loop never touches it.
+#
+#   PRELIMINARY   computed by this lamina's own function chain.  The only
+#                 source the feedback loop may write X'' onto.
+#
+#   INTER_LAMINA  supplied by ANOTHER lamina through a permeability gate.
+#                 Written by set_inter_lamina().  Also sacred, for the
+#                 same reason a sensor is: it is somebody else's ground
+#                 truth, and this lamina's internal loop has no standing
+#                 to correct it.  Gate decision G1 puts inter-lamina
+#                 values in X' rather than X'' precisely so that
+#                 "external input is not feedback" keeps holding once
+#                 there is more than one lamina in the room.
+#
+# The split that matters most in the code below is EXTERNAL vs computed:
+# an attribute whose value arrives from outside the chain must not be
+# handed to _resolve() as something to compute, whichever outside it
+# came from.
+SENSOR       = "SENSOR"
+PRELIMINARY  = "PRELIMINARY"
+INTER_LAMINA = "INTER_LAMINA"
+
+#: X' arrives from outside this lamina's function chain.
+EXTERNAL_SOURCES = frozenset({SENSOR, INTER_LAMINA})
+#: Everything a `<source>` element is allowed to say.
+VALID_SOURCES = frozenset({SENSOR, PRELIMINARY, INTER_LAMINA})
+
+# Confidence stamped on an INTER_LAMINA attribute resting at its declared
+# baseline because nothing is coupled to it yet (G9).  Below a sensor's
+# 1.0 and a computed value's 0.9 on purpose: it is a number the domain
+# expert wrote down as "where this sits at rest", standing in for a
+# coupling that does not exist, and it should not read as either a
+# measurement or a derivation.
+UNCOUPLED_CONFIDENCE = 0.5
+
+
 @dataclass
 class Attribute:
     """
@@ -71,7 +118,7 @@ class Attribute:
     id: str                          # e.g. "HR", "MAP", "Q"
     name: str                        # e.g. "Heart Rate"
     unit: str                        # e.g. "bpm"
-    source: str                      # "SENSOR" or "PRELIMINARY"
+    source: str                      # one of VALID_SOURCES, above
     physio_min: float                # lower physiological bound
     physio_max: float                # upper physiological bound
     description: str = ""            # human-readable description
@@ -92,6 +139,13 @@ class Attribute:
     confidence: float = 1.0          # 1.0 for sensor, lower for estimated
     computed_by: Optional[str] = None   # function id (for PRELIMINARY)
     depends_on: list = field(default_factory=list)  # dependency attribute ids
+    # Where an INTER_LAMINA value came from, when one has arrived: gate id,
+    # source lamina, how old the value is, how open the gate was.  None on
+    # every other source, and on an INTER_LAMINA attribute nothing has
+    # coupled to yet — which is a state worth reporting rather than hiding,
+    # since the attribute is then sitting on a declared baseline and looks
+    # exactly like a live coupled value if nobody says otherwise (G9).
+    provenance: Optional[dict] = None
     _previous_value: Optional[float] = None  # for legacy validate_gates rollback
 
     @property
@@ -165,11 +219,43 @@ class Attribute:
         here.  Phase C's FeedbackController.step() calls this once per
         (tag, attribute) target after summing all kernel deltas.
 
-        In Phase A nothing calls this method during normal compute_all()
-        runs — it is provided so Phase B/C code can land without
-        reshaping the Attribute again.
+        The delta is clamped so the VISIBLE value stays physiological
+        (Phase 0-B).  A function guards the value it returns, not the
+        value anyone reads: `_calc_alveolar_ventilation` floors V_A at
+        0.05 L/min and the loop adds X'' afterwards, so the screen
+        showed −2.88 L/min of alveolar ventilation; the A-a gradient
+        clamps at zero in code and displayed −2.69 mmHg.  Additive
+        coupling makes that inherent, so the guard has to live after the
+        coupling, and this method is where both the controller's step 5
+        and the kernel-state restore path meet.
+
+        The allowed band is the declared physiological range WIDENED to
+        contain X' wherever X' has already left it:
+
+            lo = min(physio_min, X')     hi = max(physio_max, X')
+            X'' <- clamp(X'', lo - X', hi - X')
+
+        Widening rather than clamping to the declared range is the whole
+        point.  A pathological reading is a reading: MAP 120 against a
+        declared max of 110 must stay 120 on the screen, which is the
+        soft_range lesson from 2026-06-23 and not one to relearn.  What
+        the band forbids is the FEEDBACK making a value unphysical — so
+        with X' already above the range, X'' can only pull back toward
+        it, never push further out.
+
+        Callers that need to know a clamp happened compare the delta
+        they asked for against `value_feedback` afterwards; the kernel's
+        own `x_pp` state is deliberately left alone, which lets it
+        disagree with the applied value exactly the way rollback_feedback
+        already does.  The dead-zone snap clears the disagreement.
         """
-        self.value_feedback = float(delta)
+        delta = float(delta)
+        if self.value_external is not None:
+            x_prime = self.value_external
+            lo = min(self.physio_min, x_prime)
+            hi = max(self.physio_max, x_prime)
+            delta = max(lo - x_prime, min(hi - x_prime, delta))
+        self.value_feedback = delta
         self.normalise()
 
     def rollback(self):
@@ -443,9 +529,24 @@ class TagTarget:
     `weight` (D8): the FULL deviation is multiplied by this weight for
     each target — deviation is NOT split proportionally across targets.
     Default 1.0 means "send the entire signal here".
+
+    `polarity`: the sign of the coupling between THIS composite and the
+    outcome the tag watches, which is not necessarily the same sign for
+    every target a tag fans into.  PACO2_DEVIATION reaches both
+    `ventilation_state` and `gas_exchange_state`, and "does raising this
+    composite raise or lower PaCO2?" is a separate question per
+    composite — a sign carried on the tag can only answer it once.
+
+    None means "inherit the tag's polarity", which is what every XML
+    written before this field existed says by omission.  A declared
+    value overrides the tag for this target only.  Note the inheritance
+    is resolved at USE time, not parse time, so a runtime tag-polarity
+    override (see main._apply_tag_overrides) still reaches the targets
+    that inherit and correctly leaves the ones that declare alone.
     """
     address: str
     weight: float = 1.0
+    polarity: Optional[float] = None
 
 
 @dataclass
@@ -556,6 +657,22 @@ class UniversalTwin:
         self.gates: list[Gate] = []
         self._function_registry: dict[str, callable] = {}
         self._computation_log: list[str] = []
+
+        # Which attributes failed to compute, id → reason (Phase 0-C).
+        #
+        # When a function raises, _resolve() logs and moves on, and the
+        # attribute keeps whatever it held last cycle.  Nothing
+        # downstream could tell: the screen showed a PaCO2 frozen at
+        # 1928 mmHg as live and confidently, because a stale number and
+        # a fresh one are the same number.  The log line was the only
+        # trace, and a log line is not something a value renderer can
+        # read.  This is, and the snapshot carries it out to the view.
+        #
+        # Cleared at the top of every compute_all(), so membership means
+        # "failed on the most recent full pass" rather than "failed once,
+        # ever".  A direct get() outside compute_all() adds to it too —
+        # that resolve is just as capable of failing.
+        self.failed_attributes: dict[str, str] = {}
 
         # ── Feedback loop registries (Phase A scaffolding) ───────────
         #
@@ -1029,11 +1146,23 @@ class UniversalTwin:
             depends_text = attr_el.findtext("depends_on", "")
             depends = [d.strip() for d in depends_text.split(",") if d.strip()]
 
+            # An unrecognised source used to fall through as "not
+            # PRELIMINARY", which is now the same branch an inter-lamina
+            # attribute takes — so a typo would quietly become an input
+            # nobody feeds, resting at whatever it was declared with.
+            # Naming the legal set is what stops that.
+            source = attr_el.findtext("source", SENSOR).strip()
+            if source not in VALID_SOURCES:
+                raise ValueError(
+                    f"Attribute '{attr_id}' declares source '{source}'. "
+                    f"Legal sources: {sorted(VALID_SOURCES)}."
+                )
+
             self.attributes[attr_id] = Attribute(
                 id=attr_id,
                 name=attr_el.findtext("n", attr_el.findtext("name", attr_id)),
                 unit=attr_el.findtext("unit", ""),
-                source=attr_el.findtext("source", "SENSOR"),
+                source=source,
                 physio_min=float(attr_el.findtext("physio_min", "0")),
                 physio_max=float(attr_el.findtext("physio_max", "1")),
                 description=attr_el.findtext("description", ""),
@@ -1042,6 +1171,24 @@ class UniversalTwin:
                 computed_by=attr_el.findtext("computed_by"),
                 depends_on=depends,
             )
+
+        # G9: an INTER_LAMINA attribute rests at its declared baseline until
+        # something couples to it.  Nothing else will seed it — the synthetic
+        # feed reads list_attributes("SENSOR") and correctly does not emit
+        # for this source — so without this the whole chain downstream of the
+        # seam goes dark the moment an attribute stops being a sensor, and a
+        # lamina running standalone would visibly regress for a change that
+        # is supposed to leave it exactly where it was.
+        for attr in self.attributes.values():
+            if attr.source != INTER_LAMINA:
+                continue
+            if attr.baseline is None:
+                self._log(
+                    f"WARNING: INTER_LAMINA '{attr.id}' declares no <baseline>, "
+                    f"so it has no value until a gate supplies one."
+                )
+                continue
+            attr.set_value(attr.baseline, confidence=UNCOUPLED_CONFIDENCE)
 
         # Parse functions
         for func_el in root.findall(".//functions/function"):
@@ -1198,11 +1345,19 @@ class UniversalTwin:
                    gate_kernel="sigmoid_leaky_tanh" polarity="negative">
                 <targets>
                   <target address="pump_state" weight="1.0"/>
+                  <target address="gas_exchange_state" weight="0.4"
+                          polarity="negative"/>
                 </targets>
                 <params gain="0.6" decay="0.10" threshold_k="4.0"
                         saturation="0.3" epsilon_ratio="0.001"/>
               </tag>
             </tags>
+
+        `polarity` on a <target> is optional and inherits the tag's sign
+        when absent, so every XML written before the attribute existed
+        parses to exactly the behaviour it had.  It exists because a tag
+        with two targets couples to its outcome through each of them
+        separately, and the two couplings can have opposite signs.
 
         Validation performed here (fail fast):
           - duplicate tag id → ValueError
@@ -1210,6 +1365,7 @@ class UniversalTwin:
           - polarity unparseable → ValueError (via resolve_polarity)
           - target address ambiguous local lookup → ValueError (D5)
           - target weight negative → ValueError
+          - acting target polarity on a monitor-only tag → ValueError
         """
         known_outcomes = {
             outcome.id
@@ -1259,10 +1415,35 @@ class UniversalTwin:
                             f"negative ({weight}). Direction is carried by "
                             f"polarity, not by target weights (D2/D7)."
                         )
+                    # Per-target polarity is OPTIONAL and inherits the
+                    # tag's sign when absent.  Only call resolve_polarity
+                    # when the attribute is actually present: it maps a
+                    # missing declaration to -1.0, which is the right
+                    # default for a <tag> and exactly the wrong one here,
+                    # where absent means "inherit" rather than "negative".
+                    tgt_polarity = None
+                    if "polarity" in tgt_el.attrib:
+                        tgt_polarity = resolve_polarity(tgt_el.get("polarity"))
+                        # A monitor-only tag that fans into an acting
+                        # target is a contradiction, and the tag-level
+                        # check in FeedbackController.step() short-circuits
+                        # before any target is read — so the declaration
+                        # would sit in the XML looking effective and do
+                        # nothing.  Refuse it at parse time instead.
+                        if polarity == 0.0 and tgt_polarity != 0.0:
+                            raise ValueError(
+                                f"Tag '{tag_id}' is monitor-only (polarity=0) "
+                                f"but its target '{addr}' declares "
+                                f"polarity='{tgt_el.get('polarity')}'. A "
+                                f"monitor-only tag emits no correction on any "
+                                f"target; drop the tag's polarity=0 or the "
+                                f"target's polarity."
+                            )
                     # Validate the address now so typos surface at load
                     # time, not on the first feedback cycle (D5).
                     self.resolve_tag_address(addr, tag_id=tag_id)
-                    targets.append(TagTarget(address=addr, weight=weight))
+                    targets.append(TagTarget(address=addr, weight=weight,
+                                             polarity=tgt_polarity))
 
             # Parse <params .../> — loose dict, kernel decides defaults (D15).
             params: dict = {}
@@ -1375,10 +1556,48 @@ class UniversalTwin:
         if attr_id not in self.attributes:
             raise KeyError(f"Attribute '{attr_id}' not defined in XML")
         attr = self.attributes[attr_id]
-        if attr.source != "SENSOR":
-            raise ValueError(f"'{attr_id}' is PRELIMINARY, not SENSOR. Cannot set directly.")
+        if attr.source != SENSOR:
+            raise ValueError(
+                f"'{attr_id}' is {attr.source}, not SENSOR. Cannot set "
+                f"directly."
+                + (" Inter-lamina values arrive through set_inter_lamina()."
+                   if attr.source == INTER_LAMINA else "")
+            )
         attr.set_value(value, confidence)
         self._log(f"SENSOR SET: {attr_id} = {value} {attr.unit}")
+
+    def set_inter_lamina(self, attr_id: str, value: float,
+                         confidence: float = 1.0,
+                         provenance: Optional[dict] = None):
+        """
+        Write a value that came from another lamina (G1).
+
+        This is the ONLY door into an INTER_LAMINA attribute, and it is a
+        separate door from set_sensor() on purpose.  Both write X', and
+        both produce a value this lamina's feedback loop must not touch —
+        but they are different claims about where a number came from, and
+        collapsing them would make "sensor" mean "anything I did not
+        compute", which is exactly the distinction the coupling design
+        rests on.
+
+        `provenance` is whatever the caller knows about the crossing —
+        gate id, source lamina, age of the value, how open the gate was.
+        It is stored verbatim and reported in the snapshot, so a reader
+        can tell a live coupled value from a stale one, and both from an
+        attribute still resting on its declared baseline.
+        """
+        if attr_id not in self.attributes:
+            raise KeyError(f"Attribute '{attr_id}' not defined in XML")
+        attr = self.attributes[attr_id]
+        if attr.source != INTER_LAMINA:
+            raise ValueError(
+                f"'{attr_id}' is {attr.source}, not INTER_LAMINA. Only an "
+                f"attribute declared as the receiving end of a permeability "
+                f"gate may be written this way."
+            )
+        attr.set_value(value, confidence)
+        attr.provenance = provenance
+        self._log(f"INTER-LAMINA SET: {attr_id} = {value} {attr.unit}")
 
     def get(self, attr_id: str) -> Attribute:
         """
@@ -1410,10 +1629,17 @@ class UniversalTwin:
 
         attr = self.attributes[attr_id]
 
-        # If sensor, it should already have a value
-        if attr.source == "SENSOR":
+        # Anything whose X' arrives from outside the chain — a sensor
+        # reading or a value another lamina pushed through a gate — is
+        # not this function's to compute.  Both should already hold a
+        # value; neither has a `computed_by`, so falling through would
+        # send them into the "no function registered" branch and mark
+        # them stale (0-C) for the crime of being an input.
+        if attr.source in EXTERNAL_SOURCES:
             if attr.value is None:
-                self._log(f"WARNING: Sensor '{attr_id}' has no value set")
+                self._log(
+                    f"WARNING: {attr.source} '{attr_id}' has no value set"
+                )
             return
 
         # Resolve all dependencies first
@@ -1429,10 +1655,18 @@ class UniversalTwin:
                 inputs = self._resolve_inputs(func_id)
                 result = self._function_registry[func_id](inputs)
                 attr.set_value(result, confidence=0.9)
+                self.failed_attributes.pop(attr_id, None)
                 self._log(f"COMPUTED: {attr_id} = {result:.4f} {attr.unit} (via {func_id})")
             except Exception as e:
+                # 0-C: record it, not just log it.  The attribute still
+                # holds last cycle's value and still reads as live —
+                # this is the only thing that says otherwise.
+                self.failed_attributes[attr_id] = f"{type(e).__name__}: {e}"
                 self._log(f"ERROR computing {attr_id}: {e}")
         else:
+            self.failed_attributes[attr_id] = (
+                f"No function registered for '{func_id}'"
+            )
             self._log(f"WARNING: No function registered for '{func_id}'")
 
     def compute_all(self):
@@ -1441,6 +1675,10 @@ class UniversalTwin:
         Reads step order from XML function definitions.
         """
         self._computation_log = []
+        # 0-C: this pass owns the failure list.  An attribute that failed
+        # last cycle and computes cleanly this one is not stale any more,
+        # and one that stays broken is re-recorded below.
+        self.failed_attributes = {}
         self._log(f"=== Computing {self.lamina_name} Lamina ===")
 
         # Sort functions by step
@@ -1757,9 +1995,30 @@ class UniversalTwin:
         return self._computation_log
 
     def _log(self, message: str):
-        """Add to computation log."""
+        """
+        Add to the computation log, and echo it.
+
+        The echo is wrapped because it has taken the whole process down.
+        Windows opens stdout as cp1252, this codebase writes prose, and
+        prose here contains arrows and dashes: one `->` written as U+2192
+        in a feedback message raised UnicodeEncodeError inside print(),
+        which killed the streaming runtime's control task and left the
+        socket open and silent. Five frames, then nothing, with no error
+        anywhere a reader would look.
+
+        A log line is a side effect. It is never worth more than the run
+        it is describing, so a console that cannot spell a character gets
+        a replacement character and the model keeps going. The in-memory
+        log above is written first and keeps the real text, because that
+        is what the snapshot and the warnings list read.
+        """
         self._computation_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] {message}")
-        print(f"  {message}")
+        line = f"  {message}"
+        try:
+            print(line)
+        except UnicodeEncodeError:
+            encoding = getattr(sys.stdout, "encoding", None) or "ascii"
+            print(line.encode(encoding, "replace").decode(encoding, "replace"))
 
 
     # ── XML Modification (for domain experts) ────────────────────────

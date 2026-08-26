@@ -21,6 +21,7 @@ import type { NormPoint } from './components/FeedbackPanel'
 import { useToast } from './components/Toast'
 import { StreamingDashboard } from './components/StreamingDashboard'
 import { TwinDashboard } from './components/twin/TwinDashboard'
+import { BodyDashboard } from './components/twin/BodyDashboard'
 
 // Computed attributes shown as gauges (most clinically significant)
 const GAUGE_ATTRS = ['MAP', 'CO', 'Q']
@@ -88,19 +89,31 @@ export default function App() {
   // also makes the app scriptable for headless screenshots.  #game still
   // resolves — the 2D screen was the game view before it became the
   // schema-driven one, and old links should not break.
-  const [mode, setMode] = useState<'analysis' | 'stream' | 'twin'>(() => {
-    const hash = window.location.hash.replace('#', '')
-    if (hash === 'twin' || hash === 'game') return 'twin'
-    return hash === 'stream' ? 'stream' : 'analysis'
+  const [mode, setMode] = useState<'analysis' | 'stream' | 'twin' | 'body'>(() => {
+    const [screen] = window.location.hash.replace('#', '').split('/')
+    if (screen === 'twin' || screen === 'game') return 'twin'
+    if (screen === 'body') return 'body'
+    return screen === 'stream' ? 'stream' : 'analysis'
+  })
+
+  // Which lamina the 2D view is on, carried in the hash as `#twin/<lamina_id>`.
+  // The lamina is a property of the connection now rather than of the backend
+  // process, so it is part of *where you are* and belongs in the URL: a link
+  // opens the lamina it names, and a reload stays on it. Null means "whatever
+  // the backend defaults to", which is what a bare `#twin` has always meant.
+  const [laminaId, setLaminaId] = useState<string | null>(() => {
+    const [, lamina] = window.location.hash.replace('#', '').split('/')
+    return lamina || null
   })
 
   // Keep the URL in step with the view so the current screen is shareable.
   useEffect(() => {
-    const target = mode === 'analysis' ? '' : `#${mode}`
+    const screen = mode === 'analysis' ? '' : `#${mode}`
+    const target = mode === 'twin' && laminaId ? `#twin/${laminaId}` : screen
     if (window.location.hash !== target) {
       window.history.replaceState(null, '', target || window.location.pathname)
     }
-  }, [mode])
+  }, [mode, laminaId])
 
   const handleChartType = useCallback((type: ChartType) => {
     setChartType(type)
@@ -319,9 +332,25 @@ export default function App() {
     return <StreamingDashboard onBack={() => setMode('analysis')} />
   }
 
+  // ── Body view — several laminae and the seams between them ──────────────────
+  //
+  // A separate screen rather than a panel on the twin view, because it answers
+  // a different question. The twin view asks what one lamina is computing; this
+  // asks where a value crosses between two of them, and a lamina drawn in full
+  // beside that would bury the one thing this screen is for.
+  if (mode === 'body') {
+    return <BodyDashboard onBack={() => setMode('analysis')} />
+  }
+
   // ── 2D twin view — full-page, built from the lamina's own schema ────────────
   if (mode === 'twin') {
-    return <TwinDashboard onBack={() => setMode('analysis')} />
+    return (
+      <TwinDashboard
+        lamina={laminaId}
+        onLamina={setLaminaId}
+        onBack={() => setMode('analysis')}
+      />
+    )
   }
 
   // ── Loading screen (before schema arrives) ──────────────────────────────────
@@ -373,6 +402,13 @@ export default function App() {
                          text-xs rounded-md border border-rose-800/60 transition-colors"
             >
               ◈ 2D Twin
+            </button>
+            <button
+              onClick={() => setMode('body')}
+              className="px-3 py-1.5 bg-cyan-900/50 hover:bg-cyan-800/60 text-cyan-300
+                         text-xs rounded-md border border-cyan-800/60 transition-colors"
+            >
+              ⧉ Body
             </button>
             <button
               onClick={() => setMode('stream')}

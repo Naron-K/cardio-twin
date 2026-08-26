@@ -31,6 +31,7 @@
  * that is what a reading does. Showing one number for both was the error.
  */
 import { useState } from 'react'
+import type { InboundProvenance } from '../../hooks/useCardioStream'
 import type { LaminaIndex } from '../../twin/schema'
 import { fmtValue } from '../../twin/schema'
 
@@ -38,6 +39,10 @@ interface Props {
   index: LaminaIndex
   /** Live sensor readings off the tick — the commanded value plus noise. */
   values: Record<string, number>
+  /** Values that crossed from another lamina, by attribute id. */
+  inbound?: Record<string, number>
+  /** What the backend says about each of those crossings. */
+  inboundProvenance?: Record<string, InboundProvenance>
   /** What kind of feed is producing those readings, per the backend. */
   sourceKind?: string
   disabled?: boolean
@@ -47,6 +52,8 @@ interface Props {
 export function InputRail({
   index,
   values,
+  inbound = {},
+  inboundProvenance = {},
   sourceKind = 'unknown',
   disabled = false,
   onChange,
@@ -54,10 +61,10 @@ export function InputRail({
   /** What the reader has set, by attribute id. Empty until they touch one. */
   const [commanded, setCommanded] = useState<Record<string, number>>({})
 
-  if (index.sensors.length === 0) {
+  if (index.sensors.length === 0 && index.inbound.length === 0) {
     return (
       <p className="font-mono text-[10px] readout text-ink/35">
-        This lamina declares no sensor inputs.
+        This lamina declares no inputs.
       </p>
     )
   }
@@ -135,7 +142,70 @@ export function InputRail({
         </div>
       ))}
 
+      {index.inbound.length > 0 && (
+        <div className="pt-2 border-t border-white/5">
+          <p className="font-mono text-[9px] readout uppercase text-ink/25 mb-1.5">
+            From another lamina
+          </p>
+          <div className="space-y-2">
+            {index.inbound.map((attr) => {
+              const prov = inboundProvenance[attr.id]
+              const state = prov?.state ?? 'uncoupled'
+              // No slider, and that is the point: this value is not yours to
+              // set. It arrives through a gate declared in organism.xml, or it
+              // rests on the baseline the lamina declares until one opens.
+              //
+              // Three states, and the middle one is the one worth the code.
+              // A gate that opened and then shut leaves this number behind:
+              // it is neither live nor the declared baseline, and calling it
+              // either is a false claim about where it came from.
+              const line =
+                state === 'coupled'
+                  ? `via ${prov?.gate ?? 'gate'} from ${prov?.from ?? 'another lamina'}`
+                  : state === 'held'
+                    ? `held from ${prov?.gate ?? 'gate'} — ${prov?.age ?? 0} cycles old, gate shut`
+                    : (prov?.detail ?? 'baseline (uncoupled)')
+              return (
+                <div key={attr.id} className="block" title={attr.description}>
+                  <span className="flex items-baseline gap-1.5">
+                    <span className="font-mono text-[10px] font-bold readout text-ink/70">
+                      {attr.id}
+                    </span>
+                    <span className="font-mono text-[9px] readout text-ink/25 truncate">
+                      {attr.name}
+                    </span>
+                    <span className="ml-auto font-mono text-[10px] tabular-nums text-ink shrink-0">
+                      {fmtValue(inbound[attr.id])}
+                      <span className="text-ink/30 text-[9px] ml-0.5">{attr.unit}</span>
+                    </span>
+                  </span>
+                  <span
+                    className={`block mt-0.5 font-mono text-[9px] readout tabular-nums ${
+                      state === 'coupled'
+                        ? 'text-oxy-dim/70'
+                        : state === 'held'
+                          ? 'text-warn-strong/80'
+                          : 'text-ink/30'
+                    }`}
+                  >
+                    {line}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="pt-1 border-t border-white/5 space-y-1">
+        {index.inbound.length > 0 && (
+          <p className="font-mono text-[9px] readout text-ink/25 leading-snug">
+            An inbound value has no slider because it is not this lamina's to set. Uncoupled means
+            no gate is feeding it yet and it is sitting on its declared baseline — a number that is
+            legal rather than live. Held means a gate carried this one and has since shut, so it is
+            neither: the age beside it is how long ago it stopped being current.
+          </p>
+        )}
         <p className="font-mono text-[9px] readout text-ink/25 leading-snug">
           The slider is the value you set. Ranges are each attribute's declared physiological span —
           edit the XML and these controls move with it. Nothing here reaches the stage; the model

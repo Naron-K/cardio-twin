@@ -57,7 +57,6 @@
     <mapping attribute_id="P_atm"  channel_id="ch_manual_slider" />
     <mapping attribute_id="SpO2"   channel_id="ch_manual_slider" />
     <mapping attribute_id="Hb"     channel_id="ch_manual_slider" />
-    <mapping attribute_id="CO_ref" channel_id="ch_manual_slider" />
     <mapping attribute_id="C_rs"   channel_id="ch_manual_slider" />
     <mapping attribute_id="PEEP"   channel_id="ch_manual_slider" />
   </channel_mappings>
@@ -174,12 +173,11 @@
     <attribute id="CO_ref">
       <name>Cardiac Output (external)</name>
       <unit>L/min</unit>
-      <source>SENSOR</source>
+      <source>INTER_LAMINA</source>
       <physio_min>2</physio_min>
       <physio_max>12</physio_max>
       <baseline>5.0</baseline>
-      <noise_sigma>0.05</noise_sigma>
-      <description>Cardiac output, supplied from outside this lamina because oxygen delivery is a circulatory quantity as much as a respiratory one. It enters as an external reading in v1; when lamina-to-lamina coupling lands, this is the seam where lamina_circulatory's computed CO attaches. Named CO_ref rather than CO so nobody mistakes it for something this lamina computed.</description>
+      <description>Cardiac output, supplied from outside this lamina because oxygen delivery is a circulatory quantity as much as a respiratory one. This is the seam where lamina_circulatory's computed CO attaches, declared in organism.xml as gate pg_co_to_resp. Named CO_ref rather than CO so nobody mistakes it for something this lamina computed. Until a gate opens onto it, it rests at the baseline below and the snapshot says "baseline (uncoupled)" rather than letting a placeholder pass for a live coupled value. No noise_sigma: a synthetic feed does not emit for this source, and jitter here would be inventing a measurement error for a number that is not a measurement.</description>
     </attribute>
 
     <attribute id="C_rs">
@@ -680,6 +678,36 @@
   <!-- failing to transfer oxygen, and no amount of adjusting the      -->
   <!-- numbers in this model repairs a lung.  Declaring the outcome    -->
   <!-- and refusing to act on it is the honest encoding of that.       -->
+  <!--                                                                 -->
+  <!-- PER-TARGET POLARITY, and what measuring it found.               -->
+  <!--                                                                 -->
+  <!-- A sign carried on the tag answers "does raising the composite   -->
+  <!-- raise or lower the outcome" once, for every target.  This tag   -->
+  <!-- has two targets and the answer is not the same for both, which  -->
+  <!-- is why <target> now takes its own polarity (absent = inherit    -->
+  <!-- the tag's, so every other tag here is unchanged).               -->
+  <!--                                                                 -->
+  <!-- Measured, hypoventilation forced at RR 7 / V_T 300 (PaCO2 164), -->
+  <!-- 25 cycles, only the gas_exchange_state sign varied:             -->
+  <!--                                                                 -->
+  <!--   target sign      PaCO2 after   PaO2 after   A-a after         -->
+  <!--   positive             44.65        93.12       4.73            -->
+  <!--   negative             44.65        87.84       2.13            -->
+  <!--   0                    44.65        90.48       3.43            -->
+  <!--                                                                 -->
+  <!-- PaCO2 lands on the same number to the last decimal under all    -->
+  <!-- three.  It has to: PaCO2 = 0.863 * VCO2 / V_A reads only VCO2   -->
+  <!-- and V_A, and nothing in gas_exchange_state is either of them.   -->
+  <!-- The coupling the comment above describes is real but ONE-WAY —  -->
+  <!-- the gas equation carries PaCO2 into PAO2, not PAO2 back into    -->
+  <!-- PaCO2 — and the chain already propagates that: PAO2 recovers    -->
+  <!-- from -55.75 to ~94 in every run, off V_A's correction alone.    -->
+  <!--                                                                 -->
+  <!-- So the sign on that target buys nothing on the outcome it is    -->
+  <!-- meant to fix, and costs a few mmHg of displacement on PaO2 and  -->
+  <!-- A-a, on top of a correction the chain had already made.  It is  -->
+  <!-- declared 0: the target stays, because the coupling is worth     -->
+  <!-- stating, and it acts on nothing, because it cannot.             -->
   <!-- ============================================================== -->
   <tags>
 
@@ -687,8 +715,11 @@
          deviation_type="absolute" emitter="binary"
          gate_kernel="sigmoid_leaky_tanh" polarity="positive">
       <targets>
-        <target address="ventilation_state" weight="1.0" />
-        <target address="gas_exchange_state" weight="0.4" />
+        <!-- Both signs are declared rather than inherited, because this is
+             the tag that has two of them and inheriting hides that.  See
+             the per-target polarity note above the <tags> block. -->
+        <target address="ventilation_state" weight="1.0" polarity="positive" />
+        <target address="gas_exchange_state" weight="0.4" polarity="0" />
       </targets>
       <!-- gain 0.7 measured: 1.5 overshoots and rings between 28 and 55 mmHg
            for twenty cycles before the slow loop damps it, 1.0 rings 10 mmHg,

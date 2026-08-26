@@ -89,10 +89,27 @@ printing "amplifying" beside a tag that was correcting. The labels now state
 what the sign does (`pushes target up on rise`) and leave the judgement to a
 reader who can see the coupling in the map.
 
-A better fix lives in the model rather than in either: polarity is per tag, so
-a tag cannot say "push V_A up and VCO2 down" for one outcome. A per-target sign
-would express the coupling where it actually lives. That is a change to the
-feedback design and it is not made here.
+A better fix lives in the model rather than in either, and it has since been
+made: `<target>` takes its own `polarity`, and omitting it inherits the tag's,
+so every XML written before the attribute existed still means exactly what it
+did. The sign now sits where the coupling does — per composite the tag fans
+into, not once for all of them.
+
+Declaring it on `PACO2_DEVIATION` is what showed the second target had no
+coupling to declare. Under forced hypoventilation, with the
+`gas_exchange_state` sign set positive, negative and zero in turn, PaCO2
+settles on 44.65 mmHg in all three. It has to: `PaCO2 = 0.863 · VCO2 / V_A`
+reads VCO2 and V_A, and gas exchange holds neither. The coupling that target
+was declared for is real but runs one way — the alveolar gas equation carries
+PaCO2 into PAO2, not back — and the chain already propagates it, so PAO2 climbs
+out of −55.75 mmHg on V_A's correction alone in every run. The sign there was
+adding X″ on top of a correction that had already arrived, and it is now `0`:
+the target stays declared, because the coupling is worth stating, and acts on
+nothing, because it cannot.
+
+A sign that changes nothing is the cheapest possible answer to the question.
+The point is that until the model could hold two signs, the question could not
+be asked.
 
 ### 2. X″ writes after the function's guards
 
@@ -106,6 +123,45 @@ not the value anyone reads. Anything that must hold on the *visible* value has
 to be enforced after the coupling — which is a decision for the feedback
 design, not something to patch into individual laminae.
 
+It is enforced there now, in `Attribute.apply_feedback()`, the one point both
+the controller's apply step and the kernel-state restore path pass through. The
+allowed band is the declared physiological range **widened to contain X′**:
+
+```
+lo = min(physio_min, X′)      hi = max(physio_max, X′)
+X″ ← clamp(X″, lo − X′, hi − X′)
+```
+
+The widening is the part that matters. A pathological reading is a reading, and
+clamping to the declared range would hide it — which is the `soft_range` bug
+fixed on 2026-06-23, and not one worth having twice. So a MAP of 120 against a
+declared max of 110 still shows 120; what the band forbids is the *feedback*
+making a value unphysical, so with X′ already outside the range X″ can only
+pull back toward it.
+
+Run the old runaway again and V_A floors at its declared 0.5 L/min instead of
+reaching −2.88, while PaCO2 still climbs past 300 mmHg — a wrong sign is still
+a wrong sign, and the guard is not a substitute for one. The controller reports
+each clamp in the cycle report, because wanting to drive an attribute somewhere
+the model says it cannot go is usually a sign problem rather than a strong
+correction.
+
+One deliberate consequence: the kernel's own `x_pp` keeps the number it
+computed, so it can disagree with what was applied. `rollback_feedback` already
+had that property, and the dead-zone snap clears the disagreement — except in
+the one case the snap could not see. Its condition excludes a `value_feedback`
+already at `0.0`, so an attribute the clamp pins at zero *every* cycle would
+keep integrating behind a value that never moves, and dump the accumulated
+charge the instant X′ came back into range.
+
+A shunt does exactly that. FiO2 0.9 against SpO2 85% puts the A-a gradient near
+540 mmHg on a declared max of 80; `PF_DEVIATION` keeps asking to widen it, the
+clamp refuses every cycle, and `x_pp` saturated at ~21 mmHg and stayed there.
+The snap now also takes attributes the clamp held at zero, so the state clears
+each cycle and the loop restarts its request instead of charging up. The
+warnings keep firing, which is right: the loop really is still asking for
+something the model says cannot happen.
+
 ### 3. A failed computation used to look exactly like a healthy one
 
 When a function raises, `_resolve` logs `ERROR computing …` and moves on. The
@@ -113,12 +169,23 @@ attribute keeps last cycle's value. Nothing downstream can tell, so the screen
 showed a stale number as live and confidently — a PaCO2 frozen at 1928 mmHg
 while the loop kept running around it.
 
-The snapshot's `warnings` list now carries `ERROR computing` and
+The snapshot's `warnings` list carries `ERROR computing` and
 `No function registered` alongside the gate lines, and the Cycle Report panel
-already renders warnings, so the screen at least says something went wrong.
-**The value is still stale and still looks live.** Marking the attribute itself
-needs the twin to report which attributes failed this cycle, which is a change
-to the snapshot contract and is left open deliberately.
+renders warnings, so the screen says something went wrong. That was the cheap
+half: a warning says something broke somewhere, and a value renderer cannot
+read it.
+
+The twin now also reports *which* attributes failed. `failed_attributes` maps
+id → reason, is cleared at the top of every `compute_all()` so membership means
+"failed on the most recent pass" rather than "failed once, ever", and reaches
+the screen as `stale` and `error` on each computed entry of the snapshot. The
+Model output panel dims a stale row, strikes its value through, replaces the
+unit with the word `stale`, and puts the reason in the tooltip — so the number
+is still there, and it no longer claims to be this cycle's.
+
+Both failure branches are covered, not just the raising one: an attribute whose
+`computed_by` names a function nobody registered is marked the same way, which
+is what a lamina with no Python behind it looks like on screen.
 
 ## The limit that has not moved
 

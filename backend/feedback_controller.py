@@ -28,6 +28,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from universal_twin import (
+    PRELIMINARY,
     UniversalTwin,
     Identifier,
     Metrix,
@@ -139,7 +140,7 @@ class FeedbackController:
 
     # ── Helpers ──────────────────────────────────────────────────────
 
-    def _resolved_targets(self, tag: Tag) -> list[tuple[str, float]]:
+    def _resolved_targets(self, tag: Tag) -> list[tuple[str, float, float]]:
         """
         Expand a tag's targets to a list of local composite ids.
 
@@ -147,10 +148,17 @@ class FeedbackController:
         within this lamina (Phase G adds the cross-lamina dispatcher);
         prefixes for OTHER laminas are silently dropped with a log.
 
-        Returns list of (composite_id, target_weight).  Local-first
-        per D5 — resolve_tag_address() already validated at parse time.
+        Returns list of (composite_id, target_weight, polarity), where
+        polarity is the target's own declaration when it made one and
+        the tag's otherwise.  Resolving the inheritance here rather than
+        at parse time is what keeps a runtime tag-polarity override
+        reaching the targets that inherit while leaving the ones that
+        declared their own sign alone.
+
+        Local-first per D5 — resolve_tag_address() already validated at
+        parse time.
         """
-        out: list[tuple[str, float]] = []
+        out: list[tuple[str, float, float]] = []
         for tgt in tag.targets:
             lam, comp = self.twin.resolve_tag_address(
                 tgt.address, tag_id=tag.id
@@ -161,11 +169,13 @@ class FeedbackController:
                     f"for tag {tag.id} (Phase G feature)."
                 )
                 continue
-            out.append((comp, tgt.weight))
+            polarity = tag.polarity if tgt.polarity is None else tgt.polarity
+            out.append((comp, tgt.weight, polarity))
         return out
 
     def _build_kernel_params(self, tag: Tag, outcome_id: str,
-                              attr_id: str, target_weight: float) -> dict:
+                              attr_id: str, target_weight: float,
+                              polarity: Optional[float] = None) -> dict:
         """
         Assemble the params dict the gate kernel will read.
 
@@ -174,7 +184,10 @@ class FeedbackController:
 
         Controller overrides inject the runtime context the kernel
         cannot infer on its own:
-          - polarity (from Tag, D7)
+          - polarity (per-target when the target declared one, from the
+            Tag otherwise — D7 plus per-target override).  Callers pass
+            the already-resolved sign; None keeps the tag's, which is
+            what a caller with no target in hand wants.
           - tolerance (from the BehaviouralOutcome — kernel multiplies
             it back in to restore native units, §2.3)
           - a_max (saturation × attribute's physio range; §2.3 default
@@ -183,7 +196,7 @@ class FeedbackController:
             interpretation — the kernel uses whichever is present.
         """
         params = Metrix.lookup(tag)
-        params["polarity"] = tag.polarity
+        params["polarity"] = tag.polarity if polarity is None else polarity
 
         # Slow-loop gain hand-down (Phase 3): once the adaptation loop has
         # learned a gain for this tag's outcome it overrides the static
@@ -428,8 +441,8 @@ class FeedbackController:
                 continue
             attr_id = self._outcome_attr.get(outcome_id)
             attr = self.twin.attributes.get(attr_id) if attr_id else None
-            if attr is None or attr.source == "SENSOR":
-                continue  # D12 — never bias a sensor
+            if attr is None or attr.source != PRELIMINARY:
+                continue  # D12 — the operating point biases only what we compute
             physio_range = attr.physio_max - attr.physio_min
             if physio_range <= 0:
                 continue
@@ -554,7 +567,7 @@ class FeedbackController:
             raw_dev = dev_fn(fb["actual"], fb["target"], tag.params)
             d_norm = raw_dev / tolerance
 
-            for comp_id, target_weight in self._resolved_targets(tag):
+            for comp_id, target_weight, target_polarity in self._resolved_targets(tag):
                 comp = self.twin.composites.get(comp_id)
                 if comp is None:
                     warnings.append(
@@ -562,19 +575,39 @@ class FeedbackController:
                     )
                     continue
 
+                # Monitor-only at the TARGET level: the tag still acts on
+                # its other targets, but this composite is watched and not
+                # driven.  Same reasoning as the tag-level check above —
+                # a zero-polarity kernel run produces nothing but state
+                # for the snap to clear.
+                if target_polarity == 0.0:
+                    if tag.id in emitted_by_id:
+                        self.twin._log(
+                            f"FB: tag {tag.id} → {comp_id} monitor-only "
+                            f"(target polarity=0) — not applied."
+                        )
+                    continue
+
                 for attr_id in comp.attribute_ids:
                     # D12 enforcement: X' is sacred.  Composites mix
-                    # SENSOR and PRELIMINARY attrs (pump_state has EDV
-                    # + HR as sensors alongside SV + CO).  If we let
-                    # the kernel apply X'' to sensors, attr.value =
-                    # value_external + value_feedback feeds the
-                    # contaminated reading back into downstream
-                    # formulas through _resolve_inputs, which violates
-                    # the "X' = 0 invariant after initial set" the
-                    # design guarantees and causes cascade overshoot.
-                    # Skip sensors here so they never receive feedback.
+                    # sources (pump_state has EDV + HR as sensors
+                    # alongside SV + CO).  If we let the kernel apply
+                    # X'' to a sensor, attr.value = value_external +
+                    # value_feedback feeds the contaminated reading back
+                    # into downstream formulas through _resolve_inputs,
+                    # which violates the "X' = 0 invariant after initial
+                    # set" the design guarantees and causes cascade
+                    # overshoot.
+                    #
+                    # The test is "is this ours to correct?", not "is
+                    # this a sensor?" — so it asks for PRELIMINARY
+                    # rather than excluding SENSOR.  An INTER_LAMINA
+                    # value is another lamina's ground truth arriving
+                    # through a gate, and this lamina's internal loop
+                    # has no more standing to correct it than it has to
+                    # correct a thermometer (G1).
                     attr = self.twin.attributes.get(attr_id)
-                    if attr is None or attr.source == "SENSOR":
+                    if attr is None or attr.source != PRELIMINARY:
                         continue
 
                     w_i = comp.get_distribution_weight(attr_id)
@@ -582,7 +615,8 @@ class FeedbackController:
                     weight = w_i * target_weight
 
                     params = self._build_kernel_params(
-                        tag, tag.outcome, attr_id, target_weight
+                        tag, tag.outcome, attr_id, target_weight,
+                        polarity=target_polarity
                     )
                     prev_state = self._kernel_state.get(
                         (tag.id, attr_id), {}
@@ -633,10 +667,36 @@ class FeedbackController:
             for attr_id, op_native in self._operating_point_per_attr().items():
                 delta_per_attr[attr_id] = delta_per_attr.get(attr_id, 0.0) + op_native
 
+        # Attributes the clamp held at exactly zero this cycle.  The snap
+        # below cannot see them — its condition excludes a value_feedback
+        # that is already 0.0, so an attribute pinned there would keep its
+        # kernel state forever, charging up behind a value that never
+        # moves.  Measured on a shunt case (A-a at 540 mmHg against a
+        # declared max of 80): x_pp saturates near 21 and stays, so the
+        # moment X' came back inside its range the loop would apply 21
+        # mmHg in one step.  Collected here, cleared with the snap.
+        held_at_zero: set[str] = set()
+
         for attr_id, total in delta_per_attr.items():
             attr = self.twin.attributes.get(attr_id)
             if attr is not None:
                 attr.apply_feedback(total)
+                # apply_feedback clamps the delta so the visible value
+                # stays physiological (0-B).  It reports that the only
+                # way a value-setter can: by not being what we asked
+                # for.  A clamp is worth saying out loud — it means the
+                # loop wanted to drive an attribute somewhere the model
+                # says it cannot go, which is usually a sign problem
+                # rather than a strong correction.
+                applied = attr.value_feedback
+                if abs(applied - total) > 1e-9:
+                    warnings.append(
+                        f"X'' clamped on {attr_id}: asked {total:+.4f}, "
+                        f"applied {applied:+.4f} (X'={attr.value_external}, "
+                        f"range [{attr.physio_min}, {attr.physio_max}])"
+                    )
+                    if applied == 0.0:
+                        held_at_zero.add(attr_id)
 
         # ─── Step 6: dead-zone snap (D3 + D4) ──────────────────────
         # For each attribute whose value_feedback is below its
@@ -646,7 +706,9 @@ class FeedbackController:
         snapped: list[str] = []
         for attr_id, attr in self.twin.attributes.items():
             eps = self._attr_epsilon(attr_id)
-            if eps > 0 and abs(attr.value_feedback) < eps and attr.value_feedback != 0.0:
+            below_eps = eps > 0 and abs(attr.value_feedback) < eps \
+                and attr.value_feedback != 0.0
+            if below_eps or attr_id in held_at_zero:
                 attr.rollback_feedback()
                 snapped.append(attr_id)
                 # Reset every kernel state keyed to this attribute.

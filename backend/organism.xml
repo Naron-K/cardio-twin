@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ==================================================================
+  ORGANISM — the body-level declaration
+
+  A lamina describes one system.  Nothing inside a lamina can describe
+  how it reaches another one, because the topology is not a fact about
+  either end: "circulation feeds oxygen delivery" belongs to neither
+  the circulatory nor the respiratory file, and putting it in one of
+  them would make that lamina un-runnable on its own.  So it lives
+  here, one level up, the same way ingestion_manifold.xml holds what
+  belongs to no single sensor.
+
+  This file declares two things:
+
+    <laminae>              which laminae make up this body
+    <permeability_gates>   where, and under what conditions, a value
+                           crosses from one to another
+
+  A gate is a VALVE, not a wire.  It has a controller that decides
+  how open it is each cycle, and a transfer stage that decides what
+  actually crosses when it is open.  Both are declared, never
+  hard-coded — the same rule the laminae follow.
+
+  ==================================================================
+  THE FIVE RULES, enforced when this file is parsed (organism.py)
+
+  1. A gate is CLOSED until its controller opens it.  Closed is the
+     stable state; a pressure-cooker valve is shut and opens on
+     condition, not the other way round.  There is no "start open"
+     attribute to write, which is the point.
+
+  2. The SOURCE of a crossing is always a composite, never a bare
+     attribute.  A composite is the unit a lamina already reasons
+     about — it is what a tag addresses and what carries distribution
+     weights — so a gate that reads one is reading something the
+     model already says is meaningful together.
+
+  3. The DESTINATION is always an attribute declared INTER_LAMINA.
+     Writing into another lamina's SENSOR would forge a measurement;
+     writing into its PRELIMINARY would overwrite something it
+     computes for itself.  The receiving lamina has to have said "this
+     is where somebody else's number attaches" before anybody may
+     attach one.
+
+  4. Every controller declares TWO boundaries, and the shut one must
+     be strictly under the open one — close_below/open_above for a
+     threshold gate, release_below/match_threshold for a key gate.
+     One boundary chatters: the feed carries deliberate Gaussian
+     noise, so a value sitting on it opens and shuts the gate every
+     cycle.  Measured, on a signal parked on the threshold: 177
+     transitions in 400 cycles with one boundary, 1 with the band this
+     file declares.  A key gate measured 148 flips in 400 the same
+     way, which is why the rule covers both rather than just the one
+     it was written for.
+
+  5. Any parameter something may LEARN must be declared here with a
+     clamp on it.  Nothing in v1 learns — the key vector is static and
+     drift is measured before it is corrected — but the rule is
+     enforced now, while there is one place to enforce it, rather than
+     after the count of learnable parameters has grown.
+  ==================================================================
+-->
+<organism id="bdt_default" version="1.0">
+
+  <name>Default Body</name>
+  <description>
+    Circulation and respiration, joined at the one seam the two laminae
+    already agree on: oxygen delivery needs a cardiac output, and only
+    one of them computes it.
+  </description>
+
+  <laminae>
+    <lamina id="lamina_circulatory" />
+    <lamina id="lamina_respiratory" />
+  </laminae>
+
+  <!-- ==============================================================
+       PERMEABILITY GATES
+
+       pg_co_to_resp is the first live seam.  lamina_respiratory
+       declares CO_ref as INTER_LAMINA and says so in its own
+       description; this is the other half of that sentence.
+
+       Why the source is pump_state rather than CO: rule 2.  The gate
+       reads the composite and <extract> names which of its attributes
+       goes on the wire.  Reading the composite is what lets the
+       controller watch the state of the pump as a whole while sending
+       only the one number the far side declared room for.
+       ============================================================== -->
+  <permeability_gates>
+
+    <gate id="pg_co_to_resp"
+          from="lamina_circulatory:pump_state"
+          to="lamina_respiratory:CO_ref"
+          controller="threshold">
+
+      <description>
+        Cardiac output crossing into oxygen delivery. Held shut while
+        the pump is unremarkable, because a respiratory model resting
+        on its own declared baseline of 5 L/min is not wrong — it is
+        only uninformed, and an uninformed model that is stable beats a
+        coupled one that oscillates.
+
+        "Unremarkable" is measured against what the receiver is already
+        assuming, and it is two-sided. The first version of this gate
+        watched the raw normalised CO and opened above 0.75, which is a
+        cardiac output of 9.5 L/min: it opened for a racing heart and
+        stayed shut for a failing one. Measured, holding HR at 35:
+        cardiac output settles at 3.39 L/min, the seam never opens, and
+        respiration goes on computing oxygen delivery from 5.0 — wrong
+        by 32%, silently, in the direction a clinician would care about
+        most. A seam whose own description says "while the pump is
+        unremarkable" has to treat shock as remarkable.
+      </description>
+
+      <!-- Which attribute of the source composite goes on the wire. -->
+      <extract attribute="CO" />
+
+      <!-- watch names the attribute the controller reads; aggregate
+           says how to reduce the composite's normalised vector to the
+           one number the thresholds compare against.  attr = just the
+           watched attribute; mean and max take the whole vector;
+           deviation = the watched attribute's DISTANCE from reference.
+           Units are [0,1] — the normalised space — so the same numbers
+           mean the same thing whether the attribute is in L/min or
+           mmHg.
+
+           reference is the receiver's OWN declared baseline for CO_ref
+           (5.0 L/min) expressed in the sender's normalised space:
+           (5.0 - 2) / (12 - 2) = 0.30.  That is the point the gate
+           should measure departure from, because it is precisely what
+           the far side assumes while nothing is crossing.  The gate
+           opens when reality stops matching that assumption, either
+           way.
+
+           Neither boundary is a taste. open_above comes from the
+           RECEIVER's declared tolerance: target_do2 is 1000 +/- 250 and
+           DO2 = CaO2 * CO_ref * 10, so at the measured CaO2 of 19.80 the
+           CO error that pushes DO2 out of tolerance is 250/198.0 = 1.262
+           L/min, which is 0.126 normalised. 0.125 is that number, and it
+           means the seam opens exactly when staying shut would put the
+           far side's own outcome out of range.
+
+           close_below comes from measured noise. CO_norm on the live
+           feed has sd 0.0104; feeding the controller a signal parked on
+           open_above, 400 cycles:
+
+             close_below 0.1249 (one boundary)   177 transitions
+             close_below 0.115  (0.010 band)      91
+             close_below 0.100  (0.025 band)       3
+             close_below 0.090  (0.035 band)       1
+
+           0.09 is 3.4 sd of deadband, and the first width where the
+           gate stops arguing with the noise. In CO terms: it opens when
+           output leaves 5.0 +/- 1.25 L/min and shuts when it returns
+           inside 5.0 +/- 0.9. -->
+      <controller_params watch="CO" aggregate="deviation" reference="0.30"
+                         open_above="0.125" close_below="0.09"
+                         refractory_cycles="5" />
+
+      <!-- rate is the EWMA coefficient applied once per cycle of the
+           RECEIVING lamina; time_delay is counted in those same
+           cycles.
+
+           time_delay is 0 because there is nothing to compensate for:
+           the receiver re-derives from a crossing within the same tick
+           (measured — see the tick order in organism.py), so a delay
+           here would be a delay somebody chose rather than one the
+           machinery imposed.  Nobody has a reason to choose one on this
+           seam yet.
+
+           That leaves rate carrying the whole anti-oscillation load,
+           which is what G4 says it should.  Measured, holding the
+           circulation at HR 200 so its own loop makes CO swing:
+
+             rate 1.00   CO_ref 13.20 -> 7.13 -> 14.91 -> 10.62
+             rate 0.20   CO_ref  6.64 -> 6.74 ->  8.37 ->  8.82
+
+           0.2 walks the receiver up to the sender instead of handing it
+           the sender's argument with itself.
+
+           on_close="hold" keeps the last value that crossed, stamped
+           with its age, so the far side sees an old number labelled old
+           rather than one snapping back to a baseline nobody chose.
+           decay_to_baseline is the other option, for a seam where a
+           stale coupled value would be worse than an uninformed one. -->
+      <transfer mode="proportional"
+                rate="0.2"
+                time_delay="0"
+                on_close="hold"
+                confidence="0.8" />
+    </gate>
+
+  </permeability_gates>
+
+</organism>

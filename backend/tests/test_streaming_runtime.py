@@ -203,3 +203,54 @@ def test_runtime_supports_async_emit():
 
     emitted = asyncio.run(scenario())
     assert 42 in emitted
+
+
+# ── A loop that dies has to say so ───────────────────────────────────
+
+def test_a_failing_cycle_stops_the_loop_loudly_rather_than_silently():
+    """
+    The failure this guards against was found the hard way.
+
+    A UnicodeEncodeError inside a debug print killed the control task.
+    The exception sat on the dead task unretrieved, the socket stayed
+    open, and the client went on waiting — which on screen is
+    indistinguishable from a model that has settled. Five frames, then
+    nothing, and nothing anywhere saying why.
+
+    So the loop is allowed to die, and is not allowed to die quietly: the
+    exception is kept where a caller can find it.
+    """
+    boom = RuntimeError("the cycle blew up")
+
+    async def scenario():
+        emitted = []
+
+        def process(_sample):
+            emitted.append(len(emitted))
+            if len(emitted) >= 2:
+                raise boom
+            return len(emitted)
+
+        rt = StreamingRuntime(process, emit=lambda r: None, period_s=0.01)
+        rt.start()
+        await asyncio.sleep(0.12)
+        assert rt.error is boom, "the loop swallowed what killed it"
+        assert rt.running is False
+        await rt.stop()
+        return emitted
+
+    assert len(asyncio.run(scenario())) >= 2
+
+
+def test_a_healthy_loop_never_reports_an_error():
+    """The other half — a probe that is always tripped says nothing."""
+    async def scenario():
+        rt = StreamingRuntime(lambda s: s, emit=lambda r: None, period_s=0.01)
+        rt.start()
+        rt.submit(1)
+        await asyncio.sleep(0.06)
+        err = rt.error
+        await rt.stop()
+        return err
+
+    assert asyncio.run(scenario()) is None

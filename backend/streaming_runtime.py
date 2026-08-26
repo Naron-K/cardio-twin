@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import traceback
 from typing import Any, Awaitable, Callable, Optional
 
 
@@ -130,6 +131,8 @@ class StreamingRuntime:
         self.mailbox = LatestWinsMailbox()
         self.cycles: int = 0
         self.overruns: int = 0
+        #: What killed the control loop, if anything did.  See _run.
+        self.error: Optional[BaseException] = None
 
         self._running: bool = False
         self._task: Optional[asyncio.Task] = None
@@ -143,7 +146,34 @@ class StreamingRuntime:
     # ── Control cycle ────────────────────────────────────────────────
 
     async def _run(self) -> None:
+        """
+        The control loop, and one guarantee about how it can end.
+
+        An exception out of `process` or `emit` used to leave this task
+        dead with the exception parked on it, unretrieved. Nothing else
+        noticed: the socket stayed open, the client kept waiting, and the
+        stream simply stopped — which reads on screen as a model that has
+        settled rather than one that has died. It took a UnicodeEncodeError
+        inside a debug print to find, and it could have been anything.
+
+        So a failure now stops the loop LOUDLY: the traceback goes to the
+        log and the exception is kept on `error`, where a caller that
+        wants to close the socket with a reason can read it. Silence is
+        the one ending this loop is not allowed to have.
+        """
         loop = asyncio.get_event_loop()
+        try:
+            await self._cycle_forever(loop)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:                    # noqa: BLE001 — see docstring
+            self.error = exc
+            self._running = False
+            print("[StreamingRuntime] control loop died:")
+            traceback.print_exception(type(exc), exc, exc.__traceback__)
+            raise
+
+    async def _cycle_forever(self, loop) -> None:
         while self._running:
             start = loop.time()
 
@@ -187,7 +217,16 @@ class StreamingRuntime:
         return self._task
 
     async def stop(self) -> None:
-        """Stop the loop and await clean cancellation."""
+        """
+        Stop the loop and await clean cancellation.
+
+        A loop that already died of its own exception does not raise it
+        again here. It has been printed and it is on `error`; re-raising
+        it out of a teardown call would surface it at the shutdown site
+        instead of the failure site, which is how a print error inside a
+        control cycle came to be reported as a crash in a WebSocket
+        handler's `finally` block.
+        """
         self._running = False
         if self._task is not None:
             self._task.cancel()
@@ -195,6 +234,8 @@ class StreamingRuntime:
                 await self._task
             except asyncio.CancelledError:
                 pass
+            except Exception:                   # noqa: BLE001 — see docstring
+                pass                            # already recorded on .error
             self._task = None
 
     @property

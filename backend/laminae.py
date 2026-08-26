@@ -75,3 +75,72 @@ def load_twin(path: Path | str | None = None) -> UniversalTwin:
     """Build the twin for a lamina file, choosing its implementation by id."""
     resolved = Path(path) if path is not None else lamina_path()
     return implementation_for(lamina_id_of(resolved))(str(resolved))
+
+
+# ── Which laminae exist, and how to name one from outside ────────────────────
+#
+# The process-wide default above answers "what is this backend running".  What
+# follows answers a different question — "what could a request ask for" — and
+# it is the half that lets the lamina be a property of the connection rather
+# than of the process.  Two tabs can then run two laminae at once, and, more to
+# the point, a schema and a stream can be guaranteed to have come from the same
+# place because both were told the same id.
+
+LAMINA_DIR = Path(__file__).parent
+
+
+class UnknownLamina(LookupError):
+    """A request named a lamina id that no file in `LAMINA_DIR` declares."""
+
+    def __init__(self, lamina_id: str, available: list[str]) -> None:
+        self.lamina_id = lamina_id
+        self.available = available
+        super().__init__(
+            f"No lamina with id '{lamina_id}'. Available: {', '.join(available)}"
+        )
+
+
+def available_laminae() -> list[dict]:
+    """
+    Every lamina file this backend can serve, by id.
+
+    A lamina with no entry in `_IMPLEMENTATIONS` is listed and marked, not
+    hidden.  It loads on bare `UniversalTwin`, draws its whole structure and
+    shows a dash on every computed node — an honest picture of "declared but
+    not implemented", and a legitimate thing to want to look at.  Hiding it
+    would make the one case this loader was written to support invisible.
+    """
+    found: list[dict] = []
+    for path in sorted(LAMINA_DIR.glob("*_lamina.xml")):
+        try:
+            root = ET.parse(str(path)).getroot()
+        except ET.ParseError:
+            continue  # a malformed file is not an option to offer
+        lamina_id = root.get("id", "")
+        if not lamina_id:
+            continue
+        found.append({
+            "id":          lamina_id,
+            "name":        root.get("name", path.stem),
+            "level":       int(root.get("level", "0")),
+            "file":        path.name,
+            "implemented": lamina_id in _IMPLEMENTATIONS,
+        })
+    return found
+
+
+def resolve_lamina(lamina_id: str | None) -> Path:
+    """
+    The file for a lamina id, or the process default when none is named.
+
+    Resolution is by the XML's own `id`, never by filename, so a URL does not
+    depend on where the file sits on disk.  An unknown id raises rather than
+    quietly falling back: serving the default to someone who asked for
+    something else is precisely the mismatch this whole path exists to stop.
+    """
+    if not lamina_id:
+        return lamina_path()
+    for entry in available_laminae():
+        if entry["id"] == lamina_id:
+            return LAMINA_DIR / entry["file"]
+    raise UnknownLamina(lamina_id, [e["id"] for e in available_laminae()])

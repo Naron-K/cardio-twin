@@ -27,7 +27,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useCardioStream } from '../../hooks/useCardioStream'
 import type { StreamTick } from '../../hooks/useCardioStream'
-import { fetchSchema } from '../../utils/api'
+import { fetchLaminae, fetchSchema } from '../../utils/api'
+import type { LaminaOption } from '../../utils/api'
 import { indexLamina, fmtValue } from '../../twin/schema'
 import type { LaminaIndex } from '../../twin/schema'
 import { loadStage } from '../../twin/stageTemplate'
@@ -42,6 +43,10 @@ import { InputRail } from './InputRail'
 import { Panel, Chip } from './ui'
 
 interface Props {
+  /** Lamina id to open, or null for whatever the backend defaults to. */
+  lamina: string | null
+  /** Report the lamina back up so it lands in the URL. */
+  onLamina: (id: string) => void
   onBack: () => void
 }
 
@@ -53,14 +58,33 @@ interface StageMode {
 
 const MAP_MODE: StageMode = { id: 'map', label: 'Lamina map' }
 
-export function TwinDashboard({ onBack }: Props) {
+export function TwinDashboard({ lamina, onLamina, onBack }: Props) {
   // 300 ticks ≈ 30 s: long enough for a disturbance and the settling after it
   // to sit in the convergence window together.
-  const { ticks, status, sendControl } = useCardioStream({ tickMs: 100, bufferSize: 300 })
-  const latest: StreamTick | null = ticks.length > 0 ? ticks[ticks.length - 1] : null
+  const { ticks, status, sendControl, lastTickAt, closeReason } = useCardioStream({
+    tickMs: 100,
+    bufferSize: 300,
+    lamina,
+  })
+  const newest: StreamTick | null = ticks.length > 0 ? ticks[ticks.length - 1] : null
 
-  const [index, setIndex] = useState<LaminaIndex | null>(null)
-  const [schemaError, setSchemaError] = useState<string | null>(null)
+  /**
+   * The structure, tagged with the lamina it was fetched for.
+   *
+   * Tagged rather than cleared, because "which lamina is this the shape of" is
+   * the question the whole screen turns on. A structure whose tag no longer
+   * matches the lamina being asked for is not this screen's structure, and is
+   * not read — so no render passes through drawing one model over another's
+   * numbers, which is the failure this file exists to make impossible.
+   */
+  const [structure, setStructure] = useState<
+    { lamina: string | null; index: LaminaIndex } | null
+  >(null)
+  const [failure, setFailure] = useState<{ lamina: string | null; message: string } | null>(null)
+  const [laminae, setLaminae] = useState<LaminaOption[]>([])
+
+  const index = structure && structure.lamina === lamina ? structure.index : null
+  const schemaError = failure && failure.lamina === lamina ? failure.message : null
   const [loaded, setLoaded] = useState<LoadedStage | null>(null)
   const [paused, setPaused] = useState(false)
   /** What the reader picked, which may not exist for the lamina that loads. */
@@ -71,11 +95,78 @@ export function TwinDashboard({ onBack }: Props) {
   const [mapExpanded, setMapExpanded] = useState(false)
 
   // ── The model describes itself; everything below reads that description ───
+  //
+  // Re-read on every lamina change, and clear the old index first. A page that
+  // fetched its structure once and never again is how this went wrong: the old
+  // lamina's shape stayed on screen over the new one's numbers, named the old
+  // lamina in the header, and drew the old lamina's artwork — all of it looking
+  // entirely correct.
   useEffect(() => {
-    fetchSchema()
-      .then((raw) => setIndex(indexLamina(raw)))
-      .catch(() => setSchemaError('Schema failed to load — is the backend up on port 8000?'))
+    let live = true
+    fetchSchema(lamina)
+      .then((raw) => live && setStructure({ lamina, index: indexLamina(raw) }))
+      .catch((e) =>
+        live &&
+        setFailure({
+          lamina,
+          message:
+            e?.response?.status === 404
+              ? `No lamina with id "${lamina}" — the backend does not serve one.`
+              : 'Schema failed to load — is the backend up on port 8000?',
+        })
+      )
+    return () => {
+      live = false
+    }
+  }, [lamina])
+
+  // What this backend can serve. The picker is built from the answer rather
+  // than from a list typed in here, so dropping a lamina XML into `backend/`
+  // is the whole of adding one.
+  useEffect(() => {
+    let live = true
+    fetchLaminae()
+      .then((r) => live && setLaminae(r.laminae))
+      .catch(() => live && setLaminae([]))
+    return () => {
+      live = false
+    }
   }, [])
+
+  // ── The invariant: structure and values came from the same lamina ────────
+  //
+  // Checked every tick, because the ways it can break are not all things this
+  // component did. Restarting the backend onto another lamina behind an open
+  // tab is one — and is exactly how the bug was found. On a mismatch, no value
+  // is rendered at all: a number drawn under the wrong model's labels is worse
+  // than no number, and the effect below re-fetches the structure for whatever
+  // the socket is actually sending, which converges without a reload.
+  const streamLamina = newest?.laminaId ?? ''
+  const mismatch = Boolean(index && streamLamina && streamLamina !== index.schema.lamina_id)
+
+  useEffect(() => {
+    if (mismatch && streamLamina) onLamina(streamLamina)
+  }, [mismatch, streamLamina, onLamina])
+
+  // Nothing downstream sees a tick from a lamina this screen was not drawn for.
+  const latest: StreamTick | null = mismatch ? null : newest
+
+  // ── A dead socket must not look like a live one ──────────────────────────
+  //
+  // When the socket is not open, every number on screen is a photograph of the
+  // last tick. It does not dim, it does not stop, and the connection chip
+  // flipping to Reconnecting is not what anyone is reading. So the value
+  // columns are dimmed and the age of the last tick is stamped, on the same
+  // rule the ECG and the simulated feed already follow.
+  const stale = status !== 'open' && latest !== null
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!stale) return
+    const id = setInterval(() => setNow(Date.now()), 500)
+    return () => clearInterval(id)
+  }, [stale])
+  const staleAge = stale && lastTickAt ? Math.max(0, Math.round((now - lastTickAt) / 1000)) : null
+  const dim = stale ? 'opacity-40 transition-opacity duration-500' : 'transition-opacity duration-500'
 
   const artwork = artworkFor(index?.schema.lamina_id)
 
@@ -178,9 +269,11 @@ export function TwinDashboard({ onBack }: Props) {
         </button>
 
         <div className="flex items-baseline gap-2.5 pl-3 border-l border-white/10 min-w-0">
-          <span className="font-display text-lg font-extrabold tracking-tight text-crimson-container truncate">
-            {index.schema.lamina_name}
-          </span>
+          <LaminaPicker
+            laminae={laminae}
+            current={index.schema.lamina_id}
+            onPick={onLamina}
+          />
           <span className="font-mono text-[10px] readout text-ink/30 truncate">
             {index.schema.lamina_id} · level {index.schema.lamina_level}
           </span>
@@ -189,6 +282,13 @@ export function TwinDashboard({ onBack }: Props) {
         <Chip tone={status === 'open' ? 'oxy' : 'crimson'} dot pulse={status !== 'open'}>
           {status === 'open' ? 'Streaming' : status === 'connecting' ? 'Reconnecting' : 'Offline'}
         </Chip>
+
+        {/* The numbers are a photograph, and say so with their age. */}
+        {staleAge !== null && (
+          <Chip tone="crimson" title="The socket is not open — nothing on screen is updating.">
+            Frozen · last tick {staleAge}s ago
+          </Chip>
+        )}
 
         {/* What is producing the readings, as the backend reports it. The
             socket being open says the connection is live; it says nothing
@@ -201,8 +301,10 @@ export function TwinDashboard({ onBack }: Props) {
         )}
 
         <div className="ml-auto flex items-center gap-3">
-          <Readout label="Cycle" value={String(latest?.tick ?? 0)} />
-          <Readout label="‖X″‖" value={(latest?.feedback_norm ?? 0).toFixed(4)} accent />
+          <span className={`flex items-center gap-3 ${dim}`}>
+            <Readout label="Cycle" value={String(latest?.tick ?? 0)} />
+            <Readout label="‖X″‖" value={(latest?.feedback_norm ?? 0).toFixed(4)} accent />
+          </span>
           <button
             onClick={togglePause}
             className="rounded-el border-2 border-oxy-container/60 px-3 py-1.5 font-mono text-[11px]
@@ -227,14 +329,20 @@ export function TwinDashboard({ onBack }: Props) {
         <aside className="min-h-0 overflow-y-auto pr-1">
           <Panel
             className="!p-5"
-            eyebrow={`${index.sensors.length} sensor attributes`}
+            eyebrow={
+              index.inbound.length > 0
+                ? `${index.sensors.length} sensor · ${index.inbound.length} inbound`
+                : `${index.sensors.length} sensor attributes`
+            }
             title="Model inputs"
           >
             <InputRail
               index={index}
               values={latest?.sensors ?? {}}
+              inbound={latest?.inbound ?? {}}
+              inboundProvenance={latest?.inboundProvenance ?? {}}
               sourceKind={feed.kind}
-              disabled={paused}
+              disabled={paused || status !== 'open'}
               onChange={setSensor}
             />
           </Panel>
@@ -242,8 +350,8 @@ export function TwinDashboard({ onBack }: Props) {
 
         {/* Centre — the stage */}
         <main className="min-h-0 flex flex-col gap-gutter">
-          <div className="relative flex-1 min-h-0 rounded-card border border-white/10 shadow-inset1
-                          bg-surface-lowest stage-grid overflow-hidden">
+          <div className={`relative flex-1 min-h-0 rounded-card border border-white/10 shadow-inset1
+                          bg-surface-lowest stage-grid overflow-hidden ${stale ? 'saturate-50' : ''}`}>
             <div className="absolute top-4 left-4 z-10">
               <Chip tone={paused ? 'warn' : 'oxy'} dot pulse={!paused}>
                 {paused ? 'Paused' : 'Running'}
@@ -280,7 +388,7 @@ export function TwinDashboard({ onBack }: Props) {
               </div>
             )}
 
-            <div className={`absolute inset-0 flex items-center justify-center ${mode === 'map' ? 'p-4 pt-14' : 'p-10'}`}>
+            <div className={`absolute inset-0 flex items-center justify-center ${dim} ${mode === 'map' ? 'p-4 pt-14' : 'p-10'}`}>
               {mode === 'map' ? (
                 <LaminaMap
                   index={index}
@@ -337,10 +445,33 @@ export function TwinDashboard({ onBack }: Props) {
             )}
 
             {!latest && (
-              <div className="absolute inset-0 z-20 flex items-center justify-center bg-surface/70 backdrop-blur-sm">
-                <p className="font-mono text-[12px] readout uppercase text-ink/50 animate-pulse">
-                  Waiting for twin data…
-                </p>
+              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2
+                              bg-surface/80 backdrop-blur-sm px-8 text-center">
+                {mismatch ? (
+                  <>
+                    <p className="font-mono text-[12px] font-bold readout uppercase text-crimson-container">
+                      Stream changed lamina
+                    </p>
+                    <p className="font-mono text-[11px] readout text-ink/55 leading-relaxed max-w-[380px]">
+                      This screen was drawn for <b>{index.schema.lamina_id}</b> and the socket is
+                      sending <b>{streamLamina}</b>. Values are held back rather than shown under
+                      the wrong model. Re-reading the structure for {streamLamina}…
+                    </p>
+                  </>
+                ) : closeReason ? (
+                  <>
+                    <p className="font-mono text-[12px] font-bold readout uppercase text-crimson-container">
+                      Stream refused
+                    </p>
+                    <p className="font-mono text-[11px] readout text-ink/55 max-w-[380px]">
+                      {closeReason}
+                    </p>
+                  </>
+                ) : (
+                  <p className="font-mono text-[12px] readout uppercase text-ink/50 animate-pulse">
+                    Waiting for twin data…
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -378,7 +509,7 @@ export function TwinDashboard({ onBack }: Props) {
               ))}
             </nav>
 
-            {activeView?.render({ index, ticks, latest }) ?? null}
+            <div className={dim}>{activeView?.render({ index, ticks, latest }) ?? null}</div>
           </Panel>
         </main>
 
@@ -388,33 +519,51 @@ export function TwinDashboard({ onBack }: Props) {
             eyebrow={`${index.computed.length} computed attributes`}
             title="Model output"
           >
-            <div className="space-y-1.5">
+            <div className={`space-y-1.5 ${dim}`}>
               {index.computed.map((attr) => {
                 const outcome = (index.outcomesOfAttribute[attr.id] ?? [])
                   .map((o) => outcomes[o.id])
                   .find(Boolean)
                 const xpp = latest?.computedFeedback[attr.id] ?? 0
+                // The backend says this one did not compute; the number beside
+                // it is last cycle's. Dim it and say so, rather than letting a
+                // frozen value sit here looking exactly as live as the rest.
+                const staleReason = latest?.staleComputed[attr.id]
                 return (
-                  <div key={attr.id} className="flex items-baseline gap-2" title={attr.description}>
+                  <div
+                    key={attr.id}
+                    className="flex items-baseline gap-2"
+                    title={staleReason ? `${attr.id} — ${staleReason}` : attr.description}
+                  >
                     <span
                       className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                        outcome === undefined
-                          ? 'bg-ink/15'
-                          : outcome.within_after
-                            ? 'bg-oxy-dim'
-                            : 'bg-crimson-container'
+                        staleReason
+                          ? 'bg-warn'
+                          : outcome === undefined
+                            ? 'bg-ink/15'
+                            : outcome.within_after
+                              ? 'bg-oxy-dim'
+                              : 'bg-crimson-container'
                       }`}
                     />
-                    <span className="font-mono text-[11px] font-bold readout text-ink/75">
+                    <span
+                      className={`font-mono text-[11px] font-bold readout ${
+                        staleReason ? 'text-ink/35' : 'text-ink/75'
+                      }`}
+                    >
                       {attr.id}
                     </span>
                     <span className="font-mono text-[9px] readout text-ink/25 truncate">
-                      {attr.unit}
+                      {staleReason ? 'stale' : attr.unit}
                     </span>
-                    <span className="ml-auto font-mono text-[12px] font-bold tabular-nums text-ink shrink-0">
+                    <span
+                      className={`ml-auto font-mono text-[12px] font-bold tabular-nums shrink-0 ${
+                        staleReason ? 'text-ink/30 line-through decoration-warn/50' : 'text-ink'
+                      }`}
+                    >
                       {fmtValue(latest?.computed[attr.id])}
                     </span>
-                    {Math.abs(xpp) > 1e-4 && (
+                    {!staleReason && Math.abs(xpp) > 1e-4 && (
                       <span className="font-mono text-[9px] tabular-nums text-warn/70 shrink-0 w-[52px] text-right">
                         {xpp > 0 ? '+' : ''}
                         {xpp.toFixed(3)}
@@ -427,12 +576,13 @@ export function TwinDashboard({ onBack }: Props) {
             <p className="mt-3 font-mono text-[9px] readout text-ink/25 leading-snug">
               Dot is the model's own within-tolerance verdict; an attribute it declares no outcome
               for has no dot rather than a guessed one. The amber column is X″ — the part of the
-              value the feedback loop is holding.
+              value the feedback loop is holding. A struck-through row did not compute this cycle:
+              the number is the last one that did, and hovering says what broke.
             </p>
           </Panel>
 
           <Panel eyebrow="Cycle report" title="This cycle">
-            <div className="space-y-1.5 font-mono text-[10px] readout">
+            <div className={`space-y-1.5 font-mono text-[10px] readout ${dim}`}>
               <Line label="Tags fired">
                 {latest?.tagsEmitted.length ? (
                   <span className="text-warn">{latest.tagsEmitted.join(', ')}</span>
@@ -519,6 +669,66 @@ export function TwinDashboard({ onBack }: Props) {
 }
 
 // ── Small pieces ──────────────────────────────────────────────────────────────
+
+/**
+ * The lamina, as something you pick rather than something you restart into.
+ *
+ * The list is the backend's answer to "what can you serve", so a lamina that
+ * exists shows up here without an edit. A lamina whose arithmetic nobody has
+ * written is offered and marked, not hidden: it loads, draws its whole
+ * structure and shows a dash on every computed node, which is a fair picture of
+ * "declared but not implemented" and a reasonable thing to want to look at.
+ *
+ * Picking one is a single act upstream — the schema and the socket are both
+ * reopened with that id, together or not at all. Falling back to a plain label
+ * when the catalogue is unavailable keeps the header honest rather than
+ * offering a choice that would not work.
+ */
+function LaminaPicker({
+  laminae,
+  current,
+  onPick,
+}: {
+  laminae: LaminaOption[]
+  current: string
+  onPick: (id: string) => void
+}) {
+  const name = laminae.find((l) => l.id === current)?.name ?? current
+
+  if (laminae.length < 2) {
+    return (
+      <span className="font-display text-lg font-extrabold tracking-tight text-crimson-container truncate">
+        {name}
+      </span>
+    )
+  }
+
+  return (
+    <label className="relative flex items-baseline group" title="Switch lamina">
+      <select
+        value={current}
+        onChange={(e) => onPick(e.target.value)}
+        className="appearance-none cursor-pointer bg-transparent pr-4 font-display text-lg font-extrabold
+                   tracking-tight text-crimson-container outline-none
+                   focus-visible:ring-2 focus-visible:ring-crimson-container/50 rounded-el"
+      >
+        {laminae.map((l) => (
+          <option key={l.id} value={l.id} className="bg-surface-low text-ink font-body">
+            {l.name}
+            {l.implemented ? '' : ' — structure only'}
+          </option>
+        ))}
+      </select>
+      <span
+        aria-hidden
+        className="pointer-events-none absolute right-0 bottom-1 font-mono text-[9px] text-ink/35
+                   group-hover:text-ink/70 transition-colors"
+      >
+        ▼
+      </span>
+    </label>
+  )
+}
 
 function Readout({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (

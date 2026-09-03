@@ -1689,9 +1689,9 @@ class Organism:
 #      "up" when the channel climbs to a higher level, "down"
 #      otherwise — counted across every channel the lamina takes part
 #      in.
-#   9  One interface composite per (lamina, direction): two channels
-#      leaving the same lamina the same way must read the same
-#      composite.
+#   9  ONE interface composite per lamina, the same one in every
+#      direction: every channel leaving a lamina reads the same
+#      composite, because from outside the lamina IS that composite.
 #  10  `<transform>` is recognised and refused: the v2 lambda, not
 #      supported yet.
 #  11  `<permeability_gates>` is refused, pointing at `<channels>`.
@@ -2428,23 +2428,32 @@ def parse_organism_v2(path: Path | str) -> OrganismSpec:
                     f"lamina."
                 )
 
-        # ── Rule 9: one interface composite per (lamina, direction) ────
-        # From OUTSIDE, a lamina presents exactly one face to the level
-        # above and one to the level below (C9).  Two channels leaving it
-        # the same way on different composites would make it two different
-        # things to the same neighbour.
-        face = (ch.source.lamina, direction)
-        previous = faces.get(face)
+        # ── Rule 9: ONE interface composite per lamina ─────────────────
+        # L1, in its strict reading (Q2, settled 2026-09-03): from
+        # outside, a lamina IS one composite — not one per direction.
+        # Every channel leaving it, upward or downward, reads the same
+        # face.  The looser per-direction version would let a lamina be
+        # one thing to the layer above and another to the layer below,
+        # which is two laminae wearing one id.
+        #
+        # The cost of the strict reading is deliberate and worth stating:
+        # a lamina that sits in the middle of a stack must find a single
+        # composite that says everything its neighbours on BOTH sides
+        # need.  If no such composite exists, that is a signal the lamina
+        # is doing two jobs, and the fix is to split it rather than to
+        # give it a second face.
+        previous = faces.get(ch.source.lamina)
         if previous is not None and previous[0] != ch.source.member:
             raise OrganismError(
-                f"Channel '{ch.id}' leaves lamina '{face[0]}' {direction} "
-                f"on composite '{ch.source.member}', but channel "
-                f"'{previous[1]}' already leaves it {direction} on "
-                f"composite '{previous[0]}'. Rule 9: a lamina presents "
-                f"ONE interface composite to each direction — two channels "
-                f"out the same way must read the same composite."
+                f"Channel '{ch.id}' leaves lamina '{ch.source.lamina}' on "
+                f"composite '{ch.source.member}', but channel "
+                f"'{previous[1]}' already leaves it on composite "
+                f"'{previous[0]}'. Rule 9: a lamina presents ONE interface "
+                f"composite, the same one in every direction — from "
+                f"outside, the lamina IS that composite. A lamina needing "
+                f"two faces is two laminae."
             )
-        faces.setdefault(face, (ch.source.member, ch.id))
+        faces.setdefault(ch.source.lamina, (ch.source.member, ch.id))
 
         for gate in [*ch.transmit, *ch.receive]:
             if gate.id in seen_gates:

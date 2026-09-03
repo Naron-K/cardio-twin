@@ -244,11 +244,11 @@ def test_rule_8_a_fifth_gate_on_one_face_does_not_parse(tmp_path):
 
 # ── Rule 9 — one interface composite per (lamina, direction) ─────────
 
-def test_rule_9_one_lamina_presents_one_composite_in_one_direction(tmp_path):
+def test_rule_9_one_lamina_presents_one_composite(tmp_path):
     """
     L1: from outside, a lamina IS its interface composite.  Two channels
-    leaving upward on different composites means the lamina has two
-    faces pointing the same way, and the message names both channels.
+    leaving it on different composites means the lamina is two different
+    things to its neighbours, and the message names both channels.
     """
     with pytest.raises(OrganismError, match="c1"):
         _parse(tmp_path, _body(
@@ -257,6 +257,41 @@ def test_rule_9_one_lamina_presents_one_composite_in_one_direction(tmp_path):
                        to="lamina_respiratory:OTHER",
                        transmit=_auto("ta2"), receive=_key("rk2")),
         ))
+
+
+def test_rule_9_the_face_is_the_same_one_in_every_direction(tmp_path):
+    """
+    Q2, settled 2026-09-03: the strict reading.  A lamina in the middle
+    of a stack does not get to show one composite upward and a different
+    one downward — that is two laminae wearing one id.
+
+    This is the case the looser per-direction reading would have let
+    through, so it is the test that tells the two apart: `lamina_
+    respiratory` sits at level 2 and here reaches both up to level 3 and
+    down to level 1, on two different composites.
+    """
+    with pytest.raises(OrganismError, match="ONE interface composite"):
+        _parse(tmp_path, _body(
+            laminae=THREE_LAMINAE,
+            channels=_channel("c_up", frm="lamina_respiratory:transport_state",
+                              to="lamina_third:X")
+            + _channel("c_down", frm="lamina_respiratory:other_state",
+                       to="lamina_circulatory:CO_ref",
+                       transmit=_auto("ta2"), receive=_key("rk2")),
+        ))
+
+
+def test_rule_9_the_same_face_in_both_directions_parses(tmp_path):
+    """The converse: one composite reaching both neighbours is legal."""
+    spec = _parse(tmp_path, _body(
+        laminae=THREE_LAMINAE,
+        channels=_channel("c_up", frm="lamina_respiratory:transport_state",
+                          to="lamina_third:X")
+        + _channel("c_down", frm="lamina_respiratory:transport_state",
+                   to="lamina_circulatory:CO_ref",
+                   transmit=_auto("ta2"), receive=_key("rk2")),
+    ))
+    assert [c.id for c in spec.channels] == ["c_up", "c_down"]
 
 
 # ── Rule 10 — the lambda is deferred, and says so ────────────────────

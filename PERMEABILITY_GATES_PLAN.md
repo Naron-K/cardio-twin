@@ -1,5 +1,31 @@
 # Permeability Gates & Inter-Lamina Coupling — Kế hoạch triển khai
 
+> **THAY THẾ MỘT PHẦN — đọc [`GATE_CHANNELS_PLAN.md`](GATE_CHANNELS_PLAN.md) trước.**
+>
+> Sau checklist của GS Lee (2026-09-02), cái van đặt *giữa* hai lamina đã được
+> chuyển vào **màng của từng lamina**, mỗi bên một bộ cổng. Kế hoạch đó đã
+> triển khai xong Phase 0–5.
+>
+> **Cái bị thay thế:**
+> - `PermeabilityGate` — **đã xoá**. Thay bằng `Channel` + `AutoGate` +
+>   `KeyGate`. Không có alias: một body v1 chạy "gần đúng" trên container hai
+>   phía là loại lỗi khó thấy nhất.
+> - `controller="threshold|key"` — **đã xoá**. Auto gate và key gate là hai
+>   thực thể riêng, vì chỉ một trong hai được phép tắt và chỉ một được phép
+>   bỏ qua phần cấu hình còn lại.
+> - Schema `<permeability_gates>` — bị parser **từ chối**, kèm thông báo chỉ
+>   sang `<channels>`.
+> - `<transfer>` — `rate` / `on_close` / `confidence` / `band` chuyển sang
+>   **cổng phía nhận**; `time_delay` chuyển sang **channel**, vì độ trễ là
+>   tính chất của sợi dây chứ không của đầu nào.
+>
+> **Cái vẫn đúng và vẫn được dùng:** mọi con số đo trong file này. Chúng là
+> baseline mà `backend/tests/fixtures/gate_traces_v1.json` chụp lại, và
+> `test_channels_baseline.py` chứng minh thiết kế hai phía tái tạo đúng
+> 1800/1800 giá trị tới 12 chữ số thập phân. Ngưỡng, deadband, EWMA, phép đo
+> chatter — không đổi một số nào.
+
+
 Viết 2026-08-25, sau buổi họp với GS Lee (yêu cầu 5 mục) và vòng phản biện
 thiết kế. Baseline lúc viết: nhánh `universal-visualisation`, **99/99 test
 backend xanh** (`cd backend && python -m pytest tests/ -q`).

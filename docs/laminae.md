@@ -48,6 +48,55 @@ computed attribute stays unset, so the visualiser draws the whole structure
 with a dash on each computed node. That is the honest picture of "declared but
 not implemented", and it is more useful than a crash.
 
+## Putting a lamina into a body
+
+A lamina runs on its own. Joining it to another one is a separate declaration,
+and it lives in the organism file rather than in either lamina — "circulation
+feeds oxygen delivery" is a fact about neither end, and putting it in one of
+them would make that lamina un-runnable alone.
+
+Four things to write in `organism.xml`:
+
+1. **A level.** `<lamina id="..." level="2"/>`. Where a lamina stands is a
+   property of the BODY, not of the lamina: the same lamina can sit at a
+   different height in a different organism, so the `level` in its own file is
+   informational and this is what adjacency is judged against.
+
+2. **A channel to its neighbour, and only to its neighbour.** A channel steps
+   exactly one level (rule 7). If you want to reach past the middle of the
+   stack, say what the missing middle is — the alternative is the
+   cross-laminar tangle the layering exists to prevent.
+
+3. **Gates on BOTH ends.** A channel with no gate on its receiving side is a
+   wire that writes straight into the far lamina, and it is refused (rule 12).
+   The sending lamina decides whether to offer; the receiving lamina decides
+   whether to take; a value crosses only when both are open.
+
+   - an **auto gate** reads the lamina it sits on, and is the protection
+     layer: evaluated first, and not switchable off by configuration;
+   - a **key gate** reads what the other side presents at the channel —
+     `identity` matches the label, `weighted_distance` and `cosine` match the
+     shape.
+
+   How fast to absorb (`rate`), what to do when nothing is crossing
+   (`on_close`), and how much of the offer to take (`weight`) all belong to
+   the RECEIVING gate. How fast to believe something is the receiver's
+   business, not the sender's.
+
+4. **One interface composite, at most eight gates.** From outside, a lamina IS
+   one composite, and it presents the same one in every direction (rule 9); a
+   lamina needing two faces is two laminae wearing one id. Each face —
+   upward and downward — carries at most four gates (rule 8).
+
+A lamina at the END of a stack sends nothing, so it derives no interface
+composite. If you want an auto gate on its receiving side, give the `<lamina>`
+an explicit `face="<composite_id>"`; without one it has no own-state to read
+and the body is refused rather than loading a gate that could never open.
+
+Every rule is enforced when the file is parsed, so a wrong body fails before it
+runs rather than during. The full list, with the measurement behind each, is in
+the comment at the top of [`organism.xml`](../backend/organism.xml).
+
 ## Baselines belong to the lamina
 
 `<baseline>` and `<noise_sigma>` on a SENSOR attribute say where a synthetic

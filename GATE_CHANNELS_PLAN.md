@@ -1,5 +1,32 @@
 # Kênh truyền / kênh nhận & hai loại cổng — Kế hoạch triển khai
 
+> **Trạng thái (2026-09-03): Phase 0–6 đã xong.** 358 test backend xanh,
+> `tsc` sạch, `vite build` sạch, màn hình `#body` đã chạy lại và được kiểm
+> bằng Chrome headless trên backend thật.
+>
+> Tiêu chí nghiệm thu đạt: **1800/1800 giá trị trùng khít baseline v1** tới
+> 12 chữ số thập phân. Hai tấm ảnh đều nằm trong repo —
+> `backend/tests/fixtures/gate_traces_v1.json` (đóng băng) và
+> `gate_traces_v2.json` — diff chúng thì **chỉ có tên đổi**, không một dòng
+> số nào.
+>
+> Q1–Q6 đã được chốt ngày 2026-09-03: (1) tuần hoàn 1, hô hấp 2; (2) một
+> composite / lamina, **không** phân hướng; (3) xả lũ chỉ ràng buộc phía
+> mình; (4) trọng số nhân vào **độ lệch**; (5) `identity` và pattern đều hợp
+> lệ; (6) tối đa 4 cổng mỗi mặt.
+>
+> Khác biệt so với bản viết ban đầu, đều do đo mà ra:
+> - **Luật 8** đếm theo `(lamina, mặt)` gộp cả hai phía, không theo
+>   `(lamina, side, hướng)` — bản đầu cho tới 16 cổng/lamina thay vì 8 như
+>   L5, và xếp cổng nhận vào mặt *ngược* với hướng dây tới.
+> - **`<lamina face="...">`** là trường mới: một lamina ở cuối stack không
+>   gửi gì nên không suy ra được mặt tiếp giáp, và nếu không khai thì nó
+>   vĩnh viễn không thể có cổng auto phía nhận.
+> - **`refractory_cycles` trên trigger pattern** trước đây được parser nhận
+>   nhưng không ai đọc. Xem Phase 4.
+> - **`mode="band"`** suýt bị xoá cùng `Transfer`; đã khôi phục trên cổng
+>   phía nhận.
+
 Viết 2026-09-02, sau checklist của GS Lee (5 chỉ đạo cốt lõi + 3 nguyên tắc
 kiến trúc). Baseline lúc viết: nhánh `universal-visualisation`, **255/255 test
 backend xanh**, `tsc` sạch, còn một khối chưa commit (organism_key.xml +

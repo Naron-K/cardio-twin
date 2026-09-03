@@ -81,6 +81,34 @@ KNOWN_AGGREGATES = frozenset({"attr", "mean", "max", "deviation"})
 #: clamping — see _transfer for why refusing beats clamping.
 KNOWN_TRANSFER_MODES = frozenset({"proportional", "band"})
 
+#: The metric a v2 `<key>` may match on (GATE_CHANNELS_PLAN C3).
+#: `identity` matches a LABEL — the composite id carried on the channel —
+#: and so needs no thresholds: a label either matches or it does not,
+#: which is exactly what rule 4's exemption is for.  `weighted_distance`
+#: and `cosine` match a SHAPE, which lives in normalised [0,1] space and
+#: needs the same two-boundary deadband as every other trigger (G3).
+KNOWN_KEY_METRICS = frozenset({"identity", "weighted_distance", "cosine"})
+
+#: The trigger an `<auto_gate>` answers to.  `<threshold>` is the v1
+#: deviation/attr decision made local to its own lamina; `<pattern>` is
+#: where a weighted-distance match against the lamina's OWN composite
+#: lands — the failing-pump recogniser from organism_key.xml recognises
+#: an internal state, so in Lee's transmit/receive split it is an auto
+#: gate with a pattern trigger, never a key gate.
+KNOWN_TRIGGER_KINDS = frozenset({"threshold", "pattern"})
+
+#: The two gate elements a v2 transmit/receive side may carry.  Naming
+#: the set here is what makes a third element a parse error rather than
+#: a declared gate that silently never runs (the v1 lesson of
+#: KNOWN_CONTROLLERS).
+KNOWN_V2_GATE_TAGS = frozenset({"auto_gate", "key_gate"})
+
+#: The most gates any (lamina, side, direction) may carry (rule 8).
+#: Lee's L5 says ≤ 8 per lamina, 4 up and 4 down; split across the two
+#: sides of the membrane this becomes 4 per (lamina, side, direction),
+#: which is the finer rule the parser enforces.
+MAX_GATES_PER_SIDE_DIRECTION = 4
+
 
 class OrganismError(ValueError):
     """A declaration that breaks one of the five rules."""
@@ -197,6 +225,16 @@ class OrganismSpec:
     gates: list                                       # list[PermeabilityGate]
     name: str = ""
     description: str = ""
+    #: Each lamina's place in the stack, `<lamina_id> → level` (v2).  v1
+    #: bodies have no `<lamina level=...>` and leave this empty; the v2
+    #: parser fills it, because adjacency (rule 7) is decided here — the
+    #: level is a property of THIS body, not of the lamina, which is why
+    #: it sits in the organism file rather than being read off the lamina.
+    levels: dict = field(default_factory=dict)
+    #: list[Channel] for a v2 body.  v1 keeps using `gates`; the two
+    #: lists are never both populated, and the field exists so a spec of
+    #: either schema answers "what crosses here?" in one place.
+    channels: list = field(default_factory=list)
 
     def gates_into(self, lamina_id: str) -> list:
         """Every gate whose destination is this lamina."""
@@ -211,20 +249,28 @@ class OrganismSpec:
 # Parsing
 # ──────────────────────────────────────────────────────────────────────
 
-def _endpoint(raw: str, gate_id: str, which: str) -> GateEndpoint:
-    """Split `<lamina>:<member>`, refusing anything else."""
+def _endpoint(raw: str, gate_id: str, which: str,
+              owner_kind: str = "Gate") -> GateEndpoint:
+    """
+    Split `<lamina>:<member>`, refusing anything else.
+
+    `owner_kind` names what is being blamed.  In v1 both ends of a
+    crossing belong to a gate; in v2 they belong to the CHANNEL and the
+    gates sit on its two ends, so a v2 message that said "Gate" would
+    send the reader looking for a gate id that is not in their file.
+    """
     addr = (raw or "").strip()
     if _ADDR_SEP not in addr:
         raise OrganismError(
-            f"Gate '{gate_id}' {which}='{raw}' must be of the form "
-            f"'<lamina_id>{_ADDR_SEP}<member_id>'. A gate crosses between "
+            f"{owner_kind} '{gate_id}' {which}='{raw}' must be of the form "
+            f"'<lamina_id>{_ADDR_SEP}<member_id>'. A crossing runs between "
             f"laminae, so both ends name the lamina they are on."
         )
     lamina, _, member = addr.partition(_ADDR_SEP)
     lamina, member = lamina.strip(), member.strip()
     if not lamina or not member:
         raise OrganismError(
-            f"Gate '{gate_id}' {which}='{raw}' has an empty half."
+            f"{owner_kind} '{gate_id}' {which}='{raw}' has an empty half."
         )
     return GateEndpoint(lamina=lamina, member=member)
 
@@ -1602,3 +1648,822 @@ class Organism:
             "last_value":    transfer_state.get("last_transmitted"),
             "provenance":    provenance,
         }
+
+
+# ──────────────────────────────────────────────────────────────────────
+# v2 — the channels schema
+# ──────────────────────────────────────────────────────────────────────
+#
+# v1 declared a seam as one `PermeabilityGate` sitting BETWEEN two
+# laminae: a controller reading the sender and a transfer writing
+# straight into the receiver.  v2 replaces the single mid-air valve
+# with a CHANNEL and a gate on EACH side of it (GATE_CHANNELS_PLAN
+# C1/C2): the sender owns transmit-side gates, the receiver owns
+# receive-side gates, and a value crosses only when BOTH sides let it.
+#
+# This section is the v2 SCHEMA CONTRACT — the additive Phase 1 of that
+# plan, and nothing more.  `parse_organism_v2` reads a `<channels>`
+# body and enforces, at parse time, the rules that live entirely in the
+# organism file: 1, 4, 5 and 6 carried over unchanged, plus the new
+# 7–12.  Rules 2 and 3 need the laminae themselves, so they stay where
+# they already are — enforced against the twins by the caller, exactly
+# as v1 does.  Nothing here runs a cycle, and nothing here touches the
+# v1 path: `parse_organism`, `load_organism`, the shipped bodies and
+# the v1 dataclasses keep working exactly as they did.  Switching the
+# shipped bodies onto this schema and deleting v1 is a later step.
+#
+# The rules enforced here, with their wording kept from the v1 header
+# where they overlap:
+#
+#   1  A gate is CLOSED until its trigger opens it.  There is no
+#      `open` / `start_open` attribute to write.
+#   4  Every threshold/pattern/key trigger declares TWO boundaries and
+#      the shut one sits strictly below the open one.  `metric=
+#      "identity"` is exempt: a label matches or it does not, so there
+#      is no noise for a single boundary to chatter on.
+#   5  Any `<learnable>` needs a clamp (reused `_parse_learnables`).
+#   6  One destination attribute, one channel.
+#   7  ADJACENCY: |level(from) − level(to)| == 1.  The two laminae must
+#      be neighbours in the stack this body declares.
+#   8  At most 4 gates per (lamina, side, direction) — direction is
+#      "up" when the channel climbs to a higher level, "down"
+#      otherwise — counted across every channel the lamina takes part
+#      in.
+#   9  One interface composite per (lamina, direction): two channels
+#      leaving the same lamina the same way must read the same
+#      composite.
+#  10  `<transform>` is recognised and refused: the v2 lambda, not
+#      supported yet.
+#  11  `<permeability_gates>` is refused, pointing at `<channels>`.
+#  12  Both `<transmit>` and `<receive>` carry at least one gate.  A
+#      bare side would be a wire writing straight into the far lamina.
+
+@dataclass(frozen=True)
+class Channel:
+    """
+    One declared crossing between two ADJACENT laminae, one direction.
+
+    The wire itself (the "synaptic cleft", C1): it carries `time_delay`
+    because a delay is a property of the LINE, not of either lamina, and
+    it owns the two gate lists — `transmit` on the sender's membrane,
+    `receive` on the receiver's — because the value only crosses when
+    both ends are open.  Carries no runtime state; a declaration that is
+    also a mutable state bag cannot be reloaded, compared or serialised
+    without dragging the run along with it (same argument as
+    PermeabilityGate).
+    """
+    id: str
+    source: GateEndpoint
+    dest: GateEndpoint
+    extract: str
+    time_delay: int = 0
+    transmit: list = field(default_factory=list)    # list[AutoGate | KeyGate]
+    receive: list = field(default_factory=list)     # list[AutoGate | KeyGate]
+
+    def __str__(self) -> str:                       # pragma: no cover — display
+        return f"{self.source} → {self.dest}"
+
+
+@dataclass(frozen=True)
+class AutoGate:
+    """
+    A gate that reads ITS OWN lamina's composite (C3, the relief valve).
+
+    Auto is internal: it answers to what the lamina it belongs to is
+    doing, never to what is being presented from outside.  Its trigger
+    is a `<threshold>` (the v1 deviation/attr decision) or a `<pattern>`
+    (a weighted-distance match against that same own composite — where
+    the failing-pump recogniser from organism_key.xml lands).  When it
+    fires it is allowed to flood the channel with `weight == rate == 1`
+    (C4); that is a RUNTIME decision, and the parse-time rule is the
+    smaller one that a gate is born shut (rule 1).
+    """
+    id: str
+    trigger_kind: str
+    trigger: dict
+    refractory_cycles: int = 0
+    side: str = ""                                  # "transmit" | "receive"
+    learnables: list = field(default_factory=list)  # list[Learnable]
+
+
+@dataclass(frozen=True)
+class KeyGate:
+    """
+    A gate that reads what is presented to it on the channel (C3).
+
+    On the transmit side the presentation is the far lamina's need — its
+    interface composite; on the receive side it is what the sender has
+    offered.  The `key` is the reference it matches against; `weight`
+    scales HOW MUCH of the offered deviation is absorbed (C5), and
+    `rate` / `on_close` / `confidence` are the receiving behaviour moved
+    here from the old Transfer by C6.
+    """
+    id: str
+    key: dict
+    weight: float = 1.0
+    rate: float = 0.2
+    on_close: str = "hold"
+    confidence: float = 0.8
+    side: str = ""                                  # "transmit" | "receive"
+    learnables: list = field(default_factory=list)  # list[Learnable]
+
+
+def _finite_attr(el, name: str, owner: str, default: Optional[float] = None):
+    """
+    A numeric attribute that is finite, or an OrganismError saying so.
+
+    `_float_attr` turns the text into a float, which accepts `nan` and
+    `inf` as happily as it accepts `0.3`; this adds the check that the
+    number is real.  A NaN boundary would silently make every comparison
+    False — a gate that can never decide — and an infinite one would
+    make a deadband no signal could ever leave, so a non-finite number
+    is a loud parse error rather than a quietly weird run.  `owner` is
+    the "Gate '<id>'" / "Channel '<id>'" prefix that names the offender.
+    """
+    # Parsed here rather than through `_float_attr`, which builds its own
+    # "Gate '<id>'" prefix and would double the one `owner` already
+    # carries.  v2 owners are Channels as well as Gates, so the prefix has
+    # to come from the caller.
+    raw = el.get(name)
+    if raw is None or not str(raw).strip():
+        return default
+    try:
+        value = float(raw)
+    except ValueError as e:
+        raise OrganismError(
+            f"{owner} has non-numeric {name}='{raw}'."
+        ) from e
+    if not math.isfinite(value):
+        raise OrganismError(
+            f"{owner} has {name}='{el.get(name)}', which is not finite. "
+            f"NaN or an infinite number would poison every comparison it "
+            f"feeds — a boundary must be a real number."
+        )
+    return value
+
+
+def _int_attr(el, name: str, owner: str, default: Optional[int] = None):
+    """An attribute that must parse as a whole number, or not at all."""
+    raw = el.get(name)
+    if raw is None or not str(raw).strip():
+        return default
+    try:
+        return int(str(raw).strip())
+    except ValueError as e:
+        raise OrganismError(
+            f"{owner} declares {name}='{raw}', which is not an integer. "
+            f"Integer-valued declarations that arrive as '2.0' or 'soon' "
+            f"are a mistake that would only surface mid-run."
+        ) from e
+
+
+def _fraction(el, name: str, owner: str, default: float) -> float:
+    """A finite number in [0,1], where every scaled quantity must live."""
+    value = _finite_attr(el, name, owner, default)
+    if value is not None and not 0.0 <= value <= 1.0:
+        raise OrganismError(
+            f"{owner} has {name}={value}, outside [0,1]. The normalised "
+            f"space is what lets one set of numbers mean the same thing "
+            f"whether the attribute is in L/min or mmHg (G2); a fraction "
+            f"outside it is a declaration in the wrong units."
+        )
+    return value
+
+
+def _reject_open_declaration(gate_el, gate_id: str) -> None:
+    """
+    Rule 1 — a gate is CLOSED until its trigger opens it.
+
+    v1 enforced this by having no attribute to write.  v2 has other
+    attributes on a gate, so the enforcement has to be active: an
+    `open`/`start_open` someone adds is recognised and refused rather
+    than ignored, because a declaration that is not read but looks as
+    though it should have been is how a model lies to its reader.
+    """
+    for banned in ("open", "start_open"):
+        raw = gate_el.get(banned)
+        if raw is not None:
+            raise OrganismError(
+                f"Gate '{gate_id}' declares {banned}='{raw}'. Rule 1: a "
+                f"gate is CLOSED until its trigger opens it — closed is "
+                f"the stable state, and a valve that may be born open is "
+                f"not a valve. Remove the attribute; the only way to open "
+                f"a gate is through its trigger."
+            )
+
+
+def _parse_match_weights(container, gate_id: str) -> dict:
+    """
+    The `<weight>` list of a `<pattern>` or a shape `<key>`.
+
+    Each weight names an attribute of the composite being matched, a
+    `ref` point in [0,1] for it to be compared against, and the text
+    weight saying how much that coordinate matters.  Mirrors the v1 key
+    weights; a match with nothing to match on is refused the same way.
+    """
+    weights: dict = {}
+    for w_el in container.findall("weight"):
+        attr = (w_el.get("attribute") or "").strip()
+        if not attr:
+            raise OrganismError(
+                f"Gate '{gate_id}' has a <weight> with no attribute."
+            )
+        ref = _finite_attr(w_el, "ref", f"Gate '{gate_id}'")
+        if ref is None:
+            raise OrganismError(
+                f"Gate '{gate_id}' key weight '{attr}' declares no ref. A "
+                f"match is scored against a reference point, so every "
+                f"weighted attribute needs one, in [0,1] (G2)."
+            )
+        if not 0.0 <= ref <= 1.0:
+            raise OrganismError(
+                f"Gate '{gate_id}' key weight '{attr}' has ref={ref}, "
+                f"outside [0,1]. The key lives in normalised space so it "
+                f"stays domain-neutral."
+            )
+        raw_weight = (w_el.text or "1.0").strip()
+        try:
+            weight = float(raw_weight)
+        except ValueError as e:
+            raise OrganismError(
+                f"Gate '{gate_id}' key weight '{attr}' is not a number."
+            ) from e
+        if not math.isfinite(weight):
+            raise OrganismError(
+                f"Gate '{gate_id}' key weight '{attr}' is not finite."
+            )
+        weights[attr] = (weight, ref)
+    if not weights:
+        raise OrganismError(
+            f"Gate '{gate_id}' declares a <{container.tag}> with no "
+            f"weights, so there is nothing for it to match on."
+        )
+    return weights
+
+
+def _parse_threshold_trigger(trigger_el, gate_id: str) -> dict:
+    """
+    The `<threshold>` child of an auto gate — rule 4 kept verbatim.
+
+    A threshold trigger watches its own lamina's vector and reduces it
+    to one number with `aggregate`; the two boundaries (G3) are
+    mandatory and must be the right way round.
+    """
+    aggregate = (trigger_el.get("aggregate") or "attr").strip()
+    if aggregate not in KNOWN_AGGREGATES:
+        raise OrganismError(
+            f"Gate '{gate_id}' has aggregate='{aggregate}'. Known: "
+            f"{sorted(KNOWN_AGGREGATES)}."
+        )
+    watch = (trigger_el.get("watch") or "").strip()
+    if aggregate in ("attr", "deviation") and not watch:
+        raise OrganismError(
+            f"Gate '{gate_id}' aggregates on a single attribute but names "
+            f"none — add watch=\"<attribute id>\"."
+        )
+    open_above = _finite_attr(trigger_el, "open_above", f"Gate '{gate_id}'")
+    close_below = _finite_attr(trigger_el, "close_below", f"Gate '{gate_id}'")
+    if open_above is None or close_below is None:
+        raise OrganismError(
+            f"Gate '{gate_id}' is a threshold trigger and must declare "
+            f"both open_above and close_below. One threshold chatters: "
+            f"the feed carries deliberate noise, so a value sitting on a "
+            f"single boundary opens and shuts the gate every cycle (G3)."
+        )
+    if not float(close_below) < float(open_above):
+        raise OrganismError(
+            f"Gate '{gate_id}' has close_below={close_below} which is not "
+            f"below open_above={open_above}. Without a gap there is no "
+            f"deadband, and without a deadband there is no hysteresis."
+        )
+    trigger = {
+        "aggregate": aggregate,
+        "open_above": open_above,
+        "close_below": close_below,
+    }
+    if watch:
+        trigger["watch"] = watch
+    if aggregate == "deviation":
+        reference = _finite_attr(trigger_el, "reference", f"Gate '{gate_id}'")
+        if reference is None:
+            raise OrganismError(
+                f"Gate '{gate_id}' aggregates on deviation but declares no "
+                f"reference. A distance needs a point to be a distance "
+                f"from, and leaving it to default to 0.0 would silently "
+                f"turn the gate back into the one-sided thing deviation "
+                f"exists to replace."
+            )
+        if not 0.0 <= reference <= 1.0:
+            raise OrganismError(
+                f"Gate '{gate_id}' has reference={reference}, outside "
+                f"[0,1]. The reference is a point in the normalised space "
+                f"the vector already lives in (G2)."
+            )
+        trigger["reference"] = reference
+    return trigger
+
+
+def _parse_pattern_trigger(trigger_el, gate_id: str) -> dict:
+    """
+    The `<pattern>` child of an auto gate — a shape match on its own side.
+
+    Pattern recognition is internal recognition (where organism_key.xml's
+    failing-pump gate lands), so a pattern trigger is a weighted-distance
+    match against the lamina's OWN composite vector; it still needs the
+    two boundaries of rule 4, for the same measured reason every other
+    trigger does.
+    """
+    match_threshold = _finite_attr(trigger_el, "match_threshold",
+                                   f"Gate '{gate_id}'")
+    release_below = _finite_attr(trigger_el, "release_below",
+                                 f"Gate '{gate_id}'")
+    if match_threshold is None or release_below is None:
+        raise OrganismError(
+            f"Gate '{gate_id}' is a pattern trigger and must declare both "
+            f"match_threshold and release_below. One boundary on a noisy "
+            f"signal chatters — declare the shut boundary too."
+        )
+    if not float(release_below) < float(match_threshold):
+        raise OrganismError(
+            f"Gate '{gate_id}' has release_below={release_below} which is "
+            f"not below match_threshold={match_threshold}. Without a gap "
+            f"there is no deadband."
+        )
+    return {
+        "match_threshold": match_threshold,
+        "release_below": release_below,
+        "weights": _parse_match_weights(trigger_el, gate_id),
+    }
+
+
+def _parse_key_block(key_el, gate_id: str) -> dict:
+    """
+    The `<key>` of a key gate, and its metric's own rules.
+
+    `metric='identity'` matches a label (rule 4's exemption): there is no
+    noise to chatter on, so no boundaries are required.  The two shape
+    metrics score against a reference point and need the two boundaries
+    and at least one weight, exactly like a v1 key.  The optional `from`
+    names whose composite is being presented — the far lamina's need on
+    a transmit-side key (C3).
+    """
+    metric = (key_el.get("metric") or "weighted_distance").strip()
+    if metric not in KNOWN_KEY_METRICS:
+        raise OrganismError(
+            f"Gate '{gate_id}' has metric='{metric}'. Known: "
+            f"{sorted(KNOWN_KEY_METRICS)}."
+        )
+    block: dict = {"metric": metric}
+    raw_from = (key_el.get("from") or "").strip()
+    if raw_from:
+        block["from"] = _endpoint(raw_from, gate_id, "from")
+    if metric != "identity":
+        match_threshold = _finite_attr(key_el, "match_threshold",
+                                       f"Gate '{gate_id}'")
+        release_below = _finite_attr(key_el, "release_below",
+                                     f"Gate '{gate_id}'")
+        if match_threshold is None or release_below is None:
+            raise OrganismError(
+                f"Gate '{gate_id}' declares a key with metric '{metric}' "
+                f"and must declare both match_threshold and release_below. "
+                f"One boundary on a noisy signal chatters — declare the "
+                f"shut boundary too."
+            )
+        if not float(release_below) < float(match_threshold):
+            raise OrganismError(
+                f"Gate '{gate_id}' has release_below={release_below} which "
+                f"is not below match_threshold={match_threshold}. Without "
+                f"a gap there is no deadband."
+            )
+        block["match_threshold"] = match_threshold
+        block["release_below"] = release_below
+        block["weights"] = _parse_match_weights(key_el, gate_id)
+    return block
+
+
+def _parse_auto_gate(gate_el, channel_id: str, side: str) -> AutoGate:
+    """
+    One `<auto_gate>`: exactly one trigger, and rule 1 / rule 4 / rule 5.
+
+    An auto gate that declares no trigger would be a gate nothing can
+    open, and one that declares two would be a gate nobody can say what
+    opened — so both are refused.  Everything else it may carry is a
+    `<learnable>`, which `_parse_learnables` guards (rule 5).
+    """
+    gate_id = (gate_el.get("id") or "").strip()
+    if not gate_id:
+        raise OrganismError(
+            f"Channel '{channel_id}' {side} declares an <auto_gate> with "
+            f"no id attribute."
+        )
+    _reject_open_declaration(gate_el, gate_id)
+
+    trigger_el = None
+    for child in gate_el:
+        if child.tag in KNOWN_TRIGGER_KINDS:
+            if trigger_el is not None:
+                raise OrganismError(
+                    f"Gate '{gate_id}' declares more than one trigger. An "
+                    f"auto gate answers to exactly one <threshold> or "
+                    f"<pattern>; two is two gates wearing one id."
+                )
+            trigger_el = child
+        elif child.tag == "learnable":
+            continue
+        else:
+            raise OrganismError(
+                f"Gate '{gate_id}' declares a <{child.tag}>. An auto gate "
+                f"answers to one <threshold> or <pattern> trigger and may "
+                f"carry <learnable>s — nothing else."
+            )
+    if trigger_el is None:
+        raise OrganismError(
+            f"Gate '{gate_id}' declares no trigger. An auto gate is "
+            f"CLOSED until its <threshold> or <pattern> trigger opens it, "
+            f"and a gate with no trigger is a gate that can never open."
+        )
+
+    trigger_kind = trigger_el.tag
+    if trigger_kind == "threshold":
+        trigger = _parse_threshold_trigger(trigger_el, gate_id)
+    else:
+        trigger = _parse_pattern_trigger(trigger_el, gate_id)
+
+    refractory = _int_attr(gate_el, "refractory_cycles",
+                           f"Gate '{gate_id}'", 0)
+    if refractory is not None and refractory < 0:
+        raise OrganismError(
+            f"Gate '{gate_id}' has a negative refractory_cycles. A gate "
+            f"cannot hold a state for a negative number of cycles."
+        )
+    return AutoGate(
+        id=gate_id,
+        trigger_kind=trigger_kind,
+        trigger=trigger,
+        refractory_cycles=refractory,
+        side=side,
+        learnables=_parse_learnables(gate_el, gate_id),
+    )
+
+
+def _parse_key_gate(gate_el, channel_id: str, side: str) -> KeyGate:
+    """
+    One `<key_gate>`: a `<key>` block plus the receiving behaviour (C6).
+
+    `weight` is how much of the offered deviation this lamina absorbs
+    (C5), and it is the one thing rule 5 may be asked to learn.  `rate`,
+    `on_close` and `confidence` are the absorbing behaviour that moved
+    off the old mid-air Transfer onto the receiver's own gate.
+    """
+    gate_id = (gate_el.get("id") or "").strip()
+    if not gate_id:
+        raise OrganismError(
+            f"Channel '{channel_id}' {side} declares a <key_gate> with no "
+            f"id attribute."
+        )
+    _reject_open_declaration(gate_el, gate_id)
+
+    weight = _fraction(gate_el, "weight", f"Gate '{gate_id}'", 1.0)
+    rate = _fraction(gate_el, "rate", f"Gate '{gate_id}'", 0.2)
+    confidence = _fraction(gate_el, "confidence", f"Gate '{gate_id}'", 0.8)
+    on_close = (gate_el.get("on_close") or "hold").strip()
+    if on_close not in KNOWN_ON_CLOSE:
+        raise OrganismError(
+            f"Gate '{gate_id}' has on_close='{on_close}'. Known: "
+            f"{sorted(KNOWN_ON_CLOSE)}."
+        )
+
+    key_el = None
+    for child in gate_el:
+        if child.tag == "key":
+            if key_el is not None:
+                raise OrganismError(
+                    f"Gate '{gate_id}' declares more than one <key>. A key "
+                    f"gate holds exactly one reference to match against."
+                )
+            key_el = child
+        elif child.tag == "learnable":
+            continue
+        else:
+            raise OrganismError(
+                f"Gate '{gate_id}' declares a <{child.tag}>. A key gate "
+                f"carries one <key> and may carry <learnable>s — nothing "
+                f"else."
+            )
+    if key_el is None:
+        raise OrganismError(
+            f"Gate '{gate_id}' is a key gate and declares no <key> block."
+        )
+
+    return KeyGate(
+        id=gate_id,
+        key=_parse_key_block(key_el, gate_id),
+        weight=weight,
+        rate=rate,
+        on_close=on_close,
+        confidence=confidence,
+        side=side,
+        learnables=_parse_learnables(gate_el, gate_id),
+    )
+
+
+def _no_gate_on_side(channel_id: str, side: str) -> OrganismError:
+    """Rule 12 — the message a side that cannot gate anything earns."""
+    return OrganismError(
+        f"Channel '{channel_id}' has a <{side}> with no gate in it. A "
+        f"side without a gate is a wire that writes straight into the far "
+        f"lamina, which is the thing this whole design exists to forbid — "
+        f"declare at least one <auto_gate> or <key_gate> on the <{side}>."
+    )
+
+
+def _parse_side(side_el, channel_id: str, side: str) -> list:
+    """
+    One side of a channel: its gates, in declaration order.
+
+    Anything that is not an auto gate or a key gate is refused rather
+    than skipped, on the same argument as KNOWN_CONTROLLERS in v1: a
+    declared element that is silently not run is a gate nobody knows is
+    shut forever.
+    """
+    gates: list = []
+    for gate_el in side_el:
+        if gate_el.tag == "auto_gate":
+            gates.append(_parse_auto_gate(gate_el, channel_id, side))
+        elif gate_el.tag == "key_gate":
+            gates.append(_parse_key_gate(gate_el, channel_id, side))
+        else:
+            raise OrganismError(
+                f"Channel '{channel_id}' {side} declares a "
+                f"<{gate_el.tag}>. Only {sorted(KNOWN_V2_GATE_TAGS)} live "
+                f"on a side."
+            )
+    return gates
+
+
+def _parse_channel_v2(channel_el) -> Channel:
+    """
+    One `<channel>`, with every rule that one channel can answer alone.
+
+    Rules 1, 4, 5, 10 and 12 are decided here.  Rules 6–9 need the other
+    channels and the stack, so `parse_organism_v2` checks those against
+    the assembled whole.
+    """
+    channel_id = (channel_el.get("id") or "").strip()
+    if not channel_id:
+        raise OrganismError("Encountered a <channel> with no id attribute.")
+
+    if channel_el.find(".//transform") is not None:
+        raise OrganismError(
+            f"Channel '{channel_id}' declares a <transform>. A transform "
+            f"is the v2 lambda — not supported yet. Declare what crosses "
+            f"with weights and rates instead; a transform is refused now "
+            f"so nobody reaches for one and discovers it silently does "
+            f"nothing."
+        )
+
+    source = _endpoint(channel_el.get("from", ""), channel_id, "from",
+                       owner_kind="Channel")
+    dest = _endpoint(channel_el.get("to", ""), channel_id, "to",
+                     owner_kind="Channel")
+
+    extract_el = channel_el.find("extract")
+    if extract_el is None or not (extract_el.get("attribute") or "").strip():
+        raise OrganismError(
+            f"Channel '{channel_id}' declares no "
+            f"<extract attribute=\"...\"/>. The source is a composite "
+            f"(rule 2), so the channel has to say which of its attributes "
+            f"goes on the wire."
+        )
+    extract = extract_el.get("attribute").strip()
+
+    time_delay = _int_attr(channel_el, "time_delay",
+                           f"Channel '{channel_id}'", 0)
+    if time_delay is not None and time_delay < 0:
+        raise OrganismError(
+            f"Channel '{channel_id}' has a negative time_delay. A delay "
+            f"line cannot run for a negative number of cycles."
+        )
+
+    transmit_el = channel_el.find("transmit")
+    receive_el = channel_el.find("receive")
+    if transmit_el is None:
+        raise _no_gate_on_side(channel_id, "transmit")
+    if receive_el is None:
+        raise _no_gate_on_side(channel_id, "receive")
+
+    transmit = _parse_side(transmit_el, channel_id, "transmit")
+    receive = _parse_side(receive_el, channel_id, "receive")
+    if not transmit:
+        raise _no_gate_on_side(channel_id, "transmit")
+    if not receive:
+        raise _no_gate_on_side(channel_id, "receive")
+
+    return Channel(
+        id=channel_id,
+        source=source,
+        dest=dest,
+        extract=extract,
+        time_delay=time_delay,
+        transmit=transmit,
+        receive=receive,
+    )
+
+
+def parse_organism_v2(path: Path | str) -> OrganismSpec:
+    """
+    Read a `<channels>` (v2) body and check every rule it can, alone.
+
+    This is the v2 sibling of `parse_organism`: the parse-time contract
+    for the new schema, enforced the moment the file is read.  Rules 1,
+    4, 5 and 12 are decided inside each channel; rules 6–9 need the
+    whole body (the stack and every other channel), so they are checked
+    here as the channels are assembled.  Rules 2 and 3 need the laminae
+    and are NOT checked here — the caller validates them against the
+    twins exactly as it would for v1.  Nothing here runs a cycle.
+
+    The v1 schema is refused by name (rule 11) rather than re-read: a
+    body written for the old gates would parse into something that looks
+    like the new one while meaning something different, and a wrong
+    model that parses cleanly is the worst kind of wrong.
+    """
+    resolved = Path(path)
+    root = ET.parse(str(resolved)).getroot()
+    if root.tag != "organism":
+        raise OrganismError(
+            f"{resolved} has root <{root.tag}>, expected <organism>."
+        )
+    organism_id = (root.get("id") or "").strip()
+    if not organism_id:
+        raise OrganismError(
+            f"{resolved} declares an <organism> with no id attribute."
+        )
+
+    # ── Rule 11, first: the old schema is refused, not re-interpreted ──
+    # This has to precede the lamina walk, because a v1 body's laminae
+    # carry no `level` and would otherwise die on rule 7's input before
+    # the reader is told the real fix is to move to <channels>.
+    if root.find(".//permeability_gates") is not None:
+        raise OrganismError(
+            f"Organism '{organism_id}' declares <permeability_gates>, the "
+            f"v1 schema. This is the v2 parser: v2 bodies declare "
+            f"<channels> instead, one per one-way crossing, with a gate "
+            f"on BOTH ends. Migrate the body to <channels>; this parser "
+            f"will not quietly re-read the old shape."
+        )
+
+    # ── the stack ─────────────────────────────────────────────────────
+    laminae_el = root.find("laminae")
+    if laminae_el is None:
+        raise OrganismError(
+            f"Organism '{organism_id}' declares no <laminae> block."
+        )
+    lamina_ids: list = []
+    levels: dict = {}
+    for el in laminae_el.findall("lamina"):
+        lid = (el.get("id") or "").strip()
+        if not lid:
+            raise OrganismError(
+                f"Organism '{organism_id}' lists a <lamina> with no id "
+                f"attribute."
+            )
+        if lid in lamina_ids:
+            raise OrganismError(f"Lamina '{lid}' is listed twice.")
+        raw_level = el.get("level")
+        if raw_level is None or not str(raw_level).strip():
+            raise OrganismError(
+                f"Lamina '{lid}' has no level. In v2 the stack is a "
+                f"property of the BODY — a lamina can stand at different "
+                f"levels in different bodies — so each <lamina> must "
+                f"declare level=\"<n>\" here."
+            )
+        level = _int_attr(el, "level", f"Lamina '{lid}'")
+        levels[lid] = level
+        lamina_ids.append(lid)
+    if not lamina_ids:
+        raise OrganismError(
+            f"Organism '{organism_id}' lists no laminae."
+        )
+
+    # ── the channels ──────────────────────────────────────────────────
+    channels_el = root.find("channels")
+    if channels_el is None:
+        raise OrganismError(
+            f"Organism '{organism_id}' declares no <channels> block. This "
+            f"is the v2 parser; a v2 body says where values cross under "
+            f"<channels>, never under the v1 <permeability_gates>."
+        )
+
+    channels: list = []
+    seen_channels: set = set()
+    seen_gates: dict = {}                 # gate id -> channel id
+    feeding: dict = {}                    # destination address -> channel id
+    side_counts: dict = {}                # (lamina, side, direction) -> int
+    faces: dict = {}                      # (lamina, direction) -> (member, id)
+
+    for channel_el in channels_el.findall("channel"):
+        ch = _parse_channel_v2(channel_el)
+        if ch.id in seen_channels:
+            raise OrganismError(f"Duplicate channel id '{ch.id}'.")
+        seen_channels.add(ch.id)
+
+        for end, which in ((ch.source, "from"), (ch.dest, "to")):
+            if end.lamina not in lamina_ids:
+                raise OrganismError(
+                    f"Channel '{ch.id}' {which} lamina '{end.lamina}', "
+                    f"which this organism does not list. Declared: "
+                    f"{lamina_ids}."
+                )
+
+        # ── Rule 7: adjacency ─────────────────────────────────────────
+        # A channel is a talk between neighbours.  Coupling a lamina to a
+        # grandparent hides the middle of the stack from the thing that
+        # should mediate it, which is how cross-laminar chaos arrives.
+        from_level = levels[ch.source.lamina]
+        to_level = levels[ch.dest.lamina]
+        if abs(from_level - to_level) != 1:
+            raise OrganismError(
+                f"Channel '{ch.id}' couples lamina '{ch.source.lamina}' "
+                f"(level {from_level}) to lamina '{ch.dest.lamina}' "
+                f"(level {to_level}). Rule 7: only ADJACENT laminae "
+                f"couple — a channel steps exactly one level, because "
+                f"each lamina is only entitled to talk to its neighbours. "
+                f"Add an intermediate lamina, or change a level."
+            )
+        direction = "up" if to_level > from_level else "down"
+
+        # ── Rule 6: one destination attribute, one channel ─────────────
+        # The v1 rule, carried over whole: two channels onto one attribute
+        # both report carrying a value and the one declared last silently
+        # wins, so every reader downstream names a channel that did not
+        # put the number there.
+        address = str(ch.dest)
+        if address in feeding:
+            raise OrganismError(
+                f"Channel '{ch.id}' feeds '{address}', which channel "
+                f"'{feeding[address]}' already feeds. Two channels onto "
+                f"one attribute do not arbitrate: both report carrying a "
+                f"value and the one declared last silently overwrites the "
+                f"other. Give this seam one channel, or give the "
+                f"receiving lamina a second attribute to land on."
+            )
+        feeding[address] = ch.id
+
+        # ── Rule 8: at most 4 gates per (lamina, side, direction) ──────
+        for side in ("transmit", "receive"):
+            lamina = (ch.source.lamina if side == "transmit"
+                      else ch.dest.lamina)
+            key = (lamina, side, direction)
+            side_counts[key] = (
+                side_counts.get(key, 0) + len(getattr(ch, side))
+            )
+            if side_counts[key] > MAX_GATES_PER_SIDE_DIRECTION:
+                raise OrganismError(
+                    f"Channel '{ch.id}' brings {side_counts[key]} gates to "
+                    f"lamina '{lamina}', side '{side}', direction "
+                    f"'{direction}'. Rule 8: at most "
+                    f"{MAX_GATES_PER_SIDE_DIRECTION} gates per (lamina, "
+                    f"side, direction). A lamina that needs more "
+                    f"conditions than that on one face is more than one "
+                    f"lamina."
+                )
+
+        # ── Rule 9: one interface composite per (lamina, direction) ────
+        # From OUTSIDE, a lamina presents exactly one face to the level
+        # above and one to the level below (C9).  Two channels leaving it
+        # the same way on different composites would make it two different
+        # things to the same neighbour.
+        face = (ch.source.lamina, direction)
+        previous = faces.get(face)
+        if previous is not None and previous[0] != ch.source.member:
+            raise OrganismError(
+                f"Channel '{ch.id}' leaves lamina '{face[0]}' {direction} "
+                f"on composite '{ch.source.member}', but channel "
+                f"'{previous[1]}' already leaves it {direction} on "
+                f"composite '{previous[0]}'. Rule 9: a lamina presents "
+                f"ONE interface composite to each direction — two channels "
+                f"out the same way must read the same composite."
+            )
+        faces.setdefault(face, (ch.source.member, ch.id))
+
+        for gate in [*ch.transmit, *ch.receive]:
+            if gate.id in seen_gates:
+                raise OrganismError(
+                    f"Duplicate gate id '{gate.id}' (channel '{ch.id}'; "
+                    f"first declared in channel "
+                    f"'{seen_gates[gate.id]}')."
+                )
+            seen_gates[gate.id] = ch.id
+
+        channels.append(ch)
+
+    return OrganismSpec(
+        id=organism_id,
+        version=root.get("version", "2.0"),
+        lamina_ids=lamina_ids,
+        gates=[],
+        name=(root.findtext("name", "") or "").strip(),
+        description=(root.findtext("description", "") or "").strip(),
+        levels=levels,
+        channels=channels,
+    )

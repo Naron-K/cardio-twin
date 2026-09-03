@@ -49,7 +49,7 @@ from feedback_controller import (
     DEFAULT_EPSILON_RATIO,
     DEFAULT_MAX_NORM,
 )
-from organism import OrganismError, load_organism
+from organism import OrganismError, available_organisms, load_organism
 from session import OrganismSession, Session
 from signal_source import SimulatedSource
 from streaming_runtime import StreamingRuntime
@@ -367,6 +367,28 @@ def get_laminae():
             default_id = entry["id"]
             break
     return {"laminae": laminae, "default": default_id}
+
+
+@app.get("/api/organisms")
+def get_organisms():
+    """
+    Every body this backend can serve, and which one a request that names
+    none will get.
+
+    The picker is built from this rather than from a list typed into the
+    frontend, for the same reason `/api/laminae` exists: adding a body is
+    dropping an XML file into `backend/`, and it should show up without a
+    second edit somewhere else. Two bodies over the same laminae is the
+    normal case rather than an exotic one — organism.xml opens its seam on
+    a value leaving its band, organism_key.xml on a recognised state of the
+    pump, and comparing them is the point.
+    """
+    print("[LOG] GET /api/organisms")
+    bodies = available_organisms()
+    return {
+        "organisms": bodies,
+        "default": next((b["id"] for b in bodies if b["default"]), ""),
+    }
 
 
 @app.get("/api/organism")

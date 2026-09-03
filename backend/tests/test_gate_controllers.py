@@ -520,3 +520,144 @@ def test_an_uncoupled_seam_has_nothing_to_age():
         org.tick()
 
     assert org.twins["lamina_respiratory"].attributes["CO_ref"].provenance is None
+
+
+# ══════════════════════════════════════════════════════════════════════
+# organism_key.xml — the key controller on a real declared seam
+# ══════════════════════════════════════════════════════════════════════
+
+KEY_ORGANISM = "organism_key.xml"
+
+
+def _key_body():
+    org = Organism(KEY_ORGANISM)
+    for twin in org.twins.values():
+        twin._log = lambda *a, **k: None
+    org.seed({lamina_id: SimulatedSource(twin, seed=11).starting_state()
+              for lamina_id, twin in org.twins.items()})
+    return org
+
+
+def _settle(org, forcing, cycles=30):
+    """Hold a forcing until the pump stops moving, and return the gate."""
+    for cycle in range(cycles):
+        report = org.tick({"lamina_circulatory": forcing} if cycle >= 2 else None)
+    return list(report["gates"].values())[0]
+
+
+def test_the_key_body_loads_and_passes_every_rule():
+    spec = parse_organism(KEY_ORGANISM)
+    assert spec.id == "bdt_key"
+    gate = spec.gates[0]
+    assert gate.controller == "key"
+    assert gate.key_weights == {
+        "EDV": (1.0, 0.03), "SV": (1.0, 0.11),
+        "HR": (0.6, 0.70), "CO": (0.3, 0.58),
+    }
+    assert gate.key_params["release_below"] < gate.key_params["match_threshold"], (
+        "rule 4, on the controller it was extended to cover"
+    )
+    # The whole point of the file: it needed no lamina change and no new
+    # controller, so it lands on the one seam the model already declares.
+    assert str(gate.dest) == "lamina_respiratory:CO_ref"
+
+
+@pytest.mark.parametrize("label,forcing,should_open", [
+    ("rest",                {},                            False),
+    ("healthy tachycardia", {"HR": 140.0},                 False),
+    ("high output",         {"HR": 200.0},                 False),
+    ("hypovolaemia",        {"HR": 120.0, "EDV": 60.0},    True),
+    ("failing pump",        {"HR": 150.0, "EDV": 55.0},    True),
+])
+def test_the_key_opens_only_on_the_shape_it_was_written_for(
+        label, forcing, should_open):
+    """
+    Measured match against the declared key, tail of a settled run:
+
+        rest                 0.689     shut
+        healthy tachycardia  0.814     shut   <- closest non-failing
+        high output          0.747     shut
+        hypovolaemia         0.937     OPEN   <- nearest failing
+        failing pump         0.993     OPEN
+
+    match_threshold = 0.90 sits in the gap, 0.087 clear on one side and
+    0.035 on the other.
+    """
+    gate = _settle(_key_body(), forcing)
+    assert (gate["open_fraction"] > 0) is should_open, (
+        f"{label}: match {gate['state']['match']:.4f} against a threshold of "
+        f"{parse_organism(KEY_ORGANISM).gates[0].key_params['match_threshold']}"
+    )
+
+
+def test_the_key_sees_what_a_threshold_on_one_number_cannot():
+    """
+    The reason this body exists, as a comparison rather than a claim.
+
+    Healthy tachycardia and a compensating failing pump have nearly the
+    same cardiac output and nearly the same rate — measured, 0.525 vs
+    0.576 normalised CO and 0.625 vs 0.688 HR. A gate watching cardiac
+    output cannot separate them, because on the axis it watches they look
+    alike. What separates them is the shape: filling collapses from 0.350
+    to 0.025 and stroke volume with it.
+
+    So the two bodies AGREE that the failing pump is worth carrying, and
+    DISAGREE about healthy tachycardia — which is the discrimination the
+    key controller exists to make.
+    """
+    def opens(organism, forcing):
+        org = Organism(organism)
+        for twin in org.twins.values():
+            twin._log = lambda *a, **k: None
+        org.seed({lid: SimulatedSource(t, seed=11).starting_state()
+                  for lid, t in org.twins.items()})
+        return _settle(org, forcing)["open_fraction"] > 0
+
+    failing = {"HR": 150.0, "EDV": 55.0}
+    healthy = {"HR": 140.0}
+
+    assert opens(None, failing) and opens(KEY_ORGANISM, failing), (
+        "both should carry a failing pump"
+    )
+    assert opens(None, healthy), "the deviation gate opens: CO really has moved"
+    assert not opens(KEY_ORGANISM, healthy), (
+        "the key gate holds: the pump is working hard, not failing"
+    )
+
+
+def test_the_key_is_narrower_than_the_deviation_gate_on_purpose():
+    """
+    And the converse, stated so nobody reads the comparison above as
+    "the key is the better gate".
+
+    Bradycardia settles cardiac output at 3.39 L/min. That is a real
+    problem and the deviation gate catches it. This key does not, because
+    a slow heart with normal filling is not the pattern it was written
+    for — one key recognises one state. The two controllers answer
+    different questions and neither replaces the other.
+    """
+    brady = {"HR": 35.0}
+    assert not _settle(_key_body(), brady)["open_fraction"] > 0
+
+    org = Organism()
+    for twin in org.twins.values():
+        twin._log = lambda *a, **k: None
+    org.seed({lid: SimulatedSource(t, seed=11).starting_state()
+              for lid, t in org.twins.items()})
+    assert _settle(org, brady)["open_fraction"] > 0
+
+
+def test_the_declared_key_reports_its_drift_from_the_first_cycle():
+    """
+    G7: measure the drift before correcting the drift. The telemetry is
+    on every evaluation from v1, so the v2 question — does this key need
+    to adapt — is answered with data rather than with a slow loop built
+    first and justified afterwards.
+    """
+    gate = _settle(_key_body(), {"HR": 150.0, "EDV": 55.0})
+    state = gate["state"]
+    for field in ("distance", "distance_ewma", "distance_first",
+                  "distance_min", "distance_max", "evaluations"):
+        assert field in state, f"the key gate stopped reporting '{field}'"
+    assert state["evaluations"] == 30
+    assert state["distance_min"] <= state["distance"] <= state["distance_max"]

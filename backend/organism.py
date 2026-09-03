@@ -494,6 +494,68 @@ def _parse_gate(gate_el) -> PermeabilityGate:
     )
 
 
+def available_organisms() -> list:
+    """
+    Every body file this backend can serve.
+
+    Mirrors `available_laminae`, and for the same reason it exists there:
+    adding a body should be dropping an XML file into `backend/`, not that
+    plus an edit to a list somewhere else that will be forgotten. Anything
+    matching `organism*.xml` whose root is <organism> and which carries an
+    id is offered.
+
+    A file that does not parse is skipped rather than listed, because this
+    is a menu of things you can open and a broken file is not one. It is
+    still refused BY NAME if somebody asks for it directly — silently
+    dropping it from a listing and silently substituting the default for a
+    direct request are different failures, and only the second one lies.
+    """
+    found: list = []
+    for path in sorted(DEFAULT_ORGANISM.parent.glob("organism*.xml")):
+        try:
+            root = ET.parse(str(path)).getroot()
+        except ET.ParseError:
+            continue
+        if root.tag != "organism" or not root.get("id"):
+            continue
+        found.append({
+            "id":      root.get("id"),
+            "name":    (root.findtext("name", "") or path.stem).strip(),
+            "file":    path.name,
+            "default": path.resolve() == DEFAULT_ORGANISM.resolve(),
+            "gates":   len(root.findall(".//permeability_gates/gate")),
+        })
+    return found
+
+
+def resolve_organism(organism: str | Path | None) -> Path:
+    """
+    The file for a body, named by its id, its filename, or a path.
+
+    Id first, the same way `resolve_lamina` works: a URL should not depend
+    on where a file sits on disk. Filename and path still resolve, because
+    the WebSocket has accepted them since Phase 2 and tests address temp
+    files that way.
+
+    An unknown name raises FileNotFoundError rather than falling back to
+    the default — handing somebody the default body when they asked for a
+    different one is the mismatch this resolution exists to prevent, and
+    it arrives looking like a success.
+    """
+    if organism is None:
+        return DEFAULT_ORGANISM
+    for entry in available_organisms():
+        if organism in (entry["id"], entry["file"]):
+            return DEFAULT_ORGANISM.parent / entry["file"]
+    candidate = Path(organism)
+    if candidate.exists():
+        return candidate
+    known = [e["id"] for e in available_organisms()]
+    raise FileNotFoundError(
+        f"No organism '{organism}'. Known bodies: {known}."
+    )
+
+
 def parse_organism(path: Path | str | None = None) -> OrganismSpec:
     """
     Read `organism.xml` and check everything that does not need the laminae.
@@ -504,7 +566,7 @@ def parse_organism(path: Path | str | None = None) -> OrganismSpec:
     the laminae — see `validate_against_laminae`.  `load_organism`
     does both.
     """
-    resolved = Path(path) if path is not None else DEFAULT_ORGANISM
+    resolved = resolve_organism(path)
     root = ET.parse(str(resolved)).getroot()
     if root.tag != "organism":
         raise OrganismError(
@@ -524,6 +586,7 @@ def parse_organism(path: Path | str | None = None) -> OrganismSpec:
 
     gates: list = []
     seen: set = set()
+    feeding: dict = {}                        # destination address -> gate id
     for gate_el in root.findall(".//permeability_gates/gate"):
         gate = _parse_gate(gate_el)
         if gate.id in seen:
@@ -535,6 +598,33 @@ def parse_organism(path: Path | str | None = None) -> OrganismSpec:
                     f"Gate '{gate.id}' {which} lamina '{end.lamina}', which "
                     f"this organism does not list. Declared: {lamina_ids}."
                 )
+        # Rule 6: one seam, one gate.  Measured before it was written —
+        # two gates declared onto the same attribute both parse, both
+        # report a `transmitted` value as though they carried it, and the
+        # one declared LAST silently wins: gate one reported sending 6.64
+        # while the attribute held 7.95 from gate two.  Every consumer
+        # downstream, the report and the diagram included, then shows a
+        # number attributed to a gate that did not put it there.
+        #
+        # There is no sensible arbitration to write instead.  Two gates
+        # feeding one value is two models of where that value comes from,
+        # and picking between them is a modelling decision that belongs
+        # in the declaration rather than in a tie-break rule nobody reads.
+        # A second condition for the same seam is a second CONTROLLER on
+        # one gate, or a second attribute to land on — both of which have
+        # to be said out loud.
+        address = str(gate.dest)
+        if address in feeding:
+            raise OrganismError(
+                f"Gate '{gate.id}' feeds '{address}', which gate "
+                f"'{feeding[address]}' already feeds. Two gates onto one "
+                f"attribute do not arbitrate: both report carrying a value "
+                f"and the one declared last silently overwrites the other, "
+                f"so the report names a gate that did not put the number "
+                f"there. Give this seam one gate, or give the receiving "
+                f"lamina a second attribute to land on."
+            )
+        feeding[address] = gate.id
         gates.append(gate)
 
     return OrganismSpec(

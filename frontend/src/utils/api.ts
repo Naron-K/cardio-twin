@@ -1,6 +1,6 @@
 import axios from 'axios'
 import type { LaminaSchema } from '../twin/schema'
-import type { OrganismSchema } from '../twin/organism'
+import type { OrganismListing, OrganismSchema } from '../twin/organism'
 
 // ── Schema types (from GET /api/schema) ───────────────────────────────────────
 //
@@ -30,12 +30,29 @@ export type Schema = LaminaSchema
 
 export type {
   OrganismSchema,
+  OrganismListing,
   OrganismLamina,
   GateSpec,
   GateState,
   GateProvenance,
   TransferSpec,
 } from '../twin/organism'
+
+/**
+ * Every body this backend can serve, and which one is the default.
+ *
+ * The picker is built from this rather than from a list in the frontend: a
+ * body is an XML file in `backend/`, and dropping one in should be enough.
+ */
+export async function fetchOrganisms(): Promise<{
+  organisms: OrganismListing[]
+  default: string
+}> {
+  const res = await axios.get<{ organisms: OrganismListing[]; default: string }>(
+    '/api/organisms'
+  )
+  return res.data
+}
 
 /**
  * The body's declaration: which laminae, and the seams between them.

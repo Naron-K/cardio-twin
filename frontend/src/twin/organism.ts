@@ -62,6 +62,16 @@ export interface GateSpec {
   learnables: { name: string; initial: number | null; min: number; max: number }[]
 }
 
+/** One body this backend can serve, as `/api/organisms` lists it. */
+export interface OrganismListing {
+  id: string
+  name: string
+  file: string
+  /** True for the body a request that names none will get. */
+  default: boolean
+  gates: number
+}
+
 export interface OrganismSchema {
   organism_id: string
   version: string

@@ -106,14 +106,30 @@ export default function App() {
     return lamina || null
   })
 
+  // Which body the `#body` screen is on, carried the same way: `#body/<file>`.
+  // A body is a declaration like a lamina is, and two of them can describe the
+  // same laminae joined by different gates — organism.xml opens its seam on a
+  // value leaving its band, organism_key.xml on a recognised state of the pump.
+  // Which one you are looking at is part of *where you are*, so it belongs in
+  // the URL rather than in a picker whose choice a reload would forget.
+  const [organismId, setOrganismId] = useState<string | null>(() => {
+    const [screen, organism] = window.location.hash.replace('#', '').split('/')
+    return screen === 'body' && organism ? organism : null
+  })
+
   // Keep the URL in step with the view so the current screen is shareable.
   useEffect(() => {
     const screen = mode === 'analysis' ? '' : `#${mode}`
-    const target = mode === 'twin' && laminaId ? `#twin/${laminaId}` : screen
+    const target =
+      mode === 'twin' && laminaId
+        ? `#twin/${laminaId}`
+        : mode === 'body' && organismId
+          ? `#body/${organismId}`
+          : screen
     if (window.location.hash !== target) {
       window.history.replaceState(null, '', target || window.location.pathname)
     }
-  }, [mode, laminaId])
+  }, [mode, laminaId, organismId])
 
   const handleChartType = useCallback((type: ChartType) => {
     setChartType(type)
@@ -339,7 +355,13 @@ export default function App() {
   // asks where a value crosses between two of them, and a lamina drawn in full
   // beside that would bury the one thing this screen is for.
   if (mode === 'body') {
-    return <BodyDashboard onBack={() => setMode('analysis')} />
+    return (
+      <BodyDashboard
+        organism={organismId}
+        onOrganism={setOrganismId}
+        onBack={() => setMode('analysis')}
+      />
+    )
   }
 
   // ── 2D twin view — full-page, built from the lamina's own schema ────────────

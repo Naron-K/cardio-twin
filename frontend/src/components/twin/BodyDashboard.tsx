@@ -16,8 +16,8 @@
  * of four laminae grows four rails without an edit here.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { fetchOrganism, fetchSchema } from '../../utils/api'
-import type { OrganismSchema } from '../../twin/organism'
+import { fetchOrganism, fetchOrganisms, fetchSchema } from '../../utils/api'
+import type { OrganismListing, OrganismSchema } from '../../twin/organism'
 import { indexLamina } from '../../twin/schema'
 import type { LaminaIndex, LaminaSchema } from '../../twin/schema'
 import { useOrganismStream } from '../../hooks/useOrganismStream'
@@ -26,13 +26,16 @@ import { OrganismMap } from './OrganismMap'
 import { Panel } from './ui'
 
 interface Props {
-  /** Which organism file to open; null takes the backend's default. */
+  /** Which body to open, by id; null takes the backend's default. */
   organism?: string | null
+  /** Called when the reader picks a different body, so the URL can follow. */
+  onOrganism?: (id: string | null) => void
   onBack?: () => void
 }
 
-export function BodyDashboard({ organism = null, onBack }: Props) {
+export function BodyDashboard({ organism = null, onOrganism, onBack }: Props) {
   const [schema, setSchema] = useState<OrganismSchema | null>(null)
+  const [bodies, setBodies] = useState<OrganismListing[]>([])
   const [indices, setIndices] = useState<Record<string, LaminaIndex>>({})
   const [error, setError] = useState<string | null>(null)
 
@@ -73,6 +76,17 @@ export function BodyDashboard({ organism = null, onBack }: Props) {
       })
     return () => { cancelled = true }
   }, [organism])
+
+  // The list of bodies is fetched once and separately: it is a menu, not
+  // part of the body on screen, and a failure to load it should cost the
+  // picker rather than the whole page.
+  useEffect(() => {
+    let cancelled = false
+    fetchOrganisms()
+      .then((list) => { if (!cancelled) setBodies(list.organisms) })
+      .catch(() => { if (!cancelled) setBodies([]) })
+    return () => { cancelled = true }
+  }, [])
 
   const gates = latest?.gates ?? []
   const laminaTicks = useMemo(() => latest?.laminae ?? {}, [latest])
@@ -125,6 +139,23 @@ export function BodyDashboard({ organism = null, onBack }: Props) {
           )}
         </div>
         <div className="flex shrink-0 items-center gap-4 font-mono text-[11px]">
+          {bodies.length > 1 && onOrganism && (
+            <label className="flex items-center gap-2 text-ink/45">
+              body
+              <select
+                value={schema.organism_id}
+                onChange={(e) => onOrganism(e.target.value)}
+                className="rounded-el border border-white/15 bg-surface-low px-2 py-1
+                           font-mono text-[11px] text-ink/80 hover:border-oxy/50"
+              >
+                {bodies.map((body) => (
+                  <option key={body.id} value={body.id}>
+                    {body.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <span
             className={
               status === 'open'

@@ -475,3 +475,59 @@ _MINIMAL_LAMINA = """<?xml version="1.0" encoding="UTF-8"?>
   </attributes>
 </lamina>
 """
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Rule 6 — one seam, one gate
+# ══════════════════════════════════════════════════════════════════════
+
+def test_rule_6_two_gates_cannot_feed_one_attribute(tmp_path):
+    """
+    Measured before it was written, which is why the rule exists.
+
+    Two gates declared onto the same attribute both parsed, both reported
+    a `transmitted` value as though they had carried it, and the one
+    declared LAST silently won: gate one reported sending 6.64 while the
+    attribute held 7.95 from gate two. Every reader downstream — the tick
+    report and the body diagram included — then attributes a number to a
+    gate that did not put it there.
+    """
+    text = DEFAULT_ORGANISM.read_text(encoding="utf-8")
+    start = text.index("<gate id=")
+    end = text.index("</gate>") + len("</gate>")
+    one = text[start:end]
+    two = one.replace('id="pg_co_to_resp"', 'id="pg_rival"')
+
+    path = tmp_path / "two_gates.xml"
+    path.write_text(text.replace(one, one + "\n" + two), encoding="utf-8")
+
+    with pytest.raises(OrganismError, match="already feeds"):
+        parse_organism(path)
+
+
+def test_rule_6_leaves_two_gates_out_of_one_lamina_alone(tmp_path):
+    """
+    The rule is about the DESTINATION, not the source.
+
+    One lamina sending to several places is ordinary — that is what a
+    composite feeding two downstream systems looks like. It is only the
+    receiving end that cannot be shared, because that is the end where
+    two writers overwrite each other.
+    """
+    text = DEFAULT_ORGANISM.read_text(encoding="utf-8")
+    start = text.index("<gate id=")
+    end = text.index("</gate>") + len("</gate>")
+    one = text[start:end]
+    # Same source, a destination that does not exist — so if it gets past
+    # rule 6 it fails on rule 3 instead, which is the proof it got past.
+    two = (one.replace('id="pg_co_to_resp"', 'id="pg_elsewhere"')
+              .replace('to="lamina_respiratory:CO_ref"',
+                       'to="lamina_respiratory:PaO2"'))
+
+    path = tmp_path / "two_destinations.xml"
+    path.write_text(text.replace(one, one + "\n" + two), encoding="utf-8")
+
+    spec = parse_organism(path)          # rule 6 does not object
+    assert [g.id for g in spec.gates] == ["pg_co_to_resp", "pg_elsewhere"]
+    with pytest.raises(OrganismError, match="INTER_LAMINA"):
+        validate_against_laminae(spec, _twins_for(spec))

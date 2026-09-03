@@ -1,0 +1,3349 @@
+{
+  "cycles_per_scenario": 40,
+  "scenarios": [
+    {
+      "controller": "threshold",
+      "cycles": [
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 1,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 2,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 3,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 4,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 5,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 6,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 7,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 8,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 9,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 10,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 11,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 12,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 13,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 14,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 15,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 16,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 17,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 18,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 19,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 20,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 21,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 22,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 23,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 24,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 25,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 26,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 27,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 28,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 29,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 30,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 31,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 32,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 33,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 34,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 35,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 36,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 37,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 38,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 39,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 40,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        }
+      ],
+      "dest": "lamina_respiratory:CO_ref",
+      "forcing": null,
+      "gate": "pg_co_to_resp",
+      "organism": "organism.xml",
+      "scenario": "rest",
+      "watch": [
+        "CO_ref",
+        "DO2"
+      ]
+    },
+    {
+      "controller": "threshold",
+      "cycles": [
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 1,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 2,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 3,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 4,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 5,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 6,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 7,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 8,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 9,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 10,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 11,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 12,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 13,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 14,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 15,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 16,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 17,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 18,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 19,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 20,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 21,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 22,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 23,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 24,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 25,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 26,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 27,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 28,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 29,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 30,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 31,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 32,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 33,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 34,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 35,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 36,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 37,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 38,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 39,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 40,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        }
+      ],
+      "dest": "lamina_respiratory:CO_ref",
+      "forcing": {
+        "HR": 90.0
+      },
+      "gate": "pg_co_to_resp",
+      "organism": "organism.xml",
+      "scenario": "hr90",
+      "watch": [
+        "CO_ref",
+        "DO2"
+      ]
+    },
+    {
+      "controller": "threshold",
+      "cycles": [
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 1,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 2,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.452,
+          "DO2": 1077.775675180762,
+          "cycle": 3,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 5.452
+        },
+        {
+          "CO_ref": 5.204364879747,
+          "DO2": 1028.822060190011,
+          "cycle": 4,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 5.204364879747
+        },
+        {
+          "CO_ref": 5.173307767737,
+          "DO2": 1022.682551777457,
+          "cycle": 5,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 5.173307767737
+        },
+        {
+          "CO_ref": 5.222513289497,
+          "DO2": 1032.409718768937,
+          "cycle": 6,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 5.222513289497
+        },
+        {
+          "CO_ref": 5.307696235986,
+          "DO2": 1049.249063535235,
+          "cycle": 7,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 5.307696235986
+        },
+        {
+          "CO_ref": 5.396324916525,
+          "DO2": 1066.769576376017,
+          "cycle": 8,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 5.396324916525
+        },
+        {
+          "CO_ref": 5.396324916525,
+          "DO2": 1066.769576376017,
+          "cycle": 9,
+          "open_fraction": 0.0,
+          "provenance_state": "held",
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.396324916525,
+          "DO2": 1066.769576376017,
+          "cycle": 10,
+          "open_fraction": 0.0,
+          "provenance_state": "held",
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.396324916525,
+          "DO2": 1066.769576376017,
+          "cycle": 11,
+          "open_fraction": 0.0,
+          "provenance_state": "held",
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.396324916525,
+          "DO2": 1066.769576376017,
+          "cycle": 12,
+          "open_fraction": 0.0,
+          "provenance_state": "held",
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.396324916525,
+          "DO2": 1066.769576376017,
+          "cycle": 13,
+          "open_fraction": 0.0,
+          "provenance_state": "held",
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.396324916525,
+          "DO2": 1066.769576376017,
+          "cycle": 14,
+          "open_fraction": 0.0,
+          "provenance_state": "held",
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.396324916525,
+          "DO2": 1066.769576376017,
+          "cycle": 15,
+          "open_fraction": 0.0,
+          "provenance_state": "held",
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.396324916525,
+          "DO2": 1066.769576376017,
+          "cycle": 16,
+          "open_fraction": 0.0,
+          "provenance_state": "held",
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.396324916525,
+          "DO2": 1066.769576376017,
+          "cycle": 17,
+          "open_fraction": 0.0,
+          "provenance_state": "held",
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.396324916525,
+          "DO2": 1066.769576376017,
+          "cycle": 18,
+          "open_fraction": 0.0,
+          "provenance_state": "held",
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.396324916525,
+          "DO2": 1066.769576376017,
+          "cycle": 19,
+          "open_fraction": 0.0,
+          "provenance_state": "held",
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.396324916525,
+          "DO2": 1066.769576376017,
+          "cycle": 20,
+          "open_fraction": 0.0,
+          "provenance_state": "held",
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.396324916525,
+          "DO2": 1066.769576376017,
+          "cycle": 21,
+          "open_fraction": 0.0,
+          "provenance_state": "held",
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.396324916525,
+          "DO2": 1066.769576376017,
+          "cycle": 22,
+          "open_fraction": 0.0,
+          "provenance_state": "held",
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.396324916525,
+          "DO2": 1066.769576376017,
+          "cycle": 23,
+          "open_fraction": 0.0,
+          "provenance_state": "held",
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.396324916525,
+          "DO2": 1066.769576376017,
+          "cycle": 24,
+          "open_fraction": 0.0,
+          "provenance_state": "held",
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.569125611164,
+          "DO2": 1100.929588360023,
+          "cycle": 25,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 5.569125611164
+        },
+        {
+          "CO_ref": 5.71630108406,
+          "DO2": 1130.023892224663,
+          "cycle": 26,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 5.71630108406
+        },
+        {
+          "CO_ref": 5.839992779764,
+          "DO2": 1154.475818279656,
+          "cycle": 27,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 5.839992779764
+        },
+        {
+          "CO_ref": 5.942869606012,
+          "DO2": 1174.812968109083,
+          "cycle": 28,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 5.942869606012
+        },
+        {
+          "CO_ref": 6.027748878786,
+          "DO2": 1191.592281301028,
+          "cycle": 29,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.027748878786
+        },
+        {
+          "CO_ref": 6.097346530048,
+          "DO2": 1205.3506553987,
+          "cycle": 30,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.097346530048
+        },
+        {
+          "CO_ref": 6.154147543277,
+          "DO2": 1216.579333018663,
+          "cycle": 31,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.154147543277
+        },
+        {
+          "CO_ref": 6.200334200608,
+          "DO2": 1225.709717426096,
+          "cycle": 32,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.200334200608
+        },
+        {
+          "CO_ref": 6.237790007891,
+          "DO2": 1233.11414845748,
+          "cycle": 33,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.237790007891
+        },
+        {
+          "CO_ref": 6.268105714058,
+          "DO2": 1239.107092456603,
+          "cycle": 34,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.268105714058
+        },
+        {
+          "CO_ref": 6.292604391735,
+          "DO2": 1243.950100320627,
+          "cycle": 35,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.292604391735
+        },
+        {
+          "CO_ref": 6.312383534438,
+          "DO2": 1247.860129462325,
+          "cycle": 36,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.312383534438
+        },
+        {
+          "CO_ref": 6.328341653368,
+          "DO2": 1251.014801583515,
+          "cycle": 37,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.328341653368
+        },
+        {
+          "CO_ref": 6.341210919116,
+          "DO2": 846.290400882988,
+          "cycle": 38,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.341210919116
+        },
+        {
+          "CO_ref": 6.351588650126,
+          "DO2": 1064.408675879263,
+          "cycle": 39,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.351588650126
+        },
+        {
+          "CO_ref": 6.35995839644,
+          "DO2": 1076.957151777294,
+          "cycle": 40,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.35995839644
+        }
+      ],
+      "dest": "lamina_respiratory:CO_ref",
+      "forcing": {
+        "HR": 110.0
+      },
+      "gate": "pg_co_to_resp",
+      "organism": "organism.xml",
+      "scenario": "hr110",
+      "watch": [
+        "CO_ref",
+        "DO2"
+      ]
+    },
+    {
+      "controller": "threshold",
+      "cycles": [
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 1,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 2,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 6.64,
+          "DO2": 1312.624813499681,
+          "cycle": 3,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.64
+        },
+        {
+          "CO_ref": 6.737926299983,
+          "DO2": 818.89496943997,
+          "cycle": 4,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.737926299983
+        },
+        {
+          "CO_ref": 8.372601297751,
+          "DO2": 2059.508870256999,
+          "cycle": 5,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 8.372601297751
+        },
+        {
+          "CO_ref": 8.821751969262,
+          "DO2": 829.257957816201,
+          "cycle": 6,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 8.821751969262
+        },
+        {
+          "CO_ref": 9.441683106949,
+          "DO2": 2008.779285851408,
+          "cycle": 7,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 9.441683106949
+        },
+        {
+          "CO_ref": 9.87129931092,
+          "DO2": 840.676143744561,
+          "cycle": 8,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 9.87129931092
+        },
+        {
+          "CO_ref": 10.276501714323,
+          "DO2": 1966.422381905524,
+          "cycle": 9,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 10.276501714323
+        },
+        {
+          "CO_ref": 9.967254534582,
+          "DO2": 815.468174703168,
+          "cycle": 10,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 9.967254534582
+        },
+        {
+          "CO_ref": 9.843743427764,
+          "DO2": 2116.452525609025,
+          "cycle": 11,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 9.843743427764
+        },
+        {
+          "CO_ref": 9.674043656607,
+          "DO2": 746.883138121004,
+          "cycle": 12,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 9.674043656607
+        },
+        {
+          "CO_ref": 9.557125364498,
+          "DO2": 2097.478443587869,
+          "cycle": 13,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 9.557125364498
+        },
+        {
+          "CO_ref": 9.451010220244,
+          "DO2": 719.354872735773,
+          "cycle": 14,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 9.451010220244
+        },
+        {
+          "CO_ref": 9.370470916976,
+          "DO2": 2059.512436417795,
+          "cycle": 15,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 9.370470916976
+        },
+        {
+          "CO_ref": 9.302982262314,
+          "DO2": 709.369347412066,
+          "cycle": 16,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 9.302982262314
+        },
+        {
+          "CO_ref": 9.250087911803,
+          "DO2": 2038.047678716578,
+          "cycle": 17,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 9.250087911803
+        },
+        {
+          "CO_ref": 9.206987746619,
+          "DO2": 703.951337286982,
+          "cycle": 18,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 9.206987746619
+        },
+        {
+          "CO_ref": 9.172791047508,
+          "DO2": 2024.761730940492,
+          "cycle": 19,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 9.172791047508
+        },
+        {
+          "CO_ref": 9.145229938823,
+          "DO2": 700.723241348046,
+          "cycle": 20,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 9.145229938823
+        },
+        {
+          "CO_ref": 9.123255209883,
+          "DO2": 2016.39146243852,
+          "cycle": 21,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 9.123255209883
+        },
+        {
+          "CO_ref": 9.291052806314,
+          "DO2": 723.165098910226,
+          "cycle": 22,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 9.291052806314
+        },
+        {
+          "CO_ref": 9.481213141731,
+          "DO2": 2103.158962157549,
+          "cycle": 23,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 9.481213141731
+        },
+        {
+          "CO_ref": 9.651181706979,
+          "DO2": 755.349164626387,
+          "cycle": 24,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 9.651181706979
+        },
+        {
+          "CO_ref": 9.791511305745,
+          "DO2": 2163.009658545675,
+          "cycle": 25,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 9.791511305745
+        },
+        {
+          "CO_ref": 9.90287485036,
+          "DO2": 904.804342154056,
+          "cycle": 26,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 9.90287485036
+        },
+        {
+          "CO_ref": 9.98888717337,
+          "DO2": 1207.729727364898,
+          "cycle": 27,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 9.98888717337
+        },
+        {
+          "CO_ref": 10.053719494406,
+          "DO2": 1091.184884457853,
+          "cycle": 28,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 10.053719494406
+        },
+        {
+          "CO_ref": 10.101302317987,
+          "DO2": 1265.156723333779,
+          "cycle": 29,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 10.101302317987
+        },
+        {
+          "CO_ref": 10.13508316689,
+          "DO2": 1112.049839489036,
+          "cycle": 30,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 10.13508316689
+        },
+        {
+          "CO_ref": 10.157984908031,
+          "DO2": 1283.57112824306,
+          "cycle": 31,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 10.157984908031
+        },
+        {
+          "CO_ref": 10.172436250685,
+          "DO2": 1149.476969744641,
+          "cycle": 32,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 10.172436250685
+        },
+        {
+          "CO_ref": 10.180426949774,
+          "DO2": 1271.055763105592,
+          "cycle": 33,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 10.180426949774
+        },
+        {
+          "CO_ref": 10.183563523349,
+          "DO2": 1178.280971647367,
+          "cycle": 34,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 10.183563523349
+        },
+        {
+          "CO_ref": 10.183134207719,
+          "DO2": 1253.497094756314,
+          "cycle": 35,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 10.183134207719
+        },
+        {
+          "CO_ref": 10.180157469426,
+          "DO2": 1201.250223647344,
+          "cycle": 36,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 10.180157469426
+        },
+        {
+          "CO_ref": 10.175429019714,
+          "DO2": 1241.353840396262,
+          "cycle": 37,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 10.175429019714
+        },
+        {
+          "CO_ref": 10.169567601533,
+          "DO2": 1218.512812366167,
+          "cycle": 38,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 10.169567601533
+        },
+        {
+          "CO_ref": 10.163042678717,
+          "DO2": 1236.190265648533,
+          "cycle": 39,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 10.163042678717
+        },
+        {
+          "CO_ref": 10.156207138522,
+          "DO2": 1229.128062097499,
+          "cycle": 40,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 10.156207138522
+        }
+      ],
+      "dest": "lamina_respiratory:CO_ref",
+      "forcing": {
+        "HR": 200.0
+      },
+      "gate": "pg_co_to_resp",
+      "organism": "organism.xml",
+      "scenario": "hr200",
+      "watch": [
+        "CO_ref",
+        "DO2"
+      ]
+    },
+    {
+      "controller": "threshold",
+      "cycles": [
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 1,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 2,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 4.462,
+          "DO2": 882.068059914996,
+          "cycle": 3,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 4.462
+        },
+        {
+          "CO_ref": 4.630310645459,
+          "DO2": 915.34045895189,
+          "cycle": 4,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 4.630310645459
+        },
+        {
+          "CO_ref": 4.608497250871,
+          "DO2": 911.02828982499,
+          "cycle": 5,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 4.608497250871
+        },
+        {
+          "CO_ref": 4.51478081173,
+          "DO2": 892.502006173088,
+          "cycle": 6,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 4.51478081173
+        },
+        {
+          "CO_ref": 4.421147742567,
+          "DO2": 873.992203470053,
+          "cycle": 7,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 4.421147742567
+        },
+        {
+          "CO_ref": 4.348304974653,
+          "DO2": 859.592320239954,
+          "cycle": 8,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 4.348304974653
+        },
+        {
+          "CO_ref": 4.289503441557,
+          "DO2": 847.968170930698,
+          "cycle": 9,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 4.289503441557
+        },
+        {
+          "CO_ref": 4.242459240339,
+          "DO2": 838.668263423225,
+          "cycle": 10,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 4.242459240339
+        },
+        {
+          "CO_ref": 4.204734314177,
+          "DO2": 831.21063177152,
+          "cycle": 11,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 4.204734314177
+        },
+        {
+          "CO_ref": 4.174503486453,
+          "DO2": 825.234466921588,
+          "cycle": 12,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 4.174503486453
+        },
+        {
+          "CO_ref": 4.150251369601,
+          "DO2": 820.440200301152,
+          "cycle": 13,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 4.150251369601
+        },
+        {
+          "CO_ref": 4.130813356787,
+          "DO2": 816.597607237125,
+          "cycle": 14,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 4.130813356787
+        },
+        {
+          "CO_ref": 4.115203105514,
+          "DO2": 813.511703145967,
+          "cycle": 15,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 4.115203105514
+        },
+        {
+          "CO_ref": 4.102679930688,
+          "DO2": 811.036066094701,
+          "cycle": 16,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 4.102679930688
+        },
+        {
+          "CO_ref": 4.092631115113,
+          "DO2": 809.049571415323,
+          "cycle": 17,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 4.092631115113
+        },
+        {
+          "CO_ref": 4.084569722147,
+          "DO2": 807.455959301074,
+          "cycle": 18,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 4.084569722147
+        },
+        {
+          "CO_ref": 4.078090772693,
+          "DO2": 806.175171677811,
+          "cycle": 19,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 4.078090772693
+        },
+        {
+          "CO_ref": 4.072876716397,
+          "DO2": 805.144433775189,
+          "cycle": 20,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 4.072876716397
+        },
+        {
+          "CO_ref": 4.068694186126,
+          "DO2": 804.317612537741,
+          "cycle": 21,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 4.068694186126
+        },
+        {
+          "CO_ref": 4.014083948988,
+          "DO2": 793.522017306167,
+          "cycle": 22,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 4.014083948988
+        },
+        {
+          "CO_ref": 3.937758028038,
+          "DO2": 778.433568849448,
+          "cycle": 23,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 3.937758028038
+        },
+        {
+          "CO_ref": 3.856705071924,
+          "DO2": 762.410658999709,
+          "cycle": 24,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 3.856705071924
+        },
+        {
+          "CO_ref": 3.779964307656,
+          "DO2": 747.240202465628,
+          "cycle": 25,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 3.779964307656
+        },
+        {
+          "CO_ref": 3.711581388209,
+          "DO2": 977.022781746946,
+          "cycle": 26,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 3.711581388209
+        },
+        {
+          "CO_ref": 3.652779663569,
+          "DO2": 901.105041042611,
+          "cycle": 27,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 3.652779663569
+        },
+        {
+          "CO_ref": 3.603321706085,
+          "DO2": 872.723182773552,
+          "cycle": 28,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 3.603321706085
+        },
+        {
+          "CO_ref": 3.562315186648,
+          "DO2": 869.669652622957,
+          "cycle": 29,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 3.562315186648
+        },
+        {
+          "CO_ref": 3.528634358854,
+          "DO2": 867.102384569094,
+          "cycle": 30,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 3.528634358854
+        },
+        {
+          "CO_ref": 3.501143204995,
+          "DO2": 864.964714139551,
+          "cycle": 31,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 3.501143204995
+        },
+        {
+          "CO_ref": 3.478793987128,
+          "DO2": 863.215114406695,
+          "cycle": 32,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 3.478793987128
+        },
+        {
+          "CO_ref": 3.460673526379,
+          "DO2": 861.802884848924,
+          "cycle": 33,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 3.460673526379
+        },
+        {
+          "CO_ref": 3.446004575592,
+          "DO2": 860.676705174792,
+          "cycle": 34,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 3.446004575592
+        },
+        {
+          "CO_ref": 3.434141400028,
+          "DO2": 859.789258858692,
+          "cycle": 35,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 3.434141400028
+        },
+        {
+          "CO_ref": 3.424547861616,
+          "DO2": 859.096515801915,
+          "cycle": 36,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 3.424547861616
+        },
+        {
+          "CO_ref": 3.416788340768,
+          "DO2": 858.561946883137,
+          "cycle": 37,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 3.416788340768
+        },
+        {
+          "CO_ref": 3.410508671657,
+          "DO2": 858.153786838147,
+          "cycle": 38,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 3.410508671657
+        },
+        {
+          "CO_ref": 3.405425355882,
+          "DO2": 857.846686489274,
+          "cycle": 39,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 3.405425355882
+        },
+        {
+          "CO_ref": 3.401306579061,
+          "DO2": 857.618717334911,
+          "cycle": 40,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 3.401306579061
+        }
+      ],
+      "dest": "lamina_respiratory:CO_ref",
+      "forcing": {
+        "HR": 35.0
+      },
+      "gate": "pg_co_to_resp",
+      "organism": "organism.xml",
+      "scenario": "hr35",
+      "watch": [
+        "CO_ref",
+        "DO2"
+      ]
+    },
+    {
+      "controller": "key",
+      "cycles": [
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 1,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 2,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 3,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 4,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 5,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 6,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 7,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 8,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 9,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 10,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 11,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 12,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 13,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 14,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 15,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 16,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 17,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 18,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 19,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 20,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 21,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 22,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 23,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 24,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 25,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 26,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 27,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 28,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 29,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 30,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 31,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 32,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 33,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 34,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 35,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 36,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 37,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 38,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 39,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 40,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        }
+      ],
+      "dest": "lamina_respiratory:CO_ref",
+      "forcing": null,
+      "gate": "pg_failing_pump",
+      "organism": "organism_key.xml",
+      "scenario": "rest",
+      "watch": [
+        "CO_ref",
+        "DO2"
+      ]
+    },
+    {
+      "controller": "key",
+      "cycles": [
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 1,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 2,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 3,
+          "drift": -0.005228275862,
+          "match": 0.793724137931,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 4,
+          "drift": -0.010736955749,
+          "match": 0.804560494296,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 5,
+          "drift": -0.016336643832,
+          "match": 0.811889338089,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 6,
+          "drift": -0.02170075021,
+          "match": 0.812777392087,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 7,
+          "drift": -0.026743529433,
+          "match": 0.811714955358,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 8,
+          "drift": -0.031552481981,
+          "match": 0.812081201082,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 9,
+          "drift": -0.036091994502,
+          "match": 0.811501353097,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 10,
+          "drift": -0.0404123562,
+          "match": 0.81165784915,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 11,
+          "drift": -0.044500526044,
+          "match": 0.811334373763,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 12,
+          "drift": -0.048387489969,
+          "match": 0.811398425246,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 13,
+          "drift": -0.052070949461,
+          "match": 0.811215300485,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 14,
+          "drift": -0.05557143254,
+          "match": 0.811239231733,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 15,
+          "drift": -0.058891609473,
+          "match": 0.811133591892,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 16,
+          "drift": -0.062046068125,
+          "match": 0.811139403209,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 17,
+          "drift": -0.065039804284,
+          "match": 0.811079411991,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 18,
+          "drift": -0.067883762444,
+          "match": 0.811077588165,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 19,
+          "drift": -0.070583775924,
+          "match": 0.811042652745,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 20,
+          "drift": -0.073148605562,
+          "match": 0.811038989373,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 21,
+          "drift": -0.075584160036,
+          "match": 0.811018315726,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 22,
+          "drift": -0.07805519393,
+          "match": 0.814163458601,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 23,
+          "drift": -0.080459746875,
+          "match": 0.815304873527,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 24,
+          "drift": -0.082754920191,
+          "match": 0.815521833892,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 25,
+          "drift": -0.084927608212,
+          "match": 0.815367301297,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 26,
+          "drift": -0.086977095556,
+          "match": 0.815075975771,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 27,
+          "drift": -0.088907744624,
+          "match": 0.814748697602,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 28,
+          "drift": -0.090725870926,
+          "match": 0.814428891356,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 29,
+          "drift": -0.092438346014,
+          "match": 0.814133993375,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 30,
+          "drift": -0.094051966728,
+          "match": 0.813869380992,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 31,
+          "drift": -0.095573192539,
+          "match": 0.813635103635,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 32,
+          "drift": -0.097008070234,
+          "match": 0.813429367123,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 33,
+          "drift": -0.098362199589,
+          "match": 0.813249278035,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 34,
+          "drift": -0.099640755898,
+          "match": 0.813091946459,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 35,
+          "drift": -0.100848516076,
+          "match": 0.812954580152,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 36,
+          "drift": -0.101989893565,
+          "match": 0.812834686527,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 37,
+          "drift": -0.103068962479,
+          "match": 0.812729892547,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 38,
+          "drift": -0.104089504054,
+          "match": 0.812638414655,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 39,
+          "drift": -0.105055020573,
+          "match": 0.812558455142,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 40,
+          "drift": -0.105968766196,
+          "match": 0.812488553704,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        }
+      ],
+      "dest": "lamina_respiratory:CO_ref",
+      "forcing": {
+        "HR": 140.0
+      },
+      "gate": "pg_failing_pump",
+      "organism": "organism_key.xml",
+      "scenario": "hr140",
+      "watch": [
+        "CO_ref",
+        "DO2"
+      ]
+    },
+    {
+      "controller": "key",
+      "cycles": [
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 1,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 2,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 4.9075,
+          "DO2": 970.136486784591,
+          "cycle": 3,
+          "drift": -0.01177841954,
+          "match": 0.924727011494,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 4.9075
+        },
+        {
+          "CO_ref": 6.487577195385,
+          "DO2": 1282.493193698425,
+          "cycle": 4,
+          "drift": -0.021156006248,
+          "match": 0.888488774388,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.487577195385
+        },
+        {
+          "CO_ref": 6.302873017997,
+          "DO2": 776.943627620955,
+          "cycle": 5,
+          "drift": -0.033983423502,
+          "match": 0.966862972017,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.302873017997
+        },
+        {
+          "CO_ref": 6.783388956403,
+          "DO2": 1742.30167251569,
+          "cycle": 6,
+          "drift": -0.045786858298,
+          "match": 0.959210740117,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.783388956403
+        },
+        {
+          "CO_ref": 6.796473850863,
+          "DO2": 662.203092268747,
+          "cycle": 7,
+          "drift": -0.057989979595,
+          "match": 0.97900790492,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.796473850863
+        },
+        {
+          "CO_ref": 6.919627484845,
+          "DO2": 1672.356458757309,
+          "cycle": 8,
+          "drift": -0.069482328831,
+          "match": 0.976995585007,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.919627484845
+        },
+        {
+          "CO_ref": 6.952244405115,
+          "DO2": 619.466791541425,
+          "cycle": 9,
+          "drift": -0.080440489718,
+          "match": 0.977804167254,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.952244405115
+        },
+        {
+          "CO_ref": 6.998310299007,
+          "DO2": 1657.646559626272,
+          "cycle": 10,
+          "drift": -0.090850297556,
+          "match": 0.977795267179,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.998310299007
+        },
+        {
+          "CO_ref": 7.023987175746,
+          "DO2": 606.892332965716,
+          "cycle": 11,
+          "drift": -0.100747993406,
+          "match": 0.977962835245,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.023987175746
+        },
+        {
+          "CO_ref": 7.047772507191,
+          "DO2": 1657.014253455605,
+          "cycle": 12,
+          "drift": -0.110152742354,
+          "match": 0.978001593049,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.047772507191
+        },
+        {
+          "CO_ref": 7.064825521415,
+          "DO2": 602.824755936823,
+          "cycle": 13,
+          "drift": -0.119089086411,
+          "match": 0.978038244193,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.064825521415
+        },
+        {
+          "CO_ref": 7.078956008996,
+          "DO2": 1658.793720448928,
+          "cycle": 14,
+          "drift": -0.127579234056,
+          "match": 0.978050659998,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.078956008996
+        },
+        {
+          "CO_ref": 7.089893733817,
+          "DO2": 601.255204875445,
+          "cycle": 15,
+          "drift": -0.13564530838,
+          "match": 0.978059341218,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.089893733817
+        },
+        {
+          "CO_ref": 7.09871918764,
+          "DO2": 1660.465830981572,
+          "cycle": 16,
+          "drift": -0.143308247546,
+          "match": 0.978062712386,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.09871918764
+        },
+        {
+          "CO_ref": 7.105706490697,
+          "DO2": 600.522644514659,
+          "cycle": 17,
+          "drift": -0.1505881443,
+          "match": 0.97806480333,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.105706490697
+        },
+        {
+          "CO_ref": 7.111298840398,
+          "DO2": 1661.667913463472,
+          "cycle": 18,
+          "drift": -0.157504093733,
+          "match": 0.978065753632,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.111298840398
+        },
+        {
+          "CO_ref": 7.115761526639,
+          "DO2": 600.125589968181,
+          "cycle": 19,
+          "drift": -0.164074273283,
+          "match": 0.978066305429,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.115761526639
+        },
+        {
+          "CO_ref": 7.11933564282,
+          "DO2": 1662.474078165939,
+          "cycle": 20,
+          "drift": -0.170315954005,
+          "match": 0.978066508416,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.11933564282
+        },
+        {
+          "CO_ref": 7.122193593831,
+          "DO2": 599.893272691897,
+          "cycle": 21,
+          "drift": -0.176245554691,
+          "match": 0.978066588417,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.122193593831
+        },
+        {
+          "CO_ref": 7.073132917249,
+          "DO2": 1649.650637693258,
+          "cycle": 22,
+          "drift": -0.182044237222,
+          "match": 0.981377825999,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.073132917249
+        },
+        {
+          "CO_ref": 7.082006618286,
+          "DO2": 597.049781065902,
+          "cycle": 23,
+          "drift": -0.187523056071,
+          "match": 0.980779234887,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.082006618286
+        },
+        {
+          "CO_ref": 7.122393173237,
+          "DO2": 1665.614088550067,
+          "cycle": 24,
+          "drift": -0.192813152165,
+          "match": 0.982483598646,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.122393173237
+        },
+        {
+          "CO_ref": 7.178505628195,
+          "DO2": 608.200118355215,
+          "cycle": 25,
+          "drift": -0.197947168182,
+          "match": 0.984652093194,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.178505628195
+        },
+        {
+          "CO_ref": 7.240417083368,
+          "DO2": 1624.660796298731,
+          "cycle": 26,
+          "drift": -0.202927788041,
+          "match": 0.98671818606,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.240417083368
+        },
+        {
+          "CO_ref": 7.302333001393,
+          "DO2": 686.914359291058,
+          "cycle": 27,
+          "drift": -0.207750279566,
+          "match": 0.988536239222,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.302333001393
+        },
+        {
+          "CO_ref": 7.3611616191,
+          "DO2": 1695.445705334738,
+          "cycle": 28,
+          "drift": -0.212409610071,
+          "match": 0.990095510366,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.3611616191
+        },
+        {
+          "CO_ref": 7.415449107406,
+          "DO2": 726.598371197641,
+          "cycle": 29,
+          "drift": -0.216902382885,
+          "match": 0.991423687023,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.415449107406
+        },
+        {
+          "CO_ref": 7.464682373323,
+          "DO2": 1706.106380883113,
+          "cycle": 30,
+          "drift": -0.221227105618,
+          "match": 0.992555458249,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.464682373323
+        },
+        {
+          "CO_ref": 7.508855400558,
+          "DO2": 749.57536618993,
+          "cycle": 31,
+          "drift": -0.225383941658,
+          "match": 0.993522447092,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.508855400558
+        },
+        {
+          "CO_ref": 7.548219483044,
+          "DO2": 1643.527587991407,
+          "cycle": 32,
+          "drift": -0.229374380653,
+          "match": 0.994351342254,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.548219483044
+        },
+        {
+          "CO_ref": 7.583137832309,
+          "DO2": 769.172743277348,
+          "cycle": 33,
+          "drift": -0.233183659817,
+          "match": 0.994718584623,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.583137832309
+        },
+        {
+          "CO_ref": 7.614019495146,
+          "DO2": 1536.562108639439,
+          "cycle": 34,
+          "drift": -0.236787012723,
+          "match": 0.994409338639,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.614019495146
+        },
+        {
+          "CO_ref": 7.641273834728,
+          "DO2": 790.816999530489,
+          "cycle": 35,
+          "drift": -0.240196847494,
+          "match": 0.994142328823,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.641273834728
+        },
+        {
+          "CO_ref": 7.665286349192,
+          "DO2": 1387.270630305718,
+          "cycle": 36,
+          "drift": -0.243424653968,
+          "match": 0.993911597672,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.665286349192
+        },
+        {
+          "CO_ref": 7.686419060001,
+          "DO2": 820.16829710097,
+          "cycle": 37,
+          "drift": -0.246481098023,
+          "match": 0.993712155742,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.686419060001
+        },
+        {
+          "CO_ref": 7.705000446253,
+          "DO2": 1219.820515105386,
+          "cycle": 38,
+          "drift": -0.249376085635,
+          "match": 0.993539470965,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.705000446253
+        },
+        {
+          "CO_ref": 7.721325863204,
+          "DO2": 918.125083614061,
+          "cycle": 39,
+          "drift": -0.252118835063,
+          "match": 0.99338969487,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.721325863204
+        },
+        {
+          "CO_ref": 7.735661054919,
+          "DO2": 1074.97465308534,
+          "cycle": 40,
+          "drift": -0.254717944685,
+          "match": 0.993259648199,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.735661054919
+        }
+      ],
+      "dest": "lamina_respiratory:CO_ref",
+      "forcing": {
+        "EDV": 55.0,
+        "HR": 150.0
+      },
+      "gate": "pg_failing_pump",
+      "organism": "organism_key.xml",
+      "scenario": "hr150_edv55",
+      "watch": [
+        "CO_ref",
+        "DO2"
+      ]
+    },
+    {
+      "controller": "key",
+      "cycles": [
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 1,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 2,
+          "drift": 0.0,
+          "match": 0.68915862069,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 3,
+          "drift": -0.009676551724,
+          "match": 0.882689655172,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 5.0,
+          "DO2": 988.422299322049,
+          "cycle": 4,
+          "drift": -0.017055724088,
+          "match": 0.846418619686,
+          "open_fraction": 0.0,
+          "provenance_state": null,
+          "transmitted": null
+        },
+        {
+          "CO_ref": 4.959274471272,
+          "DO2": 980.371495172717,
+          "cycle": 5,
+          "drift": -0.027302371073,
+          "match": 0.911147284482,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 4.959274471272
+        },
+        {
+          "CO_ref": 5.502497435893,
+          "DO2": 1087.758233519803,
+          "cycle": 6,
+          "drift": -0.037045293048,
+          "match": 0.911319431254,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 5.502497435893
+        },
+        {
+          "CO_ref": 5.577371693986,
+          "DO2": 1102.55971078865,
+          "cycle": 7,
+          "drift": -0.046560063484,
+          "match": 0.91649932246,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 5.577371693986
+        },
+        {
+          "CO_ref": 5.924629740844,
+          "DO2": 1171.207230215283,
+          "cycle": 8,
+          "drift": -0.055450384883,
+          "match": 0.91352511216,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 5.924629740844
+        },
+        {
+          "CO_ref": 5.950248785929,
+          "DO2": 1176.271717305158,
+          "cycle": 9,
+          "drift": -0.063976812191,
+          "match": 0.915137551733,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 5.950248785929
+        },
+        {
+          "CO_ref": 6.187707194594,
+          "DO2": 1223.213554562423,
+          "cycle": 10,
+          "drift": -0.072030045023,
+          "match": 0.914200089517,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.187707194594
+        },
+        {
+          "CO_ref": 6.182457758232,
+          "DO2": 1222.175822570663,
+          "cycle": 11,
+          "drift": -0.079695213709,
+          "match": 0.91449203943,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.182457758232
+        },
+        {
+          "CO_ref": 6.353299176261,
+          "DO2": 1255.948516016166,
+          "cycle": 12,
+          "drift": -0.086962852634,
+          "match": 0.914206612903,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.353299176261
+        },
+        {
+          "CO_ref": 6.329257127651,
+          "DO2": 793.29472485601,
+          "cycle": 13,
+          "drift": -0.093863383282,
+          "match": 0.914132086291,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.329257127651
+        },
+        {
+          "CO_ref": 6.458405720264,
+          "DO2": 1663.707553832081,
+          "cycle": 14,
+          "drift": -0.100413849909,
+          "match": 0.914031336495,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.458405720264
+        },
+        {
+          "CO_ref": 6.423113233179,
+          "DO2": 639.280709056026,
+          "cycle": 15,
+          "drift": -0.106630094952,
+          "match": 0.913897371459,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.423113233179
+        },
+        {
+          "CO_ref": 6.525423853677,
+          "DO2": 1603.749850677599,
+          "cycle": 16,
+          "drift": -0.112532814406,
+          "match": 0.913843104728,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.525423853677
+        },
+        {
+          "CO_ref": 6.483614087734,
+          "DO2": 601.414513088354,
+          "cycle": 17,
+          "drift": -0.118134866485,
+          "match": 0.913732476683,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.483614087734
+        },
+        {
+          "CO_ref": 6.568195548831,
+          "DO2": 1591.095648873919,
+          "cycle": 18,
+          "drift": -0.123454533548,
+          "match": 0.913686828421,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.568195548831
+        },
+        {
+          "CO_ref": 6.522885545738,
+          "DO2": 591.485979251315,
+          "cycle": 19,
+          "drift": -0.128504527686,
+          "match": 0.913613037,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.522885545738
+        },
+        {
+          "CO_ref": 6.595485720907,
+          "DO2": 1589.022624189105,
+          "cycle": 20,
+          "drift": -0.133299745942,
+          "match": 0.913567513496,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.595485720907
+        },
+        {
+          "CO_ref": 6.548526954498,
+          "DO2": 588.37719170355,
+          "cycle": 21,
+          "drift": -0.137853065128,
+          "match": 0.913524750355,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.548526954498
+        },
+        {
+          "CO_ref": 6.479297372059,
+          "DO2": 1554.400307992728,
+          "cycle": 22,
+          "drift": -0.142839941993,
+          "match": 0.926749223129,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.479297372059
+        },
+        {
+          "CO_ref": 6.491419540268,
+          "DO2": 586.741698292903,
+          "cycle": 23,
+          "drift": -0.147949948857,
+          "match": 0.934198699947,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.491419540268
+        },
+        {
+          "CO_ref": 6.538792024405,
+          "DO2": 1575.635856107001,
+          "cycle": 24,
+          "drift": -0.152946592026,
+          "match": 0.937041432929,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.538792024405
+        },
+        {
+          "CO_ref": 6.599350563945,
+          "DO2": 599.665162423158,
+          "cycle": 25,
+          "drift": -0.157741910431,
+          "match": 0.938011580814,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.599350563945
+        },
+        {
+          "CO_ref": 6.662078330715,
+          "DO2": 1529.715271888775,
+          "cycle": 26,
+          "drift": -0.162304371037,
+          "match": 0.938149743249,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.662078330715
+        },
+        {
+          "CO_ref": 6.721447942055,
+          "DO2": 662.136479313426,
+          "cycle": 27,
+          "drift": -0.166626604095,
+          "match": 0.937907652881,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.721447942055
+        },
+        {
+          "CO_ref": 6.775015440118,
+          "DO2": 1589.594550719578,
+          "cycle": 28,
+          "drift": -0.170712599262,
+          "match": 0.937505128119,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.775015440118
+        },
+        {
+          "CO_ref": 6.82203215568,
+          "DO2": 694.984371249817,
+          "cycle": 29,
+          "drift": -0.174571638601,
+          "match": 0.937052006739,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.82203215568
+        },
+        {
+          "CO_ref": 6.862634569386,
+          "DO2": 1624.144829058348,
+          "cycle": 30,
+          "drift": -0.178215254897,
+          "match": 0.936602585221,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.862634569386
+        },
+        {
+          "CO_ref": 6.897371327493,
+          "DO2": 711.604803887565,
+          "cycle": 31,
+          "drift": -0.181655655276,
+          "match": 0.936181883154,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.897371327493
+        },
+        {
+          "CO_ref": 6.92693537199,
+          "DO2": 1642.114308531212,
+          "cycle": 32,
+          "drift": -0.184904918975,
+          "match": 0.935799549946,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.92693537199
+        },
+        {
+          "CO_ref": 6.952036686835,
+          "DO2": 719.897843433478,
+          "cycle": 33,
+          "drift": -0.187974629451,
+          "match": 0.935457749191,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.952036686835
+        },
+        {
+          "CO_ref": 6.973337947581,
+          "DO2": 1641.062511838637,
+          "cycle": 34,
+          "drift": -0.190875719557,
+          "match": 0.935155052266,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.973337947581
+        },
+        {
+          "CO_ref": 6.991423656925,
+          "DO2": 724.925676205624,
+          "cycle": 35,
+          "drift": -0.193618409751,
+          "match": 0.934888144113,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 6.991423656925
+        },
+        {
+          "CO_ref": 7.006794623066,
+          "DO2": 1638.580714567435,
+          "cycle": 36,
+          "drift": -0.196212217946,
+          "match": 0.934653194341,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.006794623066
+        },
+        {
+          "CO_ref": 7.019882693665,
+          "DO2": 728.162609524352,
+          "cycle": 37,
+          "drift": -0.198666012419,
+          "match": 0.934446728111,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.019882693665
+        },
+        {
+          "CO_ref": 7.031051715254,
+          "DO2": 1636.128940958173,
+          "cycle": 38,
+          "drift": -0.200988047077,
+          "match": 0.93426532626,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.031051715254
+        },
+        {
+          "CO_ref": 7.040601951954,
+          "DO2": 730.351849231961,
+          "cycle": 39,
+          "drift": -0.203186000152,
+          "match": 0.934105729262,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.040601951954
+        },
+        {
+          "CO_ref": 7.048784471824,
+          "DO2": 1634.052360919103,
+          "cycle": 40,
+          "drift": -0.205267029169,
+          "match": 0.933965201191,
+          "open_fraction": 1.0,
+          "provenance_state": "coupled",
+          "transmitted": 7.048784471824
+        }
+      ],
+      "dest": "lamina_respiratory:CO_ref",
+      "forcing": {
+        "EDV": 60.0,
+        "HR": 120.0
+      },
+      "gate": "pg_failing_pump",
+      "organism": "organism_key.xml",
+      "scenario": "hr120_edv60",
+      "watch": [
+        "CO_ref",
+        "DO2"
+      ]
+    }
+  ],
+  "schema_version": 1,
+  "seed": 11
+}

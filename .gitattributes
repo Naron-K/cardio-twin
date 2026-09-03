@@ -1,2 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# The gate-trace baseline is replayed byte-for-byte to prove a refactor
+# changed no number. Pin LF so a checkout cannot rewrite it.
+backend/tests/fixtures/*.json eol=lf

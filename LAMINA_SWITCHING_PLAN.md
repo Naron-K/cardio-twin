@@ -1,7 +1,7 @@
 # Switching laminae from inside the app
 
-Written 2026-08-20. Steps 1–8 are built; step 9 is still a conversation about
-artwork rather than a task.
+Written 2026-08-20. Steps 1–8 are built and verified. Step 9 is artwork, not a
+task, and was deliberately left open on 2026-09-03 — see the bottom of this file.
 
 ## The problem, measured
 
@@ -105,7 +105,7 @@ the schema and the stream came from the same place.
    rule as the ECG and the simulated feed: a reader should never have to work
    out whether what they are looking at is current.
 
-## Still open, and needs a decision first
+## Deferred by decision
 
 9. **Artwork for the respiratory lamina.** The registry already supports it —
    one entry in `stageRegistry.tsx` plus a template directory under `public/` —
@@ -113,6 +113,11 @@ the schema and the stream came from the same place.
    standing rule on this project, the art direction is approved before anything
    is drawn; a procedurally generated stage would be the wrong move here as it
    was before. Until then the lamina map is the honest default and it works.
+
+   **Decided 2026-09-03: left open on purpose.** The lamina map stays as the
+   stage for `lamina_respiratory`. Steps 1-8 are verified working, so nothing
+   is waiting on this. Do not open it again by drawing something; it reopens
+   only when approved art direction or an asset arrives.
 
 ## What not to do
 

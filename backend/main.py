@@ -391,6 +391,48 @@ def get_organisms():
     }
 
 
+def _gate_declaration(gate) -> dict:
+    """
+    One gate as the frontend needs to draw it.
+
+    Kind and side are the two facts a diagram cannot infer: they decide
+    which glyph the valve gets and which end of the edge it sits on. An
+    auto gate and a key gate look different because they ARE different —
+    one reads its own lamina, the other reads what arrives — and a
+    reader who cannot tell them apart cannot tell a protection layer
+    from a policy.
+    """
+    from organism import AutoGate
+
+    entry = {
+        "id":            gate.id,
+        "kind":          "auto" if isinstance(gate, AutoGate) else "key",
+        "side":          gate.side,
+        "description":   gate.description,
+        # Rule 1, as a value the reader can show rather than a promise
+        # they have to take on trust.
+        "starts_closed": True,
+        "learnables": [
+            {"name": lrn.name, "initial": lrn.initial,
+             "min": lrn.min, "max": lrn.max}
+            for lrn in gate.learnables
+        ],
+    }
+    if isinstance(gate, AutoGate):
+        entry["trigger"] = gate.trigger_kind
+        entry["params"] = dict(gate.trigger)
+        entry["refractory_cycles"] = gate.refractory_cycles
+    else:
+        entry["metric"] = gate.key.get("metric", "identity")
+        entry["params"] = dict(gate.key)
+        entry["weight"] = gate.weight
+        entry["rate"] = gate.rate
+        entry["on_close"] = gate.on_close
+        entry["confidence"] = gate.confidence
+    return entry
+
+
+
 @app.get("/api/organism")
 def get_organism(organism: Optional[str] = Query(
         default=None,
@@ -445,38 +487,28 @@ def get_organism(organism: Optional[str] = Query(
             }
             for lamina_id in spec.lamina_ids
         ],
-        "gates": [
+        "levels": dict(spec.levels),
+        "channels": [
             {
-                "id":          gate.id,
-                "from":        str(gate.source),
-                "to":          str(gate.dest),
-                "from_lamina": gate.source.lamina,
-                "from_member": gate.source.member,
-                "to_lamina":   gate.dest.lamina,
-                "to_member":   gate.dest.member,
-                "controller":  gate.controller,
-                "extract":     gate.extract,
-                "description": gate.description,
-                # Rule 1, as a value the reader can show rather than a
-                # promise it has to take on trust.
-                "starts_closed": gate.starts_closed,
-                "controller_params": gate.controller_args(),
-                "transfer": {
-                    "mode":       gate.transfer.mode,
-                    "rate":       gate.transfer.rate,
-                    "time_delay": gate.transfer.time_delay,
-                    "on_close":   gate.transfer.on_close,
-                    "confidence": gate.transfer.confidence,
-                    "band_min":   gate.transfer.band_min,
-                    "band_max":   gate.transfer.band_max,
-                },
-                "learnables": [
-                    {"name": lrn.name, "initial": lrn.initial,
-                     "min": lrn.min, "max": lrn.max}
-                    for lrn in gate.learnables
-                ],
+                "id":          channel.id,
+                "from":        str(channel.source),
+                "to":          str(channel.dest),
+                "from_lamina": channel.source.lamina,
+                "from_member": channel.source.member,
+                "to_lamina":   channel.dest.lamina,
+                "to_member":   channel.dest.member,
+                "extract":     channel.extract,
+                "time_delay":  channel.time_delay,
+                "description": channel.description,
+                # Which way this wire climbs, so a diagram can lay the
+                # stack out vertically without recomputing it.
+                "direction":   ("up" if spec.levels.get(channel.dest.lamina, 0)
+                                > spec.levels.get(channel.source.lamina, 0)
+                                else "down"),
+                "transmit":    [_gate_declaration(g) for g in channel.transmit],
+                "receive":     [_gate_declaration(g) for g in channel.receive],
             }
-            for gate in spec.gates
+            for channel in spec.channels
         ],
         "timestamp": datetime.now().isoformat(),
     }
@@ -1075,8 +1107,8 @@ async def ws_organism(websocket: WebSocket, tick_ms: int = 100,
         {
           "organism_id": str,
           "laminae": {lamina_id: <the same snapshot one lamina sends>},
-          "gates": [...],               # declaration + live state per seam
-          "organism_report": {cycle, gates, cycle_reports, warnings, ...}
+          "channels": [...],            # both ends + live state per seam
+          "organism_report": {cycle, channels, cycle_reports, warnings, ...}
         }
 
     Inbound control messages carry a lamina, because on a body "set HR"

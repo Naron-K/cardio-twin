@@ -83,22 +83,31 @@ def test_a_gate_with_no_controller_registered_stays_shut(body):
     body._gate_controller_registry.pop("threshold")
 
     report = body.tick()
-    entry = report["gates"]["pg_co_to_resp"]
+    entry = report["channels"]["ch_co_to_resp"]
     assert entry["open_fraction"] == 0.0
     assert entry["transmitted"] is None
-    assert "no 'threshold' controller registered" in entry["state"]["reason"]
+    assert "no controller registered" in entry["transmit"][0]["reason"]
 
 
-def test_the_two_v1_controllers_ship_registered(body):
+def test_the_two_controllers_ship_registered(body):
     """
     Same pattern as UniversalTwin registering its default kernels in
     __init__: a container that has to be configured before it works is a
     container that will sometimes be used unconfigured.
+
+    Two registered, and every trigger any gate declares is one of them —
+    a threshold and a shape match are the same hysteresis machinery
+    pointed at different inputs, so they share an implementation even
+    though the gates that use them are separate entities.
     """
+    from organism import AutoGate
+
     assert set(body._gate_controller_registry) == {"threshold", "key"}
-    assert set(body._gate_controller_registry) >= {
-        gate.controller for gate in body.gates
+    needed = {
+        ("threshold" if gate.trigger_kind == "threshold" else "key")
+        for gate in body.gates if isinstance(gate, AutoGate)
     }
+    assert needed <= set(body._gate_controller_registry)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -157,7 +166,7 @@ def test_the_gate_reads_the_senders_value_after_its_chain_has_run(body):
         seen.__setitem__("co", circ.attributes["CO"].value), original(w))[1]
 
     report = body.tick({"lamina_circulatory": {"HR": 100.0}})
-    assert report["gates"]["pg_co_to_resp"]["reading"] == pytest.approx(
+    assert report["channels"]["ch_co_to_resp"]["reading"] == pytest.approx(
         seen["co"], rel=1e-12
     )
     # HR 100 with the declared EDV gives CO = 100 * 66 / 1000 — this cycle's
@@ -185,7 +194,7 @@ def test_the_receiver_uses_a_crossing_on_the_same_tick(body):
     do2_before = resp.attributes["DO2"].value
     report = body.tick()
 
-    crossed = report["gates"]["pg_co_to_resp"]["transmitted"]
+    crossed = report["channels"]["ch_co_to_resp"]["transmitted"]
     assert crossed is not None
     assert resp.attributes["CO_ref"].value == pytest.approx(crossed)
     assert crossed != pytest.approx(5.0), "the seam's uncoupled baseline"
@@ -233,7 +242,7 @@ def test_a_crossing_arrives_as_x_prime_with_its_provenance(body):
     co_ref = body.twins["lamina_respiratory"].attributes["CO_ref"]
     assert co_ref.value_feedback == 0.0, "a crossing must not land in X''"
     assert co_ref.value_external is not None
-    assert co_ref.provenance["gate"] == "pg_co_to_resp"
+    assert co_ref.provenance["channel"] == "ch_co_to_resp"
     assert co_ref.provenance["from"] == "lamina_circulatory"
 
     entry = _simulation_snapshot(body.twins["lamina_respiratory"])["inbound"]
@@ -279,8 +288,8 @@ def test_a_registered_controller_that_says_shut_transmits_nothing(body):
     """The other way of being closed: a controller that ran and said no."""
     body.register_gate_controller("threshold", never_open)
     report = body.tick()
-    assert report["gates"]["pg_co_to_resp"]["open_fraction"] == 0.0
-    assert report["gates"]["pg_co_to_resp"]["transmitted"] is None
+    assert report["channels"]["ch_co_to_resp"]["open_fraction"] == 0.0
+    assert report["channels"]["ch_co_to_resp"]["transmitted"] is None
     assert body.twins["lamina_respiratory"].attributes["CO_ref"].value == 5.0
 
 
@@ -288,7 +297,7 @@ def test_an_out_of_range_open_fraction_is_clamped_and_reported(body):
     body.register_gate_controller(
         "threshold", lambda s, v, p: {"open_fraction": 4.0})
     report = body.tick()
-    assert report["gates"]["pg_co_to_resp"]["open_fraction"] == 1.0
+    assert report["channels"]["ch_co_to_resp"]["open_fraction"] == 1.0
     assert any("outside [0,1]" in w for w in report["warnings"])
 
 
@@ -313,8 +322,8 @@ def test_the_body_breaker_shuts_the_gates_and_leaves_the_laminae_running(body):
 
     # Gates stay shut…
     after = body.tick()
-    assert after["gates"]["pg_co_to_resp"]["open_fraction"] == 0.0
-    assert after["gates"]["pg_co_to_resp"]["transmitted"] is None
+    assert after["channels"]["ch_co_to_resp"]["open_fraction"] == 0.0
+    assert after["channels"]["ch_co_to_resp"]["transmitted"] is None
     # …and both laminae are still cycling.
     for lamina_id, cycle_report in after["cycle_reports"].items():
         assert cycle_report["cycle"] == after["cycle"], lamina_id
@@ -379,7 +388,7 @@ def test_an_organism_session_snapshot_nests_the_familiar_shape():
                     "cycle_report", "before_after", "warnings"):
             assert key in lamina_snapshot
     assert snapshot["organism_report"]["cycle"] == 1
-    assert [g["id"] for g in snapshot["gates"]] == ["pg_co_to_resp"]
+    assert [g["id"] for g in snapshot["channels"]] == ["ch_co_to_resp"]
 
 
 def test_setting_a_sensor_on_one_lamina_leaves_the_other_alone():
@@ -421,7 +430,7 @@ def test_the_organism_socket_streams_a_body():
     assert snap["organism_id"] == "bdt_default"
     assert set(snap["laminae"]) == {"lamina_circulatory", "lamina_respiratory"}
     assert snap["organism_report"]["cycle"] >= 1
-    assert "pg_co_to_resp" in snap["organism_report"]["gates"]
+    assert "ch_co_to_resp" in snap["organism_report"]["channels"]
     # Each lamina still ships the shape a one-lamina socket sends.
     for lamina_snapshot in snap["laminae"].values():
         for key in ("sensors", "computed", "outcomes", "feedback_norm",

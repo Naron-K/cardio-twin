@@ -48,7 +48,9 @@ def test_the_body_endpoint_describes_the_shipped_organism(client):
     assert payload["organism_id"] == "bdt_default"
     assert [lamina["id"] for lamina in payload["laminae"]] == [
         "lamina_circulatory", "lamina_respiratory"]
-    assert [gate["id"] for gate in payload["gates"]] == ["pg_co_to_resp"]
+    assert [c["id"] for c in payload["channels"]] == ["ch_co_to_resp"]
+    assert payload["levels"] == {
+        "lamina_circulatory": 1, "lamina_respiratory": 2}
 
 
 def test_each_lamina_says_which_of_its_inputs_come_from_outside(client):
@@ -65,25 +67,48 @@ def test_each_lamina_says_which_of_its_inputs_come_from_outside(client):
     assert "pump_state" in laminae["lamina_circulatory"]["composites"]
 
 
-def test_a_gate_arrives_resolved_rather_than_as_raw_xml(client):
-    gate = client.get("/api/organism").json()["gates"][0]
+def test_a_channel_arrives_resolved_rather_than_as_raw_xml(client):
+    channel = client.get("/api/organism").json()["channels"][0]
 
-    assert gate["from_lamina"] == "lamina_circulatory"
-    assert gate["from_member"] == "pump_state"
-    assert gate["to_lamina"] == "lamina_respiratory"
-    assert gate["to_member"] == "CO_ref"
-    assert gate["extract"] == "CO"
-    assert gate["starts_closed"] is True, "rule 1, as a value not a promise"
+    assert channel["from_lamina"] == "lamina_circulatory"
+    assert channel["from_member"] == "pump_state"
+    assert channel["to_lamina"] == "lamina_respiratory"
+    assert channel["to_member"] == "CO_ref"
+    assert channel["extract"] == "CO"
+    assert channel["direction"] == "up", (
+        "a diagram lays the stack out vertically and should not have to "
+        "recompute which way the wire climbs"
+    )
 
-    params = gate["controller_params"]
+
+def test_both_ends_of_a_channel_arrive_with_their_own_gates(client):
+    """
+    The half the one-valve wire could not express. A reader has to be
+    able to draw two valves on one edge, and to tell which kind each is
+    — an auto gate and a key gate look different because they ARE
+    different, and someone who cannot tell them apart cannot tell a
+    protection layer from a policy.
+    """
+    channel = client.get("/api/organism").json()["channels"][0]
+
+    sender = channel["transmit"][0]
+    assert sender["kind"] == "auto"
+    assert sender["side"] == "transmit"
+    assert sender["trigger"] == "threshold"
+    assert sender["starts_closed"] is True, "rule 1, as a value not a promise"
+    params = sender["params"]
     assert params["aggregate"] == "deviation"
     assert params["close_below"] < params["open_above"], "rule 4, on the wire"
     assert params["reference"] == pytest.approx(0.30)
 
-    transfer = gate["transfer"]
-    assert transfer["mode"] == "proportional"
-    assert transfer["on_close"] == "hold"
-    assert 0.0 < transfer["rate"] <= 1.0
+    receiver = channel["receive"][0]
+    assert receiver["kind"] == "key"
+    assert receiver["side"] == "receive"
+    assert receiver["metric"] == "identity"
+    assert receiver["on_close"] == "hold"
+    assert 0.0 < receiver["rate"] <= 1.0, (
+        "how fast to absorb belongs to the receiver, and the wire says so"
+    )
 
 
 def test_an_organism_that_does_not_exist_is_refused_by_name(client):
@@ -110,41 +135,43 @@ def test_an_organism_that_breaks_a_rule_is_refused_here_not_at_first_tick(
 
 
 # ══════════════════════════════════════════════════════════════════════
-# snapshot["gates"] — the live state
+# snapshot["channels"] — the live state
 # ══════════════════════════════════════════════════════════════════════
 
 def test_a_shut_gate_reports_itself_shut_with_nothing_to_show_for_it(body):
     for _ in range(10):
         body.tick({"lamina_circulatory": {"HR": 72.0}})
 
-    gate = body.snapshot()["gates"][0]
-    assert gate["open"] is False
-    assert gate["open_fraction"] == 0.0
-    assert gate["last_value"] is None
-    assert gate["provenance"] == {}
+    channel = body.snapshot()["channels"][0]
+    assert channel["transmit"][0]["open"] is False
+    assert channel["transmit"][0]["open_fraction"] == 0.0
+    assert channel["last_value"] is None
+    assert channel["provenance"] == {}
+    assert channel["offered"] is None, "a shut sender has offered nothing"
     # The declaration is still there, because a shut valve is still a valve.
-    assert gate["from"] == "lamina_circulatory:pump_state"
-    assert gate["to"] == "lamina_respiratory:CO_ref"
-    assert gate["controller"] == "threshold"
+    assert channel["from"] == "lamina_circulatory:pump_state"
+    assert channel["to"] == "lamina_respiratory:CO_ref"
+    assert channel["transmit"][0]["trigger"] == "threshold"
 
 
 def test_an_open_gate_carries_its_state_and_the_value_that_crossed(body):
     for _ in range(10):
         body.tick({"lamina_circulatory": {"HR": 200.0}})
 
-    gate = body.snapshot()["gates"][0]
-    assert gate["open"] is True
-    assert gate["open_fraction"] == 1.0
-    assert gate["last_value"] > 5.0
-    assert gate["watch_value"] > gate_open_above()
-    assert gate["provenance"]["state"] == "coupled"
-    assert gate["provenance"]["gate"] == "pg_co_to_resp"
-    assert gate["provenance"]["age"] == 0
+    channel = body.snapshot()["channels"][0]
+    sender = channel["transmit"][0]
+    assert sender["open"] is True
+    assert sender["open_fraction"] == 1.0
+    assert sender["state"]["watch_value"] > gate_open_above()
+    assert channel["last_value"] > 5.0
+    assert channel["provenance"]["state"] == "coupled"
+    assert channel["provenance"]["channel"] == "ch_co_to_resp"
+    assert channel["provenance"]["age"] == 0
 
 
 def gate_open_above() -> float:
     from organism import parse_organism
-    return parse_organism().gates[0].controller_args()["open_above"]
+    return parse_organism().channels[0].transmit[0].trigger["open_above"]
 
 
 def test_the_gate_and_the_receiving_lamina_agree_about_the_crossing(body):
@@ -159,11 +186,12 @@ def test_the_gate_and_the_receiving_lamina_agree_about_the_crossing(body):
         body.tick({"lamina_circulatory": {"HR": 200.0}})
     snapshot = body.snapshot()
 
-    from_gate = snapshot["gates"][0]["provenance"]
+    from_channel = snapshot["channels"][0]["provenance"]
     from_lamina = snapshot["laminae"]["lamina_respiratory"]["inbound"]["CO_ref"]
 
-    assert from_lamina["provenance"] == {"state": "coupled", **from_gate}
-    assert from_lamina["value"] == pytest.approx(snapshot["gates"][0]["last_value"])
+    assert from_lamina["provenance"] == {"state": "coupled", **from_channel}
+    assert from_lamina["value"] == pytest.approx(
+        snapshot["channels"][0]["last_value"])
 
 
 def test_a_held_value_shows_as_held_on_the_gate_too(body):
@@ -182,18 +210,18 @@ def test_a_held_value_shows_as_held_on_the_gate_too(body):
     # baseline for this comparison is read at the moment it shuts.
     for _ in range(25):
         body.tick({"lamina_circulatory": {"HR": 72.0}})
-    shut = body.snapshot()["gates"][0]
-    assert shut["open"] is False
+    shut = body.snapshot()["channels"][0]
+    assert shut["transmit"][0]["open"] is False
     crossed, age = shut["last_value"], shut["provenance"]["age"]
 
     for _ in range(5):
         body.tick({"lamina_circulatory": {"HR": 72.0}})
 
-    gate = body.snapshot()["gates"][0]
-    assert gate["last_value"] == pytest.approx(crossed), "hold keeps the value"
-    assert gate["provenance"]["state"] == "held"
-    assert gate["provenance"]["age"] == age + 5, "and it ages every cycle"
-    assert gate["provenance"]["open_fraction"] == 0.0
+    channel = body.snapshot()["channels"][0]
+    assert channel["last_value"] == pytest.approx(crossed), "hold keeps the value"
+    assert channel["provenance"]["state"] == "held"
+    assert channel["provenance"]["age"] == age + 5, "and it ages every cycle"
+    assert channel["provenance"]["open_fraction"] == 0.0
 
 
 def test_the_gate_says_why_rather_than_only_whether(body):
@@ -204,26 +232,35 @@ def test_the_gate_says_why_rather_than_only_whether(body):
     """
     for _ in range(10):
         body.tick({"lamina_circulatory": {"HR": 72.0}})
-    assert "deadband" in body.snapshot()["gates"][0]["reason"]
+    assert "deadband" in body.snapshot()["channels"][0]["transmit"][0]["reason"]
 
     body.gates_locked = True
     body.tick({"lamina_circulatory": {"HR": 200.0}})
-    assert body.snapshot()["gates"][0]["reason"] == "organism breaker"
+    channel = body.snapshot()["channels"][0]
+    for side in ("transmit", "receive"):
+        assert channel[side][0]["reason"] == "organism breaker", (
+            f"the breaker fired and the {side} gate did not say so"
+        )
 
 
 # ══════════════════════════════════════════════════════════════════════
 # and the same thing over the socket the page actually uses
 # ══════════════════════════════════════════════════════════════════════
 
-def test_the_organism_socket_carries_the_gates_section(client):
+def test_the_organism_socket_carries_the_channels_section(client):
     with client.websocket_connect("/ws/organism?tick_ms=20") as ws:
         snapshot = ws.receive_json()
 
-    assert isinstance(snapshot["gates"], list)
-    gate = snapshot["gates"][0]
-    for key in ("id", "from", "to", "controller", "open", "open_fraction",
-                "last_value", "provenance", "reason"):
-        assert key in gate, f"the socket dropped '{key}' from the gate entry"
+    assert isinstance(snapshot["channels"], list)
+    channel = snapshot["channels"][0]
+    for key in ("id", "from", "to", "transmit", "receive", "offered",
+                "last_value", "provenance"):
+        assert key in channel, f"the socket dropped '{key}' from the channel"
+    for side in ("transmit", "receive"):
+        for key in ("id", "kind", "side", "open", "open_fraction", "reason"):
+            assert key in channel[side][0], (
+                f"the socket dropped '{key}' from a {side} gate"
+            )
 
 
 def test_a_session_snapshot_holds_both_halves_at_once():
@@ -239,9 +276,11 @@ def test_a_session_snapshot_holds_both_halves_at_once():
         sample["lamina_circulatory"]["HR"] = 200.0
         snapshot = session.tick(sample)
 
-    gate = snapshot["gates"][0]
-    assert gate["from_lamina"] in snapshot["laminae"]
-    assert gate["to_lamina"] in snapshot["laminae"]
-    assert gate["open"] is True
-    assert snapshot["organism_report"]["gates"][gate["id"]]["open_fraction"] == (
-        gate["open_fraction"]), "the tick report and the snapshot must agree"
+    channel = snapshot["channels"][0]
+    assert channel["from_lamina"] in snapshot["laminae"]
+    assert channel["to_lamina"] in snapshot["laminae"]
+    assert channel["transmit"][0]["open"] is True
+    reported = snapshot["organism_report"]["channels"][channel["id"]]
+    assert reported["transmit"][0]["open_fraction"] == (
+        channel["transmit"][0]["open_fraction"]), (
+        "the tick report and the snapshot must agree")

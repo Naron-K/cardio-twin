@@ -71,7 +71,7 @@ def test_the_key_body_and_the_default_body_are_both_represented():
     assert len(default_scenarios) == 5
     assert len(key_scenarios) == 4
     assert all(b["controller"] == "threshold" for b in default_scenarios)
-    assert all(b["controller"] == "key" for b in key_scenarios)
+    assert all(b["controller"] == "pattern" for b in key_scenarios)
 
 
 def test_every_scenario_has_forty_cycles_with_the_full_record():
@@ -86,7 +86,9 @@ def test_every_scenario_has_forty_cycles_with_the_full_record():
         dest_member = block["dest"].split(":")[1]
         assert block["watch"] == [dest_member] + WATCH[block["organism"]]
 
-        is_key = block["controller"] == "key"
+        # A pattern trigger records its match and drift; a plain
+        # threshold has neither to record.
+        is_key = block["controller"] == "pattern"
         for record in records:
             for field in ("cycle", "open_fraction", "transmitted",
                           "provenance_state", *block["watch"]):

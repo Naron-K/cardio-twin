@@ -96,7 +96,7 @@ def test_a_failing_pump_reaches_oxygen_delivery_through_the_gate(body):
     opened_on = None
     for cycle in range(RESPONSE_BUDGET):
         report = body.tick({"lamina_circulatory": {"HR": 35.0}})
-        if opened_on is None and report["gates"]["pg_co_to_resp"]["open_fraction"] > 0:
+        if opened_on is None and report["channels"]["ch_co_to_resp"]["open_fraction"] > 0:
             opened_on = cycle
 
     assert opened_on is not None, "the gate never opened for a failing pump"
@@ -115,7 +115,7 @@ def test_a_failing_pump_reaches_oxygen_delivery_through_the_gate(body):
 
     provenance = resp.attributes["CO_ref"].provenance
     assert provenance["state"] == "coupled"
-    assert provenance["gate"] == "pg_co_to_resp"
+    assert provenance["channel"] == "ch_co_to_resp"
     assert provenance["from"] == "lamina_circulatory"
 
 
@@ -163,7 +163,7 @@ def test_an_unremarkable_pump_is_not_worth_crossing_for(body):
     resp = body.twins["lamina_respiratory"]
     for _ in range(20):
         report = body.tick({"lamina_circulatory": {"HR": 72.0}})
-        assert report["gates"]["pg_co_to_resp"]["open_fraction"] == 0.0
+        assert report["channels"]["ch_co_to_resp"]["open_fraction"] == 0.0
 
     assert resp.attributes["CO_ref"].value == pytest.approx(5.0, abs=0.01)
     assert not resp.attributes["CO_ref"].provenance, (
@@ -194,7 +194,7 @@ def test_a_body_whose_gate_never_opens_equals_two_standalone_laminae():
                   for lid, t in org.twins.items()})
         for _ in range(25):
             report = org.tick({"lamina_circulatory": {"HR": 72.0}})
-            assert report["gates"]["pg_co_to_resp"]["open_fraction"] == 0.0, (
+            assert report["channels"]["ch_co_to_resp"]["open_fraction"] == 0.0, (
                 "this comparison only means anything while the gate is shut"
             )
         return {lid: _simulation_snapshot(t) for lid, t in org.twins.items()}
@@ -249,7 +249,7 @@ def test_two_loops_pulling_through_an_open_gate_still_settle(body, hr, label):
     for _ in range(60):
         report = body.tick({"lamina_circulatory": {"HR": hr}})
         norms.append(report["total_feedback_norm"])
-        opens.append(report["gates"]["pg_co_to_resp"]["open_fraction"])
+        opens.append(report["channels"]["ch_co_to_resp"]["open_fraction"])
 
     assert min(opens[-10:]) > 0.0, f"the {label} gate should be open at the end"
     assert not body.gates_locked, "the body breaker fired instead of settling"
@@ -297,7 +297,7 @@ def test_the_seam_holds_up_over_a_live_feed_with_both_loops_running():
         sample["lamina_circulatory"]["HR"] = 190.0
         report = session.tick(sample)["organism_report"]
         norms.append(report["total_feedback_norm"])
-        opened += report["gates"]["pg_co_to_resp"]["open_fraction"] > 0
+        opened += report["channels"]["ch_co_to_resp"]["open_fraction"] > 0
 
     assert opened > 40, f"the gate should spend most of this open; got {opened}"
     assert not session.organism.gates_locked

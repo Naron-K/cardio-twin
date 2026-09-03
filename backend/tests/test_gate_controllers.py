@@ -128,7 +128,9 @@ def test_the_band_the_organism_actually_declares_is_quiet():
     (0.0104).  Its deadband is 0.035, which is 3.4 of those — the first
     width where the gate stops arguing with the feed.
     """
-    params = dict(parse_organism().gates[0].controller_args())
+    trigger = parse_organism().channels[0].transmit[0]
+    params = dict(trigger.trigger)
+    params["refractory_cycles"] = trigger.refractory_cycles
     assert params["aggregate"] == "deviation", "this test reads a deviation gate"
 
     rng = random.Random(11)
@@ -400,7 +402,10 @@ def test_the_shipped_gate_opens_on_departure_in_either_direction():
     def settle(hr):
         for _ in range(8):
             report = org.tick({"lamina_circulatory": {"HR": float(hr)}})
-        return report["gates"]["pg_co_to_resp"]
+        entry = report["channels"]["ch_co_to_resp"]
+        # The channel's verdict, with the sending gate's own working
+        # folded in — the trigger's watch_value is what this test reads.
+        return {**entry, "state": entry["transmit"][0]["state"]}
 
     assert settle(72)["open_fraction"] == 0.0, "resting"
     assert settle(90)["open_fraction"] == 0.0, "working, still in the deadband"
@@ -424,102 +429,49 @@ def test_the_shipped_gate_opens_on_departure_in_either_direction():
     assert failing["transmitted"] < 5.0, "below the seam's uncoupled baseline"
 
 
-def test_a_key_gate_without_a_release_band_does_not_parse(tmp_path):
-    """Rule 4, now covering the controller the measurement said needs it."""
+def test_a_shape_matching_key_without_a_release_band_does_not_parse(tmp_path):
+    """
+    Rule 4, on the receiving gate's key rather than on the sender's
+    trigger.  A weighted_distance key scores a noisy signal, so it needs
+    the same deadband a threshold does — 148 flips in 400 cycles were
+    measured on one boundary.
+    """
     path = _organism(
         tmp_path,
-        '<controller_params watch="CO" aggregate="deviation" reference="0.30"\n'
-        '                         open_above="0.125" close_below="0.09"\n'
-        '                         refractory_cycles="5" />',
-        '<key metric="weighted_distance" match_threshold="0.9">\n'
-        '        <weight attribute="CO" ref="0.65">1.0</weight>\n'
-        '      </key>',
+        '<key metric="identity"/>',
+        '<key metric="weighted_distance" match_threshold="0.9">'
+        '<weight attribute="CO" ref="0.65">1.0</weight>'
+        '</key>',
     )
-    path.write_text(
-        path.read_text(encoding="utf-8").replace(
-            'controller="threshold"', 'controller="key"'),
-        encoding="utf-8")
     with pytest.raises(OrganismError, match="release_below"):
         parse_organism(path)
 
 
-def test_a_key_gate_with_a_release_band_parses(tmp_path):
+def test_a_shape_matching_key_with_a_release_band_parses(tmp_path):
     path = _organism(
         tmp_path,
-        '<controller_params watch="CO" aggregate="deviation" reference="0.30"\n'
-        '                         open_above="0.125" close_below="0.09"\n'
-        '                         refractory_cycles="5" />',
-        '<key metric="weighted_distance" match_threshold="0.9"\n'
-        '           release_below="0.85">\n'
-        '        <weight attribute="CO" ref="0.65">1.0</weight>\n'
-        '      </key>',
+        '<key metric="identity"/>',
+        '<key metric="weighted_distance" match_threshold="0.9"'
+        ' release_below="0.85">'
+        '<weight attribute="CO" ref="0.65">1.0</weight>'
+        '</key>',
     )
-    path.write_text(
-        path.read_text(encoding="utf-8").replace(
-            'controller="threshold"', 'controller="key"'),
-        encoding="utf-8")
-    gate = parse_organism(path).gates[0]
-    assert gate.controller == "key"
-    assert gate.key_weights == {"CO": (1.0, 0.65)}
-    assert gate.controller_args()["release_below"] == 0.85
+    gate = parse_organism(path).channels[0].receive[0]
+    assert gate.key["metric"] == "weighted_distance"
+    assert gate.key["match_threshold"] == 0.9
+    assert gate.key["release_below"] == 0.85
+    assert gate.key["weights"] == {"CO": (1.0, 0.65)}
 
 
-def test_a_value_left_behind_by_a_shut_gate_reports_its_age():
+def test_an_identity_key_needs_no_band_because_a_label_cannot_chatter(tmp_path):
     """
-    Until a gate could open, nothing could go stale.  The moment one can,
-    a gate that opens and then shuts leaves the receiver holding the last
-    value that crossed — and saying nothing about it would report a live
-    reading from a shut gate.  Measured before the fix: CO_ref sat at
-    8.73 claiming to be current while the circulation had returned to
-    4.84.
+    The exemption, stated as a test so it is not read as an oversight.
+    A label matches or it does not; there is no noise between the two
+    for a single boundary to argue with.
     """
-    org = Organism()
-    for twin in org.twins.values():
-        twin._log = lambda *a, **k: None
-    org.seed({lamina_id: SimulatedSource(twin, seed=11).starting_state()
-              for lamina_id, twin in org.twins.items()})
-
-    def settle(hr, cycles=8):
-        for _ in range(cycles):
-            org.tick({"lamina_circulatory": {"HR": float(hr)}})
-
-    co_ref = org.twins["lamina_respiratory"].attributes["CO_ref"]
-
-    settle(200)
-    assert co_ref.provenance["state"] == "coupled"
-    assert co_ref.provenance["age"] == 0
-
-    # Back to rest.  Long enough for the deadband and the refractory to
-    # let go — the age is read from the gate rather than assumed equal to
-    # the number of cycles, because the cycle the gate actually shuts on
-    # is the controller's business and this test is about what happens
-    # after it does.
-    settle(72, cycles=20)
-    assert co_ref.provenance["state"] == "held"
-    assert co_ref.provenance["open_fraction"] == 0.0
-    held_value = co_ref.value
-    held_age = co_ref.provenance["age"]
-    assert held_age > 0
-
-    settle(72, cycles=5)
-    assert co_ref.value == pytest.approx(held_value), "hold keeps the value"
-    assert co_ref.provenance["state"] == "held"
-    assert co_ref.provenance["age"] == held_age + 5, "and it ages every cycle"
-    # And the number it is holding really has gone stale.
-    assert org.twins["lamina_circulatory"].attributes["CO"].value < held_value
-
-
-def test_an_uncoupled_seam_has_nothing_to_age():
-    """A gate that never opened leaves the baseline reading as a baseline."""
-    org = Organism()
-    for twin in org.twins.values():
-        twin._log = lambda *a, **k: None
-    org.seed({lamina_id: SimulatedSource(twin, seed=11).starting_state()
-              for lamina_id, twin in org.twins.items()})
-    for _ in range(10):
-        org.tick()
-
-    assert org.twins["lamina_respiratory"].attributes["CO_ref"].provenance is None
+    gate = parse_organism().channels[0].receive[0]
+    assert gate.key["metric"] == "identity"
+    assert "match_threshold" not in gate.key
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -539,27 +491,39 @@ def _key_body():
 
 
 def _settle(org, forcing, cycles=30):
-    """Hold a forcing until the pump stops moving, and return the gate."""
+    """
+    Hold a forcing until the pump stops moving, and return the SENDING
+    gate — the one that decides whether the pump's state is worth
+    carrying, which is what every test below is about.
+    """
     for cycle in range(cycles):
         report = org.tick({"lamina_circulatory": forcing} if cycle >= 2 else None)
-    return list(report["gates"].values())[0]
+    return list(report["channels"].values())[0]["transmit"][0]
 
 
 def test_the_key_body_loads_and_passes_every_rule():
     spec = parse_organism(KEY_ORGANISM)
     assert spec.id == "bdt_key"
-    gate = spec.gates[0]
-    assert gate.controller == "key"
-    assert gate.key_weights == {
+    channel = spec.channels[0]
+
+    # Recognising "my own pump is failing" reads this lamina's OWN
+    # composite and nothing from outside, so under the two-sided schema
+    # it is an AUTO gate with a pattern trigger. Under the one-valve
+    # schema it was filed as controller="key"; that was a misnaming, not
+    # a different behaviour, and the numbers below are unchanged.
+    gate = channel.transmit[0]
+    assert gate.trigger_kind == "pattern"
+    assert gate.side == "transmit"
+    assert gate.trigger["weights"] == {
         "EDV": (1.0, 0.03), "SV": (1.0, 0.11),
         "HR": (0.6, 0.70), "CO": (0.3, 0.58),
     }
-    assert gate.key_params["release_below"] < gate.key_params["match_threshold"], (
-        "rule 4, on the controller it was extended to cover"
+    assert gate.trigger["release_below"] < gate.trigger["match_threshold"], (
+        "rule 4, on the trigger it was extended to cover"
     )
     # The whole point of the file: it needed no lamina change and no new
     # controller, so it lands on the one seam the model already declares.
-    assert str(gate.dest) == "lamina_respiratory:CO_ref"
+    assert str(channel.dest) == "lamina_respiratory:CO_ref"
 
 
 @pytest.mark.parametrize("label,forcing,should_open", [
@@ -586,7 +550,7 @@ def test_the_key_opens_only_on_the_shape_it_was_written_for(
     gate = _settle(_key_body(), forcing)
     assert (gate["open_fraction"] > 0) is should_open, (
         f"{label}: match {gate['state']['match']:.4f} against a threshold of "
-        f"{parse_organism(KEY_ORGANISM).gates[0].key_params['match_threshold']}"
+        f"{parse_organism(KEY_ORGANISM).channels[0].transmit[0].trigger['match_threshold']}"
     )
 
 

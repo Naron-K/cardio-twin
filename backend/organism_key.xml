@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
   ==================================================================
-  ORGANISM — the same two laminae, joined by a KEY gate
+  ORGANISM — the same two laminae, opened by a RECOGNISED STATE
 
   This is a second BODY over the same two laminae, not a second seam
-  on the first one.  Rule 6 forbids two gates feeding one attribute,
-  and lamina_respiratory declares exactly one place a value may land
-  (CO_ref), so the way to compare two gate policies on that seam is to
-  declare two bodies and open whichever one you want to watch:
+  on the first one.  Rule 6 forbids two channels feeding one
+  attribute, and lamina_respiratory declares exactly one place a value
+  may land (CO_ref), so the way to compare two gate policies on that
+  seam is to declare two bodies and open whichever one you want to
+  watch:
 
       GET  /api/organism?organism=organism_key.xml
       ws   /ws/organism?organism=organism_key.xml
@@ -18,7 +19,7 @@
   much as the physiology is.
 
   ==================================================================
-  WHY A KEY RATHER THAN A THRESHOLD
+  WHY A PATTERN RATHER THAN A THRESHOLD
 
   organism.xml watches ONE number: cardiac output's distance from what
   the respiratory lamina is assuming.  That is the right instrument for
@@ -40,17 +41,29 @@
   the same.  What separates them is the shape across all four
   coordinates: filling has collapsed (EDV 0.350 -> 0.025), stroke volume
   with it (0.271 -> 0.114), and the rate has gone up to hold the product
-  steady.  That is a PATTERN, and recognising a pattern is what a key
-  gate is for.
-
-  So this gate opens on the state that says the assumption is no longer
-  safe, rather than waiting for the number to leave the band.  Once it
-  is open the seam is live, so when compensation fails and output does
-  fall, respiration sees it on the cycle it happens instead of after the
-  deviation gate notices.
+  steady.  That is a PATTERN, and recognising a pattern is what this
+  trigger is for.
 
   ==================================================================
-  HOW THE KEY WAS SET
+  WHY IT IS AN AUTO GATE AND NOT A KEY GATE
+
+  This is the one thing that moved when the gates were split in two,
+  and it moved on a definition rather than on a measurement.
+
+  A key gate opens on what the OTHER side presents at the channel — a
+  molecule arriving from outside.  This trigger reads pump_state, the
+  circulatory lamina's OWN composite, and asks "am I failing?".  That
+  is a judgement about internal state, made with nothing from outside,
+  which is the definition of an auto gate: a voltage-gated channel
+  reading its own membrane potential.
+
+  Under the old one-valve schema it was declared as controller="key",
+  and that was a misfiling rather than a different behaviour — the
+  numbers below are unchanged, because the arithmetic never depended
+  on what the thing was called.
+
+  ==================================================================
+  HOW THE PATTERN WAS SET
 
   Every number below is measured, not chosen.
 
@@ -62,7 +75,7 @@
   HR gets 0.6: it is part of the picture but it is high in healthy
   tachycardia too.  CO gets 0.3, and its low weight is the honest part —
   it barely distinguishes anything here, and including it at full weight
-  would let a coincidental output match pull the key open.
+  would let a coincidental output match pull the gate open.
 
   Scored against every state the model can be driven into (match =
   1 - weighted distance, tail of 40 cycles):
@@ -95,36 +108,36 @@
   ==================================================================
   DRIFT
 
-  A static key drifts away from the state it was written for as the
+  A static pattern drifts away from the state it was written for as the
   model, the patient or the calibration moves, and the tempting fix is
-  to make the key adaptive.  That is a v2 decision (G7) and it is to be
-  made on evidence, so the controller records the distance, an EWMA of
+  to make it adaptive.  That is a v3 decision (G7) and it is to be
+  made on evidence, so the trigger records the distance, an EWMA of
   it, and how far that EWMA has moved from the first evaluation, every
-  cycle, from v1.  Read `drift` in the gate's state on the snapshot.
-  If it climbs steadily across a run, adaptation has a case.  If it does
+  cycle.  Read `drift` in the gate's state on the snapshot.  If it
+  climbs steadily across a run, adaptation has a case.  If it does
   not, it does not.  Measure the drift before correcting the drift.
   ==================================================================
 -->
-<organism id="bdt_key" version="1.0">
+<organism id="bdt_key" version="2.0">
 
-  <name>Default Body (key-gated seam)</name>
+  <name>Default Body (pattern-gated seam)</name>
   <description>
     The same circulation and respiration, joined at the same seam, but
-    the valve opens on a recognised state of the pump rather than on a
-    single number leaving its band.
+    the sending gate opens on a recognised state of the pump rather
+    than on a single number leaving its band.
   </description>
 
   <laminae>
-    <lamina id="lamina_circulatory" />
-    <lamina id="lamina_respiratory" />
+    <lamina id="lamina_circulatory" level="1"/>
+    <lamina id="lamina_respiratory" level="2"/>
   </laminae>
 
-  <permeability_gates>
+  <channels>
 
-    <gate id="pg_failing_pump"
-          from="lamina_circulatory:pump_state"
-          to="lamina_respiratory:CO_ref"
-          controller="key">
+    <channel id="ch_failing_pump"
+             from="lamina_circulatory:pump_state"
+             to="lamina_respiratory:CO_ref"
+             time_delay="0">
 
       <description>
         Opens when the pump matches the shape of a failing one — filling
@@ -133,32 +146,41 @@
         which is exactly why a threshold on cardiac output cannot see it.
       </description>
 
-      <!-- The controller reads the whole weighted vector; the transfer
+      <!-- The trigger reads the whole weighted vector; the channel
            still carries exactly one attribute. Recognising a situation
            and sending a number are two jobs, and only the second one
            puts a value into the other lamina. -->
-      <extract attribute="CO" />
+      <extract attribute="CO"/>
 
-      <key metric="weighted_distance"
-           match_threshold="0.90"
-           release_below="0.85">
-        <weight attribute="EDV" ref="0.03">1.0</weight>
-        <weight attribute="SV"  ref="0.11">1.0</weight>
-        <weight attribute="HR"  ref="0.70">0.6</weight>
-        <weight attribute="CO"  ref="0.58">0.3</weight>
-      </key>
+      <transmit>
+        <auto_gate id="ta_failing_pump" refractory_cycles="5">
+          <description>
+            Internal recognition: circulation deciding, from its own
+            composite, that its pump has stopped being trustworthy.
+            Nothing outside this lamina is consulted.
+          </description>
+          <pattern match_threshold="0.90" release_below="0.85">
+            <weight attribute="EDV" ref="0.03">1.0</weight>
+            <weight attribute="SV"  ref="0.11">1.0</weight>
+            <weight attribute="HR"  ref="0.70">0.6</weight>
+            <weight attribute="CO"  ref="0.58">0.3</weight>
+          </pattern>
+        </auto_gate>
+      </transmit>
 
-      <!-- Same transfer settings as the deviation seam, deliberately:
-           the two bodies differ in WHEN the valve opens and in nothing
-           else, so anything you observe between them is the controller
-           and not the plumbing. -->
-      <transfer mode="proportional"
-                rate="0.2"
-                time_delay="0"
-                on_close="hold"
-                confidence="0.8" />
-    </gate>
+      <!-- Identical to the receive side of organism.xml, deliberately:
+           the two bodies differ in WHEN the sending gate opens and in
+           nothing else, so anything you observe between them is the
+           trigger and not the plumbing. -->
+      <receive>
+        <key_gate id="rk_co" weight="1.0"
+                  rate="0.2"
+                  on_close="hold" confidence="0.8">
+          <key metric="identity"/>
+        </key_gate>
+      </receive>
+    </channel>
 
-  </permeability_gates>
+  </channels>
 
 </organism>

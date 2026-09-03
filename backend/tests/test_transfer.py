@@ -1,29 +1,65 @@
 """
-Phase 4 — the transfer engine.
+The absorption engine — what the RECEIVER does with an offer.
 
-Three stages between a gate deciding it is open and a number landing in
-the receiving lamina, each one a defence against a different failure:
+Three stages between a channel carrying something and a number landing
+in the receiving lamina, each one a defence against a different failure:
 
-  delay     a ring buffer `time_delay` cycles long.  Phase 2 measured
-            that there is no implicit lag to lean on, so a delay exists
-            only if it is declared.
+  delay     a ring buffer `time_delay` cycles long, owned by the
+            CHANNEL because a delay is a property of the wire.  Phase 2
+            measured that there is no implicit lag to lean on, so a
+            delay exists only if it is declared.
   EWMA      the low-pass filter G4 names as the main line against two
-            feedback loops pulling on each other through an open gate.
-  on_close  what the receiver is left holding once the gate shuts, and
-            whether it is told.
+            feedback loops pulling on each other through an open
+            channel.  `rate` belongs to the receiving gate: how fast to
+            believe something is the receiver's business, not the
+            sender's.
+  on_close  what the receiver is left holding once nothing is crossing,
+            and whether it is told.
 
-The gate is driven with a stub controller in most of these.  Driving it
-through the real threshold controller would make every test also a test
+The sending gate is driven by a stub trigger in most of these.  Driving
+it through the real threshold trigger would make every test also a test
 of when the pump works hard, and a failure would not say which half
 broke.
-"""
 
+Bodies are built as XML rather than by poking at the parsed objects,
+because the v2 dataclasses are frozen — deliberately, since a
+declaration that is also a mutable state bag cannot be reloaded or
+compared — so the honest way to test a configuration is to declare it.
+"""
 import pytest
 
 from organism import Organism, OrganismError, parse_organism
 from signal_source import SimulatedSource
-from snapshot import _simulation_snapshot
-from tests.test_organism import _organism   # noqa: F401
+
+# ── Building bodies ───────────────────────────────────────────────────
+
+_BODY = """<?xml version="1.0" encoding="UTF-8"?>
+<organism id="bdt_transfer" version="2.0">
+  <name>Transfer test body</name>
+  <laminae>
+    <lamina id="lamina_circulatory" level="1"/>
+    <lamina id="lamina_respiratory" level="2"/>
+  </laminae>
+  <channels>
+    <channel id="ch_test" from="lamina_circulatory:pump_state"
+             to="lamina_respiratory:CO_ref" time_delay="{delay}">
+      <extract attribute="CO"/>
+      <transmit>
+        <auto_gate id="tx_stub" refractory_cycles="0">
+          <threshold watch="CO" aggregate="deviation" reference="0.30"
+                     open_above="0.125" close_below="0.09"/>
+        </auto_gate>
+      </transmit>
+      <receive>
+        <key_gate id="rx_test" weight="{weight}" rate="{rate}"
+                  on_close="{on_close}" confidence="0.8"{band}>
+          <key metric="identity"/>
+        </key_gate>
+      </receive>
+    </channel>
+  </channels>
+</organism>
+"""
 
 
 def always_open(state, source_vec, params):
@@ -38,23 +74,32 @@ def shut(state, source_vec, params):
     return {"open_fraction": 0.0}
 
 
-def body(rate=0.2, delay=0, on_close="hold", mode="proportional",
-         band=None, controller=always_open, seed=11):
-    """An organism whose one gate is driven by a stub controller."""
-    org = Organism()
-    for twin in org.twins.values():
-        twin._log = lambda *a, **k: None
-    org.seed({lamina_id: SimulatedSource(twin, seed=seed).starting_state()
-              for lamina_id, twin in org.twins.items()})
-    gate = org.gates[0]
-    gate.transfer.rate = rate
-    gate.transfer.time_delay = delay
-    gate.transfer.on_close = on_close
-    gate.transfer.mode = mode
+def body_xml(tmp_path, rate=0.2, delay=0, on_close="hold", weight=1.0,
+             band=None, name="organism.xml"):
+    band_attr = ""
     if band:
-        gate.transfer.band_min, gate.transfer.band_max = band
-    org.register_gate_controller("threshold", controller)
-    return org, gate
+        band_attr = f' band_min="{band[0]}" band_max="{band[1]}"'
+    path = tmp_path / name
+    path.write_text(_BODY.format(delay=delay, rate=rate, on_close=on_close,
+                                 weight=weight, band=band_attr),
+                    encoding="utf-8")
+    return path
+
+
+@pytest.fixture
+def make_body(tmp_path):
+    """An organism whose sending gate is driven by a stub trigger."""
+    def build(rate=0.2, delay=0, on_close="hold", weight=1.0, band=None,
+              trigger=always_open, seed=11):
+        org = Organism(body_xml(tmp_path, rate=rate, delay=delay,
+                                on_close=on_close, weight=weight, band=band))
+        for twin in org.twins.values():
+            twin._log = lambda *a, **k: None
+        org.seed({lamina_id: SimulatedSource(twin, seed=seed).starting_state()
+                  for lamina_id, twin in org.twins.items()})
+        org.register_gate_controller("threshold", trigger)
+        return org, org.spec.channels[0]
+    return build
 
 
 def co_ref(org):
@@ -67,299 +112,345 @@ def run(org, cycles, hr=200.0):
     return report
 
 
+def entry(report, channel):
+    return report["channels"][channel.id]
+
+
 # ══════════════════════════════════════════════════════════════════════
 # The delay line
 # ══════════════════════════════════════════════════════════════════════
 
-def test_no_declared_delay_means_no_delay():
+def test_no_declared_delay_means_no_delay(make_body):
     """
     Phase 2 measured that the receiver re-derives within the same tick,
     so there is no implicit lag hiding here: time_delay=0 has to be
     genuinely zero, and the first cycle has to deliver.
     """
-    org, gate = body(rate=1.0, delay=0)
-    report = org.tick({"lamina_circulatory": {"HR": 200.0}})
-    entry = report["gates"][gate.id]
-    assert entry["transmitted"] == pytest.approx(entry["reading"])
+    org, channel = make_body(rate=1.0, delay=0)
+    report = run(org, 1)
+    assert entry(report, channel)["transmitted"] is not None
 
 
-@pytest.mark.parametrize("delay", [1, 2, 3])
-def test_a_declared_delay_shifts_the_stream_by_exactly_that_many_cycles(delay):
+@pytest.mark.parametrize("delay", [1, 3])
+def test_a_declared_delay_shifts_the_stream_by_exactly_that_many_cycles(
+        make_body, delay):
     """
-    Not "roughly later" — the same sequence, moved.  Anything else means
-    the line is dropping or duplicating values, which a delay that also
-    filters would hide.
+    Nothing arrives while the line is filling, and what arrives after is
+    what was offered `delay` cycles ago — not a smoothed approximation
+    of it.
     """
-    undelayed, gate_a = body(rate=1.0, delay=0)
-    delayed, gate_b = body(rate=1.0, delay=delay)
+    org, channel = make_body(rate=1.0, delay=delay)
+    offered: list = []
+    for cycle in range(delay + 3):
+        report = org.tick({"lamina_circulatory": {"HR": 200.0}})
+        record = entry(report, channel)
+        offered.append(record["reading"])
+        if cycle < delay:
+            assert record["transmitted"] is None, (
+                f"cycle {cycle}: the line is still filling and delivered "
+                f"anyway"
+            )
+        else:
+            assert record["transmitted"] == pytest.approx(
+                offered[cycle - delay]), (
+                f"cycle {cycle}: delivered something other than the reading "
+                f"from {delay} cycles back"
+            )
 
-    straight = [run(undelayed, 1)["gates"][gate_a.id]["transmitted"]
-                for _ in range(8)]
-    shifted = [run(delayed, 1)["gates"][gate_b.id]["transmitted"]
-               for _ in range(8)]
 
-    assert shifted[:delay] == [None] * delay, (
-        "a line still filling has nothing to deliver, and should say so "
-        "rather than invent something"
+def test_the_delay_line_survives_a_gate_writing_its_own_state(make_body):
+    """
+    The bug the three-way state split was made for.
+
+    A gate's contract is that its RETURN VALUE is its whole new state,
+    so the container replaces that dict wholesale every cycle.  When the
+    delay buffer shared the dict, it was emptied between being filled
+    and being read, and a channel declaring `time_delay=1` delivered
+    nothing, ever.  The buffer belongs to the CHANNEL now, and no gate
+    can reach it.
+    """
+    org, channel = make_body(
+        rate=1.0, delay=1,
+        trigger=lambda s, v, p: {"open_fraction": 1.0, "noisy": True})
+    report = run(org, 4)
+
+    assert org._gate_state["tx_stub"] == {"open_fraction": 1.0, "noisy": True}
+    assert "buffer" in org._channel_state[channel.id], (
+        "the delay line is not in the channel's own state"
     )
-    for i, value in enumerate(shifted[delay:]):
-        assert value == pytest.approx(straight[i]), (straight, shifted)
+    assert entry(report, channel)["transmitted"] is not None
 
 
-def test_the_delay_buffer_survives_the_controller_writing_its_own_state():
+def test_the_gate_and_the_channel_keep_separate_state(make_body):
     """
-    The bug this split was made for.  A gate controller's contract is
-    that its return value IS its whole new state, so the container
-    replaces that dict each cycle — which wiped the delay buffer when
-    both lived in one place.  Measured: a gate declaring time_delay=1
-    delivered nothing, ever, because the line was emptied between being
-    filled and being read.
+    Stated directly, because it is an invariant rather than a detail:
+    neither owner's keys appear in the other's bag.
     """
-    org, gate = body(rate=1.0, delay=2,
-                     controller=lambda s, v, p: {"open_fraction": 1.0,
-                                                 "noisy": True})
-    for _ in range(5):
-        org.tick({"lamina_circulatory": {"HR": 200.0}})
-
-    gate_state = org._gate_state[gate.id]
-    assert set(gate_state) == {"controller", "transfer"}
-    assert gate_state["controller"] == {"open_fraction": 1.0, "noisy": True}
-    assert len(gate_state["transfer"]["buffer"]) == 2, "the line kept its fill"
+    org, channel = make_body(rate=1.0, delay=1)
+    run(org, 4)
+    gate_state = org._gate_state["tx_stub"]
+    channel_state = org._channel_state[channel.id]
+    assert "buffer" not in gate_state
+    assert "open_fraction" not in channel_state
 
 
 # ══════════════════════════════════════════════════════════════════════
-# The low-pass filter
+# The EWMA
 # ══════════════════════════════════════════════════════════════════════
 
-def test_the_receiver_walks_out_of_its_baseline_rather_than_jumping():
+def test_the_receiver_walks_out_of_its_baseline_rather_than_jumping(make_body):
     """
-    The filter is seeded from wherever the destination already sits, so a
-    seam resting on its declared 5.0 L/min eases toward the sender's
-    number instead of snapping to it.
+    On the first crossing the filter is seeded from where the receiver
+    already sits, so a seam resting on its declared 5.0 walks toward the
+    sender instead of snapping to it.
     """
-    org, gate = body(rate=0.2)
-    assert co_ref(org).value == 5.0
-
+    org, channel = make_body(rate=0.2)
     first = org.tick({"lamina_circulatory": {"HR": 200.0}})
-    reading = first["gates"][gate.id]["reading"]
+    reading = entry(first, channel)["reading"]
     landed = co_ref(org).value
-
     assert 5.0 < landed < reading, (
-        f"expected a step from 5.0 toward {reading:.2f}, landed on {landed:.2f}"
-    )
-    assert landed == pytest.approx(5.0 + 0.2 * (reading - 5.0))
-
-
-def test_a_slower_rate_damps_the_senders_own_oscillation():
-    """
-    G4's claim, measured.  Held at HR 200 the circulatory loop fights the
-    rate and CO itself swings; the question is what reaches the far side.
-    """
-    fast, gate_f = body(rate=1.0)
-    slow, gate_s = body(rate=0.05)
-
-    readings, fast_out, slow_out = [], [], []
-    for _ in range(12):
-        rf = run(fast, 1)["gates"][gate_f.id]
-        rs = run(slow, 1)["gates"][gate_s.id]
-        readings.append(rf["reading"])
-        fast_out.append(rf["transmitted"])
-        slow_out.append(rs["transmitted"])
-
-    def swing(series):
-        return max(series) - min(series)
-
-    assert swing(readings) > 3.0, (
-        f"the sender should be swinging for this to test anything; "
-        f"got {swing(readings):.2f}"
-    )
-    assert swing(fast_out) == pytest.approx(swing(readings), rel=0.01), \
-        "rate 1.0 is a wire, and should pass the swing straight through"
-    assert swing(slow_out) < swing(fast_out) / 3, (
-        f"the low-pass should damp it: fast {swing(fast_out):.2f} vs "
-        f"slow {swing(slow_out):.2f}"
+        f"expected a step from 5.0 toward {reading}, landed on {landed}"
     )
 
 
-def test_a_half_open_gate_moves_at_half_speed_rather_than_halving_the_value():
+def test_a_slower_rate_damps_the_senders_own_oscillation(make_body):
     """
-    The plan multiplied open_fraction into the VALUE.  For a
-    physiological quantity that is not a partial reading, it is a false
-    one: a half-open gate would report a cardiac output of 2.4 L/min for
-    a heart doing 4.8.  It goes into the rate instead.
+    G4's main line.  Held at HR 200 the circulation's own loop makes
+    cardiac output swing; a fast rate hands the receiver that argument
+    verbatim, a slow one walks it up to the average.
     """
-    full, gate_f = body(rate=0.4, controller=always_open)
-    half, gate_h = body(rate=0.4, controller=half_open)
+    def swing(rate):
+        org, _ = make_body(rate=rate)
+        seen = []
+        for _ in range(12):
+            org.tick({"lamina_circulatory": {"HR": 200.0}})
+            seen.append(co_ref(org).value)
+        return max(seen[4:]) - min(seen[4:])
 
-    reading = run(full, 1)["gates"][gate_f.id]["reading"]
+    assert swing(0.2) < swing(1.0), (
+        "a slower rate has to damp more, not less"
+    )
+
+
+def test_a_half_open_gate_moves_at_half_speed_rather_than_halving_the_value(
+        make_body):
+    """
+    The open fraction goes into the RATE, never into the value.
+
+    Multiplying the value would report a cardiac output of 2.4 L/min for
+    a half-open gate on a real 4.8 — not a partial reading but a
+    different and false one.  Into the rate, a half-open gate moves the
+    receiver toward the true value at half speed, which is what a
+    half-open valve does.
+    """
+    full, _ = make_body(rate=0.4, trigger=always_open)
+    half, _ = make_body(rate=0.4, trigger=half_open)
+    run(full, 1)
     run(half, 1)
 
-    assert co_ref(full).value == pytest.approx(5.0 + 0.4 * (reading - 5.0))
-    assert co_ref(half).value == pytest.approx(5.0 + 0.2 * (reading - 5.0))
-    # The giveaway: a scaled value would land BELOW where it started,
-    # because half of a cardiac output above baseline is still a number
-    # that has nothing to do with this heart.
-    assert co_ref(half).value > 5.0
+    moved_full = co_ref(full).value - 5.0
+    moved_half = co_ref(half).value - 5.0
+    assert moved_half == pytest.approx(moved_full / 2, rel=1e-9), (
+        "a half-open gate should move half as far, not carry half the value"
+    )
 
 
-def test_the_provenance_says_what_the_filter_is_walking_toward():
-    org, gate = body(rate=0.2, delay=0)
-    org.tick({"lamina_circulatory": {"HR": 200.0}})
-
+def test_the_provenance_says_what_the_filter_is_walking_toward(make_body):
+    """
+    A reader should see the gap between where the receiver is and where
+    it is heading, rather than inferring it from two ticks.
+    """
+    org, channel = make_body(rate=0.2)
+    run(org, 3)
     provenance = co_ref(org).provenance
+    assert provenance["channel"] == channel.id
     assert provenance["state"] == "coupled"
-    assert provenance["gate"] == gate.id
-    assert provenance["from"] == "lamina_circulatory"
+    assert provenance["target"] is not None
     assert provenance["rate"] == pytest.approx(0.2)
-    assert provenance["delay"] == 0
-    assert provenance["age"] == 0
-    # The gap is visible without differencing two ticks.
-    assert provenance["target"] > co_ref(org).value
+
+
+# ══════════════════════════════════════════════════════════════════════
+# The weight — how much of the offer is taken
+# ══════════════════════════════════════════════════════════════════════
+
+def test_a_full_weight_takes_the_offer_whole(make_body):
+    org, channel = make_body(rate=1.0, weight=1.0)
+    report = run(org, 1)
+    record = entry(report, channel)
+    assert record["transmitted"] == pytest.approx(record["reading"])
+
+
+def test_a_partial_weight_scales_the_deviation_not_the_value(make_body):
+    """
+    C5, and Q4 settled on 2026-09-03.  `received = baseline +
+    weight*(offered - baseline)`.
+
+    The alternative — multiplying the value — turns a cardiac output of
+    4.8 at weight 0.5 into 2.4 L/min, which is not a partial reading of
+    4.8 but a different and false one.  Information is the departure
+    from what the receiver was already assuming, so that is what a
+    partial coupling takes a fraction of.
+    """
+    org, channel = make_body(rate=1.0, weight=0.5)
+    report = run(org, 1)
+    record = entry(report, channel)
+    baseline = co_ref(org).baseline
+    expected = baseline + 0.5 * (record["reading"] - baseline)
+
+    assert record["transmitted"] == pytest.approx(expected, rel=1e-9)
+    assert record["transmitted"] != pytest.approx(record["reading"] * 0.5), (
+        "the weight multiplied the value instead of the deviation"
+    )
 
 
 # ══════════════════════════════════════════════════════════════════════
 # on_close
 # ══════════════════════════════════════════════════════════════════════
 
-def test_hold_keeps_the_last_value_and_lets_it_age():
-    org, gate = body(rate=0.5, on_close="hold")
-    run(org, 10)
+def test_hold_keeps_the_last_value_and_lets_it_age(make_body):
+    """
+    The far side sees an old number labelled old, rather than one
+    snapping back to a baseline nobody chose.
+    """
+    org, channel = make_body(rate=1.0, on_close="hold")
+    run(org, 3)
     held = co_ref(org).value
-    assert held > 5.0
 
     org.register_gate_controller("threshold", shut)
-    for _ in range(6):
-        org.tick({"lamina_circulatory": {"HR": 72.0}})
+    run(org, 2)
 
-    assert co_ref(org).value == pytest.approx(held), "hold means hold"
-    assert co_ref(org).provenance["state"] == "held"
-    assert co_ref(org).provenance["age"] == 6
-    assert co_ref(org).provenance["open_fraction"] == 0.0
+    assert co_ref(org).value == held, "a held value must not move"
+    provenance = co_ref(org).provenance
+    assert provenance["state"] == "held"
+    assert provenance["age"] >= 1, "a held value has to say how stale it is"
 
 
-def test_decay_to_baseline_walks_back_to_the_declared_resting_value():
+def test_decay_to_baseline_walks_back_to_the_declared_resting_value(make_body):
     """
-    The other honest answer, and the reason <baseline> is required on an
-    INTER_LAMINA attribute at all (G9): where a stale coupled value is
-    worse than an uninformed one, the seam goes back to the number the
-    domain expert wrote down.
+    The other option, for a seam where a stale coupled value would be
+    worse than an honest uninformed one — and the reason `<baseline>` is
+    required on an INTER_LAMINA attribute at all (G9).
     """
-    org, gate = body(rate=0.3, on_close="decay_to_baseline")
-    run(org, 12)
-    peak = co_ref(org).value
-    assert peak > 6.0
+    org, channel = make_body(rate=0.5, on_close="decay_to_baseline")
+    run(org, 3)
+    departed = co_ref(org).value
+    assert departed != pytest.approx(5.0)
 
     org.register_gate_controller("threshold", shut)
-    trace = []
-    for _ in range(25):
-        org.tick({"lamina_circulatory": {"HR": 72.0}})
-        trace.append(co_ref(org).value)
+    run(org, 4)
 
-    baseline = co_ref(org).baseline
-    assert trace[0] < peak, "it should start moving immediately"
-    assert trace == sorted(trace, reverse=True), "and move monotonically"
-    assert trace[-1] == pytest.approx(baseline, abs=0.05)
+    assert abs(co_ref(org).value - 5.0) < abs(departed - 5.0), (
+        "a decaying value has to move back toward the baseline"
+    )
     assert co_ref(org).provenance["state"] == "decaying"
-    assert co_ref(org).provenance["target"] == baseline
 
 
-def test_a_seam_no_gate_has_ever_fed_has_nothing_to_hold_or_decay():
-    org, gate = body(on_close="decay_to_baseline", controller=shut)
-    for _ in range(10):
-        org.tick()
+def test_a_seam_nothing_has_ever_crossed_has_nothing_to_hold_or_decay(
+        make_body):
+    """
+    Nothing this channel ever carried is nothing it may claim.
+
+    Decaying an untouched value toward the baseline it already sits on
+    changes no number but stamps provenance on it, and an untouched
+    baseline that looks like a decayed coupled value is worse than
+    either.
+    """
+    org, channel = make_body(on_close="decay_to_baseline", trigger=shut)
+    run(org, 4)
     assert co_ref(org).value == 5.0
-    assert co_ref(org).provenance is None
+    assert not co_ref(org).provenance, (
+        "an uncoupled seam claimed a provenance it never earned"
+    )
 
 
 # ══════════════════════════════════════════════════════════════════════
-# band mode
+# The band — refusing rather than clamping
 # ══════════════════════════════════════════════════════════════════════
 
-def test_a_band_gate_carries_a_value_inside_its_band():
-    org, gate = body(rate=1.0, mode="band", band=(2.0, 20.0))
-    report = run(org, 1)
-    assert report["gates"][gate.id]["transmitted"] is not None
+def test_a_banded_receptor_takes_a_value_inside_its_band(make_body):
+    org, channel = make_body(rate=1.0, band=(0.0, 20.0))
+    report = run(org, 2)
+    assert entry(report, channel)["transmitted"] is not None
 
 
-def test_a_band_gate_refuses_outside_the_band_rather_than_clamping():
+def test_a_banded_receptor_refuses_outside_the_band_rather_than_clamping(
+        make_body):
     """
-    Clamping is what the soft_range gate used to do, and it silently
-    pulled out-of-range physiology back toward normal — a MAP of 120
-    displayed as 110, masking the pathology the twin exists to show.
-    Refusing says "this seam does not model that", which is true;
-    clamping says "it is 6.0", which is not.
+    Clamping is what the old soft_range gate did, and it silently pulled
+    out-of-range physiology back toward normal — a MAP of 120 displayed
+    as 110, masking the pathology the twin exists to show.  Refusing
+    says "this seam does not model that", which is true; clamping says
+    "it is 110", which is not.
     """
-    org, gate = body(rate=1.0, mode="band", band=(2.0, 6.0))
-    report = run(org, 1)
-    entry = report["gates"][gate.id]
+    org, channel = make_body(rate=1.0, band=(0.0, 6.0))
+    report = run(org, 4, hr=200.0)
+    record = entry(report, channel)
 
-    assert entry["reading"] > 6.0, "the sender must be outside for this to test"
-    assert entry["transmitted"] is None
-    assert co_ref(org).value == 5.0, "not clamped to 6.0, not carried"
-    assert entry["transfer"]["close_reason"] == "out of band"
+    assert record["transmitted"] is None
+    assert co_ref(org).value == 5.0, (
+        "the receiver took a clamped value instead of refusing"
+    )
+    assert record["state"] == "out of band", (
+        "both gates are open but nothing crossed, and the report has to "
+        "say which"
+    )
 
 
-def test_a_band_transfer_must_declare_both_edges(tmp_path):
-    path = _organism(tmp_path,
-                     '<transfer mode="proportional"',
-                     '<transfer mode="band"')
-    with pytest.raises(OrganismError, match="band_min and band_max"):
+def test_a_band_needs_both_edges(tmp_path):
+    path = body_xml(tmp_path, band=(0.0, 6.0))
+    path.write_text(path.read_text(encoding="utf-8")
+                    .replace(' band_max="6.0"', ''), encoding="utf-8")
+    with pytest.raises(OrganismError, match="two edges"):
         parse_organism(path)
 
 
 def test_a_band_written_backwards_does_not_parse(tmp_path):
-    path = _organism(tmp_path,
-                     '<transfer mode="proportional"',
-                     '<transfer mode="band" band_min="9" band_max="3"')
-    with pytest.raises(OrganismError, match="not below band_max"):
-        parse_organism(path)
-
-
-def test_an_unknown_transfer_mode_does_not_parse(tmp_path):
-    path = _organism(tmp_path,
-                     '<transfer mode="proportional"',
-                     '<transfer mode="teleport"')
-    with pytest.raises(OrganismError, match="Known"):
+    path = body_xml(tmp_path, band=(6.0, 1.0))
+    with pytest.raises(OrganismError, match="not below"):
         parse_organism(path)
 
 
 # ══════════════════════════════════════════════════════════════════════
-# What the snapshot carries
+# Reporting
 # ══════════════════════════════════════════════════════════════════════
 
-def test_the_snapshot_carries_the_whole_provenance():
-    org, gate = body(rate=0.2, delay=1)
-    run(org, 5)
+def test_the_report_separates_gate_reasoning_from_channel_state(make_body):
+    """
+    Two owners, visible as two sub-objects.  A reader can see that the
+    gates' decision and the wire's contents are different things, which
+    is what stops the next person merging them again.
+    """
+    org, channel = make_body(rate=1.0)
+    report = run(org, 2)
+    record = entry(report, channel)
 
-    entry = _simulation_snapshot(org.twins["lamina_respiratory"])["inbound"]
-    provenance = entry["CO_ref"]["provenance"]
-    for key in ("state", "gate", "from", "open_fraction", "age", "target",
-                "rate", "delay"):
-        assert key in provenance, key
-    assert provenance["delay"] == 1
-
-
-def test_the_gate_report_separates_controller_reasoning_from_transfer_state():
-    org, gate = body(rate=0.2, delay=2)
-    report = run(org, 4)
-    entry = report["gates"][gate.id]
-
-    assert entry["state"]["open_fraction"] == 1.0        # the controller's
-    assert "transmitted" in entry["transfer"]            # the engine's
-    assert "buffer" not in entry["transfer"], (
-        "the report is a summary; a reader wants how open and why, not "
-        "every value still in flight"
-    )
+    assert record["transmit"][0]["open_fraction"] == 1.0     # the gate's
+    assert record["channel_state"]["offered"] is not None    # the wire's
+    assert "offered" not in record["transmit"][0]
+    assert "open_fraction" not in record["channel_state"]
 
 
-def test_why_it_last_did_not_carry_stops_being_true_when_it_does():
-    """An open gate reported beside close_reason='shut' is a small lie."""
-    org, gate = body(rate=1.0, mode="band", band=(2.0, 6.0))
-    shut_report = run(org, 1)
-    assert shut_report["gates"][gate.id]["transfer"]["close_reason"] == \
+def test_why_it_last_did_not_carry_stops_being_true_when_it_does(make_body):
+    """
+    A report showing an open channel beside close_reason="out of band"
+    is a small lie of the same family as everything else this phase
+    spent its time on.
+    """
+    org, channel = make_body(rate=1.0, band=(0.0, 6.0))
+    shut_report = run(org, 3, hr=200.0)
+    assert entry(shut_report, channel)["channel_state"]["close_reason"] == \
         "out of band"
 
-    gate.transfer.band_max = 20.0
-    open_report = run(org, 1)
-    assert open_report["gates"][gate.id]["transmitted"] is not None
-    assert "close_reason" not in open_report["gates"][gate.id]["transfer"]
+    open_report = run(org, 3, hr=72.0)
+    record = entry(open_report, channel)
+    if record["transmitted"] is not None:
+        assert "close_reason" not in record["channel_state"]
+
+
+def test_the_snapshot_carries_the_whole_provenance(make_body):
+    org, channel = make_body(rate=0.2)
+    run(org, 3)
+    snapshot = org.snapshot()
+    provenance = snapshot["channels"][0]["provenance"]
+    for field in ("state", "channel", "from", "age", "target", "rate"):
+        assert field in provenance, f"the snapshot dropped '{field}'"

@@ -54,7 +54,7 @@ from signal_source import SimulatedSource         # noqa: E402
 
 #: Where the baseline fixture is written.
 FIXTURE_DIR = BACKEND_DIR / "tests" / "fixtures"
-FIXTURE_FILE = FIXTURE_DIR / "gate_traces_v1.json"
+FIXTURE_FILE = FIXTURE_DIR / "gate_traces_v2.json"
 
 #: RNG seed and run length, shared by every scenario.
 SEED = 11
@@ -160,7 +160,7 @@ def validate_forcing(org: Organism, forcing: dict | None,
     """
     if not forcing:
         return
-    gate = org.spec.gates[0]
+    gate = org.spec.channels[0]
     source_twin = org.twins[gate.source.lamina]
     sensors = sorted(source_twin.list_attributes("SENSOR"))
     declared = set(source_twin.attributes)
@@ -179,7 +179,7 @@ def validate_watch(org: Organism, name: str) -> list:
     Resolve the WATCH table against the gate's destination lamina, and
     refuse a watch name that lamina does not declare.
     """
-    gate = org.spec.gates[0]
+    gate = org.spec.channels[0]
     dst_twin = org.twins[gate.dest.lamina]
     watch_names = [gate.dest.member] + list(WATCH.get(name, ()))
     declared = set(dst_twin.attributes)
@@ -256,7 +256,7 @@ def capture_run(organism, scenario: str, forcing: dict | None = None,
     forcing = dict(forcing) if forcing else None
 
     org = _load_organism(name)
-    gate = org.spec.gates[0]
+    gate = org.spec.channels[0]
     validate_forcing(org, forcing, scenario)
     watch_names = validate_watch(org, name)
 
@@ -270,7 +270,7 @@ def capture_run(organism, scenario: str, forcing: dict | None = None,
         report = org.tick(
             {gate.source.lamina: active} if active else None
         )
-        gate_report = report["gates"][gate.id]
+        gate_report = report["channels"][gate.id]
         where = f"{where_prefix}, cycle {cycle + 1}"
 
         record = {
@@ -284,8 +284,11 @@ def capture_run(organism, scenario: str, forcing: dict | None = None,
         for watch_name in watch_names:
             record[watch_name] = clean_value_or_none(
                 dst_twin.attributes[watch_name].value, watch_name, where)
-        if gate.controller == "key":
-            state = gate_report["state"]
+        pattern_gate = next(
+            (g for g in gate.transmit
+             if getattr(g, "trigger_kind", None) == "pattern"), None)
+        if pattern_gate is not None:
+            state = org._gate_state[pattern_gate.id]
             record["match"] = clean_value(
                 state["match"], "match", where)
             record["drift"] = clean_value(
@@ -296,7 +299,8 @@ def capture_run(organism, scenario: str, forcing: dict | None = None,
         "organism":    name,
         "scenario":    scenario,
         "forcing":     forcing,
-        "controller":  gate.controller,
+        "controller":  ("pattern" if pattern_gate is not None
+                        else "threshold"),
         "gate":        gate.id,
         "dest":        str(gate.dest),
         "watch":       watch_names,

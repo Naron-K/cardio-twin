@@ -129,26 +129,6 @@ class GateEndpoint:
 
 
 @dataclass
-class Transfer:
-    """
-    What crosses, and how fast, once the controller has opened the gate.
-
-    `rate` is the EWMA coefficient applied once per cycle of the
-    RECEIVING lamina, and `time_delay` is counted in those same cycles.
-    Both are here from v1 rather than deferred, because two feedback
-    loops pulling on each other through an open gate is the failure mode
-    this design most expects, and a low-pass filter is the cheapest
-    defence against it (G4).
-    """
-    mode: str = "proportional"
-    rate: float = 0.2
-    time_delay: int = 0
-    on_close: str = "hold"
-    confidence: float = 0.8
-    band_min: Optional[float] = None
-    band_max: Optional[float] = None
-
-
 @dataclass
 class Learnable:
     """
@@ -167,82 +147,46 @@ class Learnable:
 
 
 @dataclass
-class PermeabilityGate:
-    """
-    One declared crossing between two laminae.
-
-    Carries no runtime state.  The controller's state lives on the
-    Organism container in Phase 2, keyed by gate id — the same placement
-    as `FeedbackController._kernel_state`, and for the same reason: a
-    declaration that is also a mutable state bag cannot be reloaded,
-    compared, or serialised without dragging the run along with it.
-    """
-    id: str
-    source: GateEndpoint
-    dest: GateEndpoint
-    controller: str
-    extract: str
-    controller_params: dict = field(default_factory=dict)
-    transfer: Transfer = field(default_factory=Transfer)
-    key_weights: dict = field(default_factory=dict)   # attr → (weight, ref)
-    key_params: dict = field(default_factory=dict)
-    learnables: list = field(default_factory=list)    # list[Learnable]
-    description: str = ""
-
-    @property
-    def starts_closed(self) -> bool:
-        """
-        Rule 1, as a value rather than a comment.
-
-        Always True.  There is no attribute in the schema that could
-        make it False, which is the enforcement: closed is not a default
-        anyone can override, it is the only state a gate can be born in.
-        """
-        return True
-
-    def controller_args(self) -> dict:
-        """
-        Everything this gate's controller needs, in one dict.
-
-        The parser keeps `<controller_params>` and `<key>` apart because
-        they are different elements answering to different rules; a
-        controller does not care which element a number arrived in, and
-        making it care would put XML structure inside the maths.
-        """
-        args = dict(self.controller_params)
-        if self.key_weights or self.key_params:
-            args.update(self.key_params)
-            args["key_weights"] = self.key_weights
-        return args
-
-
-@dataclass
 class OrganismSpec:
-    """The parsed `organism.xml`: which laminae, and which gates."""
+    """The parsed `organism.xml`: which laminae, where they stand, and
+    what crosses between them."""
     id: str
     version: str
     lamina_ids: list
-    gates: list                                       # list[PermeabilityGate]
+    #: list[Channel] — every one-way crossing this body declares.
+    channels: list = field(default_factory=list)
     name: str = ""
     description: str = ""
-    #: Each lamina's place in the stack, `<lamina_id> → level` (v2).  v1
-    #: bodies have no `<lamina level=...>` and leave this empty; the v2
-    #: parser fills it, because adjacency (rule 7) is decided here — the
-    #: level is a property of THIS body, not of the lamina, which is why
-    #: it sits in the organism file rather than being read off the lamina.
+    #: Each lamina's place in the stack, `<lamina_id> → level`.  The
+    #: level is a property of THIS body, not of the lamina — the same
+    #: lamina can stand at a different height in another organism —
+    #: which is why it is read here and not off the lamina file, and why
+    #: adjacency (rule 7) is decided against this.
     levels: dict = field(default_factory=dict)
-    #: list[Channel] for a v2 body.  v1 keeps using `gates`; the two
-    #: lists are never both populated, and the field exists so a spec of
-    #: either schema answers "what crosses here?" in one place.
-    channels: list = field(default_factory=list)
 
-    def gates_into(self, lamina_id: str) -> list:
-        """Every gate whose destination is this lamina."""
-        return [g for g in self.gates if g.dest.lamina == lamina_id]
+    def channels_into(self, lamina_id: str) -> list:
+        """Every channel whose destination is this lamina."""
+        return [c for c in self.channels if c.dest.lamina == lamina_id]
 
-    def gates_out_of(self, lamina_id: str) -> list:
-        """Every gate whose source is this lamina."""
-        return [g for g in self.gates if g.source.lamina == lamina_id]
+    def channels_out_of(self, lamina_id: str) -> list:
+        """Every channel whose source is this lamina."""
+        return [c for c in self.channels if c.source.lamina == lamina_id]
+
+    def gates_on(self, lamina_id: str) -> list:
+        """
+        Every gate sitting on this lamina's membrane, either side.
+
+        A gate belongs to the lamina it is ON, which is the transmit
+        side of a channel leaving it and the receive side of a channel
+        arriving at it — the two faces rule 8 counts separately.
+        """
+        out = []
+        for channel in self.channels:
+            if channel.source.lamina == lamina_id:
+                out.extend(channel.transmit)
+            if channel.dest.lamina == lamina_id:
+                out.extend(channel.receive)
+        return out
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -327,219 +271,6 @@ def _parse_learnables(gate_el, gate_id: str) -> list:
     return out
 
 
-def _parse_gate(gate_el) -> PermeabilityGate:
-    """One `<gate>`, with every rule that can be checked without the laminae."""
-    gate_id = (gate_el.get("id") or "").strip()
-    if not gate_id:
-        raise OrganismError("Encountered a <gate> with no id attribute.")
-
-    controller = (gate_el.get("controller") or "").strip()
-    if controller not in KNOWN_CONTROLLERS:
-        raise OrganismError(
-            f"Gate '{gate_id}' names controller '{controller}'. Known "
-            f"controllers: {sorted(KNOWN_CONTROLLERS)}."
-        )
-
-    source = _endpoint(gate_el.get("from", ""), gate_id, "from")
-    dest = _endpoint(gate_el.get("to", ""), gate_id, "to")
-    if source.lamina == dest.lamina:
-        raise OrganismError(
-            f"Gate '{gate_id}' runs from lamina '{source.lamina}' to itself. "
-            f"A value moving inside one lamina is what its function chain "
-            f"and its feedback loop are for; a gate is for crossing between."
-        )
-
-    extract_el = gate_el.find("extract")
-    if extract_el is None or not (extract_el.get("attribute") or "").strip():
-        raise OrganismError(
-            f"Gate '{gate_id}' declares no <extract attribute=\"...\"/>. The "
-            f"source is a composite (rule 2), so the gate has to say which "
-            f"of its attributes goes on the wire."
-        )
-    extract = extract_el.get("attribute").strip()
-
-    # ── controller params, including rule 4 ──────────────────────────
-    params: dict = {}
-    cp_el = gate_el.find("controller_params")
-    if cp_el is not None:
-        for k, v in cp_el.attrib.items():
-            try:
-                params[k] = float(v)
-            except ValueError:
-                params[k] = v      # watch / aggregate are names, not numbers
-
-    if controller == "threshold":
-        open_above = params.get("open_above")
-        close_below = params.get("close_below")
-        if open_above is None or close_below is None:
-            raise OrganismError(
-                f"Gate '{gate_id}' is a threshold gate and must declare both "
-                f"open_above and close_below. One threshold chatters: the "
-                f"feed carries deliberate noise, so a value sitting on a "
-                f"single boundary opens and shuts the gate every cycle (G3)."
-            )
-        if not float(close_below) < float(open_above):
-            raise OrganismError(
-                f"Gate '{gate_id}' has close_below={close_below} which is not "
-                f"below open_above={open_above}. Without a gap there is no "
-                f"deadband, and without a deadband there is no hysteresis."
-            )
-        aggregate = params.get("aggregate", "attr")
-        if aggregate not in KNOWN_AGGREGATES:
-            raise OrganismError(
-                f"Gate '{gate_id}' has aggregate='{aggregate}'. Known: "
-                f"{sorted(KNOWN_AGGREGATES)}."
-            )
-        if aggregate in ("attr", "deviation") and not params.get("watch"):
-            raise OrganismError(
-                f"Gate '{gate_id}' aggregates on a single attribute but names "
-                f"none — add watch=\"<attribute id>\"."
-            )
-        if aggregate == "deviation":
-            reference = params.get("reference")
-            if reference is None:
-                raise OrganismError(
-                    f"Gate '{gate_id}' aggregates on deviation but declares no "
-                    f"reference. A distance needs a point to be a distance "
-                    f"from, and leaving it to default to 0.0 would silently "
-                    f"turn the gate back into the one-sided thing deviation "
-                    f"exists to replace."
-                )
-            if not 0.0 <= float(reference) <= 1.0:
-                raise OrganismError(
-                    f"Gate '{gate_id}' has reference={reference}, outside "
-                    f"[0,1]. The reference is a point in the normalised space "
-                    f"the vector already lives in, which is what keeps the "
-                    f"thresholds domain-neutral (G2)."
-                )
-
-    # ── key controller ───────────────────────────────────────────────
-    key_weights: dict = {}
-    key_params: dict = {}
-    key_el = gate_el.find("key")
-    if controller == "key":
-        if key_el is None:
-            raise OrganismError(
-                f"Gate '{gate_id}' is a key gate and declares no <key> block."
-            )
-    if key_el is not None:
-        match_threshold = _float_attr(key_el, "match_threshold", gate_id, 0.9)
-        # Rule 4 covers this controller too, and it is here because
-        # measuring said so rather than by symmetry: a key gate with one
-        # threshold, sitting just above it on the noisy feed, flipped
-        # open/shut 148 times in 400 cycles.
-        release_below = _float_attr(key_el, "release_below", gate_id)
-        if release_below is None:
-            raise OrganismError(
-                f"Gate '{gate_id}' declares a <key> with match_threshold but "
-                f"no release_below. One boundary on a noisy signal chatters — "
-                f"measured at 148 flips in 400 cycles for a key sitting just "
-                f"above its threshold. Declare the shut boundary too."
-            )
-        if not release_below < match_threshold:
-            raise OrganismError(
-                f"Gate '{gate_id}' has release_below={release_below} which is "
-                f"not below match_threshold={match_threshold}. Without a gap "
-                f"there is no deadband."
-            )
-        key_params = {
-            "metric": key_el.get("metric", "weighted_distance"),
-            "match_threshold": match_threshold,
-            "release_below": release_below,
-        }
-        for w_el in key_el.findall("weight"):
-            attr = (w_el.get("attribute") or "").strip()
-            if not attr:
-                raise OrganismError(
-                    f"Gate '{gate_id}' has a key <weight> with no attribute."
-                )
-            ref = _float_attr(w_el, "ref", gate_id)
-            if ref is None:
-                raise OrganismError(
-                    f"Gate '{gate_id}' key weight '{attr}' declares no ref. "
-                    f"A key is matched against a reference point, so every "
-                    f"weighted attribute needs one, in [0,1] (G2)."
-                )
-            if not 0.0 <= ref <= 1.0:
-                raise OrganismError(
-                    f"Gate '{gate_id}' key weight '{attr}' has ref={ref}, "
-                    f"outside [0,1]. The key lives in normalised space so it "
-                    f"stays domain-neutral."
-                )
-            try:
-                weight = float((w_el.text or "1.0").strip())
-            except ValueError as e:
-                raise OrganismError(
-                    f"Gate '{gate_id}' key weight '{attr}' is not a number."
-                ) from e
-            key_weights[attr] = (weight, ref)
-        if not key_weights:
-            raise OrganismError(
-                f"Gate '{gate_id}' declares a <key> with no weights, so there "
-                f"is nothing for it to match on."
-            )
-
-    # ── transfer ─────────────────────────────────────────────────────
-    transfer = Transfer()
-    t_el = gate_el.find("transfer")
-    if t_el is not None:
-        transfer = Transfer(
-            mode=t_el.get("mode", "proportional"),
-            rate=_float_attr(t_el, "rate", gate_id, 0.2),
-            time_delay=int(_float_attr(t_el, "time_delay", gate_id, 0)),
-            on_close=t_el.get("on_close", "hold"),
-            confidence=_float_attr(t_el, "confidence", gate_id, 0.8),
-            band_min=_float_attr(t_el, "band_min", gate_id),
-            band_max=_float_attr(t_el, "band_max", gate_id),
-        )
-    if transfer.mode not in KNOWN_TRANSFER_MODES:
-        raise OrganismError(
-            f"Gate '{gate_id}' has transfer mode='{transfer.mode}'. Known: "
-            f"{sorted(KNOWN_TRANSFER_MODES)}."
-        )
-    if transfer.mode == "band":
-        if transfer.band_min is None or transfer.band_max is None:
-            raise OrganismError(
-                f"Gate '{gate_id}' is a band transfer and must declare both "
-                f"band_min and band_max. A band with one edge is not a band, "
-                f"and the gate would quietly become a one-sided filter."
-            )
-        if not transfer.band_min < transfer.band_max:
-            raise OrganismError(
-                f"Gate '{gate_id}' has band_min={transfer.band_min} which is "
-                f"not below band_max={transfer.band_max}."
-            )
-    if transfer.on_close not in KNOWN_ON_CLOSE:
-        raise OrganismError(
-            f"Gate '{gate_id}' has on_close='{transfer.on_close}'. Known: "
-            f"{sorted(KNOWN_ON_CLOSE)}."
-        )
-    if not 0.0 < transfer.rate <= 1.0:
-        raise OrganismError(
-            f"Gate '{gate_id}' has rate={transfer.rate}, outside (0,1]. The "
-            f"rate is an EWMA coefficient: 0 would never transmit anything "
-            f"and above 1 would overshoot every value it carried."
-        )
-    if transfer.time_delay < 0:
-        raise OrganismError(
-            f"Gate '{gate_id}' has a negative time_delay."
-        )
-
-    return PermeabilityGate(
-        id=gate_id,
-        source=source,
-        dest=dest,
-        controller=controller,
-        extract=extract,
-        controller_params=params,
-        transfer=transfer,
-        key_weights=key_weights,
-        key_params=key_params,
-        learnables=_parse_learnables(gate_el, gate_id),
-        description=(gate_el.findtext("description", "") or "").strip(),
-    )
-
-
 def available_organisms() -> list:
     """
     Every body file this backend can serve.
@@ -569,7 +300,7 @@ def available_organisms() -> list:
             "name":    (root.findtext("name", "") or path.stem).strip(),
             "file":    path.name,
             "default": path.resolve() == DEFAULT_ORGANISM.resolve(),
-            "gates":   len(root.findall(".//permeability_gates/gate")),
+            "channels": len(root.findall(".//channels/channel")),
         })
     return found
 
@@ -604,83 +335,22 @@ def resolve_organism(organism: str | Path | None) -> Path:
 
 def parse_organism(path: Path | str | None = None) -> OrganismSpec:
     """
-    Read `organism.xml` and check everything that does not need the laminae.
+    Read a body file and check everything that does not need the laminae.
 
-    Rules 1, 4 and 5 are decided entirely by this file, along with
-    address syntax and the controller/transfer vocabularies.  Rules 2
-    and 3 are about what the two laminae actually declare, so they need
-    the laminae — see `validate_against_laminae`.  `load_organism`
-    does both.
+    One entry point, one schema.  `resolve_organism` turns an id, a
+    filename or a path into a file; `parse_organism_v2` reads it and
+    enforces every rule decidable from the declaration alone — 1, 4, 5,
+    6 and the stack rules 7 to 12.  Rules 2 and 3 are about what the two
+    laminae actually declare, so they need the laminae; see
+    `validate_against_laminae`.  `load_organism` does both.
+
+    There is deliberately no v1 fallback.  A `<permeability_gates>` body
+    is refused by name, with a message pointing at `<channels>`, rather
+    than being reinterpreted: a one-valve declaration running "almost
+    right" on a two-sided container is the hardest class of bug to see,
+    because every number it produces looks plausible.
     """
-    resolved = resolve_organism(path)
-    root = ET.parse(str(resolved)).getroot()
-    if root.tag != "organism":
-        raise OrganismError(
-            f"{resolved} has root <{root.tag}>, expected <organism>."
-        )
-
-    lamina_ids: list = []
-    for el in root.findall(".//laminae/lamina"):
-        lamina_id = (el.get("id") or "").strip()
-        if not lamina_id:
-            raise OrganismError("Encountered a <lamina> with no id attribute.")
-        if lamina_id in lamina_ids:
-            raise OrganismError(f"Lamina '{lamina_id}' is listed twice.")
-        lamina_ids.append(lamina_id)
-    if not lamina_ids:
-        raise OrganismError(f"{resolved} lists no laminae.")
-
-    gates: list = []
-    seen: set = set()
-    feeding: dict = {}                        # destination address -> gate id
-    for gate_el in root.findall(".//permeability_gates/gate"):
-        gate = _parse_gate(gate_el)
-        if gate.id in seen:
-            raise OrganismError(f"Duplicate gate id '{gate.id}'.")
-        seen.add(gate.id)
-        for end, which in ((gate.source, "from"), (gate.dest, "to")):
-            if end.lamina not in lamina_ids:
-                raise OrganismError(
-                    f"Gate '{gate.id}' {which} lamina '{end.lamina}', which "
-                    f"this organism does not list. Declared: {lamina_ids}."
-                )
-        # Rule 6: one seam, one gate.  Measured before it was written —
-        # two gates declared onto the same attribute both parse, both
-        # report a `transmitted` value as though they carried it, and the
-        # one declared LAST silently wins: gate one reported sending 6.64
-        # while the attribute held 7.95 from gate two.  Every consumer
-        # downstream, the report and the diagram included, then shows a
-        # number attributed to a gate that did not put it there.
-        #
-        # There is no sensible arbitration to write instead.  Two gates
-        # feeding one value is two models of where that value comes from,
-        # and picking between them is a modelling decision that belongs
-        # in the declaration rather than in a tie-break rule nobody reads.
-        # A second condition for the same seam is a second CONTROLLER on
-        # one gate, or a second attribute to land on — both of which have
-        # to be said out loud.
-        address = str(gate.dest)
-        if address in feeding:
-            raise OrganismError(
-                f"Gate '{gate.id}' feeds '{address}', which gate "
-                f"'{feeding[address]}' already feeds. Two gates onto one "
-                f"attribute do not arbitrate: both report carrying a value "
-                f"and the one declared last silently overwrites the other, "
-                f"so the report names a gate that did not put the number "
-                f"there. Give this seam one gate, or give the receiving "
-                f"lamina a second attribute to land on."
-            )
-        feeding[address] = gate.id
-        gates.append(gate)
-
-    return OrganismSpec(
-        id=root.get("id", resolved.stem),
-        version=root.get("version", "1.0"),
-        lamina_ids=lamina_ids,
-        gates=gates,
-        name=(root.findtext("name", "") or "").strip(),
-        description=(root.findtext("description", "") or "").strip(),
-    )
+    return parse_organism_v2(resolve_organism(path))
 
 
 def validate_against_laminae(spec: OrganismSpec,
@@ -690,10 +360,10 @@ def validate_against_laminae(spec: OrganismSpec,
 
     2. The source of a crossing is a COMPOSITE (G5).  A composite is the
        unit a lamina already reasons about: it is what a tag addresses
-       and what carries the distribution weights, so a gate reading one
-       is reading something the model itself says belongs together.  A
-       bare attribute would let a gate reach past the model's own idea
-       of structure.
+       and what carries the distribution weights, so a channel reading
+       one is reading something the model itself says belongs together.
+       A bare attribute would let a channel reach past the model's own
+       idea of structure.
 
     3. The destination is an attribute declared INTER_LAMINA.  Writing
        into another lamina's SENSOR forges a measurement; writing into
@@ -701,6 +371,15 @@ def validate_against_laminae(spec: OrganismSpec,
        receiving lamina has to have said "this is where somebody else's
        number attaches" first — which is exactly what the source
        declaration is for.
+
+    A gate's own coordinates are checked against the composite it will
+    actually be given at runtime, and which composite that is depends on
+    the side the gate sits on: a transmit gate reads its own lamina's
+    face, and so does a receive-side AUTO gate, while a receive-side KEY
+    gate reads what the channel presents — which is the sender's face.
+    Checking the wrong one here would pass a body that fails on its
+    first tick, which is the failure this function exists to move
+    forward in time.
     """
     for lamina_id in spec.lamina_ids:
         if lamina_id not in twins:
@@ -709,59 +388,112 @@ def validate_against_laminae(spec: OrganismSpec,
                 f"was supplied for it."
             )
 
-    for gate in spec.gates:
-        src_twin: UniversalTwin = twins[gate.source.lamina]
-        dst_twin: UniversalTwin = twins[gate.dest.lamina]
+    for channel in spec.channels:
+        src_twin: UniversalTwin = twins[channel.source.lamina]
+        dst_twin: UniversalTwin = twins[channel.dest.lamina]
 
         # ── Rule 2 ───────────────────────────────────────────────────
-        if gate.source.member not in src_twin.composites:
+        if channel.source.member not in src_twin.composites:
             hint = ""
-            if gate.source.member in src_twin.attributes:
+            if channel.source.member in src_twin.attributes:
                 hint = (
-                    f" '{gate.source.member}' is an attribute there; name the "
-                    f"composite that holds it and use <extract> to pick it out."
+                    f" '{channel.source.member}' is an attribute there; name "
+                    f"the composite that holds it and use <extract> to pick "
+                    f"it out."
                 )
             raise OrganismError(
-                f"Gate '{gate.id}' reads '{gate.source}', which is not a "
-                f"composite on lamina '{gate.source.lamina}'.{hint} Known "
-                f"composites: {sorted(src_twin.composites)}."
+                f"Channel '{channel.id}' reads '{channel.source}', which is "
+                f"not a composite on lamina '{channel.source.lamina}'.{hint} "
+                f"Known composites: {sorted(src_twin.composites)}."
             )
-        composite = src_twin.composites[gate.source.member]
-        if gate.extract not in composite.attribute_ids:
+        composite = src_twin.composites[channel.source.member]
+        if channel.extract not in composite.attribute_ids:
             raise OrganismError(
-                f"Gate '{gate.id}' extracts '{gate.extract}', which is not in "
-                f"composite '{gate.source.member}'. It holds: "
+                f"Channel '{channel.id}' extracts '{channel.extract}', which "
+                f"is not in composite '{channel.source.member}'. It holds: "
                 f"{composite.attribute_ids}."
             )
-        watch = gate.controller_params.get("watch")
-        if watch and watch not in composite.attribute_ids:
-            raise OrganismError(
-                f"Gate '{gate.id}' watches '{watch}', which is not in "
-                f"composite '{gate.source.member}'. It holds: "
-                f"{composite.attribute_ids}."
-            )
-        for attr in gate.key_weights:
-            if attr not in composite.attribute_ids:
-                raise OrganismError(
-                    f"Gate '{gate.id}' keys on '{attr}', which is not in "
-                    f"composite '{gate.source.member}'. It holds: "
-                    f"{composite.attribute_ids}."
-                )
 
         # ── Rule 3 ───────────────────────────────────────────────────
-        dest_attr = dst_twin.attributes.get(gate.dest.member)
+        dest_attr = dst_twin.attributes.get(channel.dest.member)
         if dest_attr is None:
             raise OrganismError(
-                f"Gate '{gate.id}' writes to '{gate.dest}', which lamina "
-                f"'{gate.dest.lamina}' does not declare."
+                f"Channel '{channel.id}' writes to '{channel.dest}', which "
+                f"lamina '{channel.dest.lamina}' does not declare."
             )
         if dest_attr.source != INTER_LAMINA:
             raise OrganismError(
-                f"Gate '{gate.id}' writes to '{gate.dest}', declared "
-                f"{dest_attr.source}. A gate may only write an attribute the "
-                f"receiving lamina declared as {INTER_LAMINA}: writing a "
+                f"Channel '{channel.id}' writes to '{channel.dest}', declared "
+                f"{dest_attr.source}. A channel may only write an attribute "
+                f"the receiving lamina declared as {INTER_LAMINA}: writing a "
                 f"SENSOR forges a measurement, and writing a PRELIMINARY "
                 f"overwrites something that lamina computes for itself."
+            )
+
+        # ── Every gate's coordinates exist on the composite it reads ──
+        for gate in channel.transmit:
+            _validate_gate_coordinates(gate, channel, composite,
+                                       channel.source.member)
+        for gate in channel.receive:
+            if isinstance(gate, AutoGate):
+                face = _lamina_face(spec, channel.dest.lamina)
+                if face is None:
+                    raise OrganismError(
+                        f"Gate '{gate.id}' is an auto gate on lamina "
+                        f"'{channel.dest.lamina}', so it reads that lamina's "
+                        f"own interface composite — but no channel leaves "
+                        f"that lamina, so it has not declared one. Give the "
+                        f"lamina an outgoing channel, or make this a key "
+                        f"gate reading what the channel presents."
+                    )
+                own = twins[channel.dest.lamina].composites[face]
+                _validate_gate_coordinates(gate, channel, own, face)
+            else:
+                _validate_gate_coordinates(gate, channel, composite,
+                                           channel.source.member)
+
+
+def _lamina_face(spec: OrganismSpec, lamina_id: str):
+    """
+    The composite a lamina presents to its neighbours, or None.
+
+    Rule 9 guarantees there is at most one, so the first channel leaving
+    the lamina names it.  A lamina at the end of a stack sends nothing
+    and therefore has no face — which is only a problem for a gate that
+    wants to read one, and is reported there rather than here.
+    """
+    for channel in spec.channels:
+        if channel.source.lamina == lamina_id:
+            return channel.source.member
+    return None
+
+
+def _validate_gate_coordinates(gate, channel, composite,
+                               composite_id: str) -> None:
+    """
+    Every attribute a gate names has to exist on the composite it will
+    be handed.
+
+    A coordinate that is not there does not raise at runtime — the
+    controller simply cannot read it, and a key that silently drops a
+    coordinate matches on a different vector than the one written down.
+    That is a wrong answer rather than a crash, so it is caught here.
+    """
+    named: list = []
+    if isinstance(gate, AutoGate):
+        watch = gate.trigger.get("watch")
+        if watch:
+            named.append(watch)
+        named.extend(gate.trigger.get("weights") or {})
+    else:
+        named.extend(gate.key.get("weights") or {})
+
+    for attr in named:
+        if attr not in composite.attribute_ids:
+            raise OrganismError(
+                f"Gate '{gate.id}' (channel '{channel.id}') reads '{attr}', "
+                f"which is not in composite '{composite_id}'. It holds: "
+                f"{composite.attribute_ids}."
             )
 
 
@@ -1112,20 +844,34 @@ class Organism:
                  max_norm: float = DEFAULT_MAX_NORM,
                  max_total_norm: float = DEFAULT_MAX_TOTAL_NORM) -> None:
         self.spec, self.twins = load_organism(path)
-        self.gates: list = self.spec.gates
+        self.channels: list = self.spec.channels
+        #: Every gate on every channel, both sides, flattened for the
+        #: places that address a gate by id and do not care which
+        #: membrane it sits on.
+        self.gates: list = [g for ch in self.channels
+                            for g in (*ch.transmit, *ch.receive)]
         self.controllers: dict = {
             lamina_id: FeedbackController(twin, epsilon_ratio, max_norm)
             for lamina_id, twin in self.twins.items()
         }
         self.max_total_norm = float(max_total_norm)
 
-        # Gate-controller state lives HERE, keyed by gate id — not on the
-        # PermeabilityGate dataclass.  Same placement as
+        # Gate state lives HERE, keyed by gate id — not on the AutoGate
+        # or KeyGate dataclass.  Same placement as
         # FeedbackController._kernel_state, and for the same reason: a
         # declaration that is also a mutable state bag cannot be
         # reloaded, compared or serialised without dragging the run
         # along with it.
         self._gate_state: dict = {gate.id: {} for gate in self.gates}
+
+        # Channel state is a SEPARATE bag with a separate owner: the
+        # delay line, what is currently on offer, and how long it has
+        # been sitting there.  A gate controller replaces its own state
+        # wholesale every cycle, so anything it could reach would be
+        # wiped — measured under v1, where a declared time_delay
+        # delivered nothing, ever, because the buffer shared a dict with
+        # a controller.
+        self._channel_state: dict = {ch.id: {} for ch in self.channels}
 
         # Pluggable gate controllers, mirroring the five registries on
         # UniversalTwin.  The two v1 controllers are registered here;
@@ -1154,6 +900,7 @@ class Organism:
         for controller in self.controllers.values():
             controller.reset_kernel_state()
         self._gate_state = {gate.id: {} for gate in self.gates}
+        self._channel_state = {ch.id: {} for ch in self.channels}
         self.cycle = 0
         self.gates_locked = False
 
@@ -1269,7 +1016,7 @@ class Organism:
             twin.compute_all()
 
         # ── Step 3: the gate pass ────────────────────────────────────
-        gate_report = self._gate_pass(warnings)
+        channel_report = self._gate_pass(warnings)
 
         # ── Step 4: each lamina's own feedback cycle ─────────────────
         cycle_reports: dict = {}
@@ -1291,7 +1038,7 @@ class Organism:
             "cycle":               self.cycle,
             "total_feedback_norm": round(total_norm, 6),
             "gates_locked":        self.gates_locked,
-            "gates":               gate_report,
+            "channels":            channel_report,
             "cycle_reports":       cycle_reports,
             "warnings":            warnings,
         }
@@ -1303,208 +1050,467 @@ class Organism:
 
     def _gate_pass(self, warnings: list) -> dict:
         """
-        Run every gate once, in declaration order.
+        Run every channel once, in declaration order.
 
-        A gate's state is split in two, and the split is not tidiness.
-        The controller's contract is that its RETURN VALUE is its whole
-        new state, so the container replaces the dict wholesale each
-        cycle — which quietly wiped the transfer engine's delay buffer
-        when both lived in one dict.  Measured: a gate declaring
+        A crossing is now TWO decisions and a wire between them.  The
+        sending lamina's gates decide whether anything is offered; the
+        receiving lamina's gates decide whether anything is taken; and
+        the channel holds what has been offered and not yet taken.  That
+        middle state is the one the single-valve design could not
+        represent, and the reason a value can now be `waiting` rather
+        than only crossing or not.
+
+        State is split three ways, and the split is not tidiness.  Each
+        gate's controller state is its own, because a controller's
+        contract is that its RETURN VALUE is its whole new state and the
+        container replaces it wholesale.  The channel's state — the
+        delay line, what is on offer, how old it is — belongs to the
+        channel, because a controller that could reach it would wipe it.
+        Measured under v1, when both lived in one dict: a seam declaring
         `time_delay=1` delivered nothing, ever, because the line was
-        emptied between being filled and being read.  Two sub-dicts, one
-        per owner, and neither can reach the other's keys.
+        emptied between being filled and being read.
         """
         report: dict = {}
-        for gate in self.gates:
-            gate_state = self._gate_state.setdefault(gate.id, {})
-            controller_state = gate_state.setdefault("controller", {})
-            transfer_state = gate_state.setdefault("transfer", {})
-            src_twin = self.twins[gate.source.lamina]
-
-            # The sender's value as of THIS cycle's compute — step 2 has
-            # already run, which is the whole reason the gate pass sits
-            # where it does.
-            src_attr = src_twin.attributes.get(gate.extract)
-            reading = src_attr.value if src_attr else None
-            source_vec = src_twin.get_composite_vector(gate.source.member)
-
-            open_fraction = self._open_fraction(gate, controller_state,
-                                                source_vec, warnings)
-            transmitted = self._transfer(gate, reading, open_fraction,
-                                         transfer_state)
-
-            report[gate.id] = {
-                "open_fraction": round(open_fraction, 6),
-                "reading":       reading,
-                "transmitted":   transmitted,
-                "controller":    gate.controller,
-                "state":         _scalars(controller_state),
-                "transfer":      _scalars(transfer_state),
-            }
+        for channel in self.channels:
+            report[channel.id] = self._run_channel(channel, warnings)
         return report
 
-    def _open_fraction(self, gate, state: dict, source_vec: dict,
-                       warnings: list) -> float:
-        """
-        How open this gate is this cycle, in [0, 1].
+    # ── Step 3, in detail ────────────────────────────────────────────
 
-        Shut whenever the body breaker has fired, and shut whenever no
-        controller is registered for the gate's declared type.  The
-        second case is not an error: a gate whose controller has not been
-        written yet is a declared valve nobody has connected, and a
-        declared valve is shut.  Reporting it rather than raising is what
-        lets an organism be assembled before every controller exists.
+    def _face_vector(self, lamina_id: str):
         """
-        if self.gates_locked:
-            state["reason"] = "organism breaker"
-            return 0.0
-        controller_fn = self._gate_controller_registry.get(gate.controller)
-        if controller_fn is None:
-            state["reason"] = f"no '{gate.controller}' controller registered"
-            return 0.0
-        new_state = dict(controller_fn(state, source_vec,
-                                       gate.controller_args()))
+        The normalised vector of a lamina's interface composite.
+
+        Rule 9 says a lamina presents ONE composite in every direction,
+        so the face is whatever composite its channels leave on — which
+        makes this derivable rather than a second thing to declare and
+        keep in step.
+
+        A lamina at the end of a stack sends nothing and so has declared
+        no face.  That is not an error here; it only becomes one if a
+        gate actually asks to read it, and `_gate_opening` raises there,
+        naming the gate.
+        """
+        for channel in self.channels:
+            if channel.source.lamina == lamina_id:
+                return self.twins[lamina_id].get_composite_vector(
+                    channel.source.member)
+        return None
+
+    def _gate_opening(self, gate, own_vec, presented, warnings) -> dict:
+        """
+        One gate's decision this cycle: how open, and on what grounds.
+
+        The two kinds read different things, and that difference IS the
+        distinction between them.  An auto gate is handed `own_vec`, the
+        composite of the lamina it sits on — it never sees the other
+        side.  A key gate is handed `presented`, what the channel is
+        carrying — it never sees its own lamina's internals.
+
+        The arithmetic underneath is shared on purpose: a threshold and
+        a shape-match are the same hysteresis machinery pointed at
+        different inputs, and giving them separate implementations would
+        be two places for the deadband to drift apart.
+        """
+        state = self._gate_state.setdefault(gate.id, {})
+        if isinstance(gate, AutoGate):
+            if own_vec is None:
+                raise OrganismError(
+                    f"Gate '{gate.id}' reads its own lamina's interface "
+                    f"composite, but that lamina declares none because no "
+                    f"channel leaves it. An auto gate reads the face of the "
+                    f"lamina it sits on; give that lamina an outgoing "
+                    f"channel, or make this a key gate."
+                )
+            params = dict(gate.trigger)
+            params["refractory_cycles"] = gate.refractory_cycles
+            if gate.trigger_kind == "threshold":
+                fn = self._gate_controller_registry.get("threshold")
+            else:
+                params["key_weights"] = params.pop("weights", {})
+                params.setdefault("metric", "weighted_distance")
+                fn = self._gate_controller_registry.get("key")
+            vector = own_vec
+        else:
+            metric = gate.key.get("metric", "identity")
+            if metric == "identity":
+                return self._identity_opening(gate, presented, state)
+            params = dict(gate.key)
+            params["key_weights"] = params.pop("weights", {})
+            params["refractory_cycles"] = 0
+            fn = self._gate_controller_registry.get("key")
+            vector = (presented or {}).get("vector")
+            if vector is None:
+                state.clear()
+                state.update({
+                    "open_fraction": 0.0,
+                    "open":          False,
+                    "reason":        "nothing is presented at the channel",
+                })
+                return {"fraction": 0.0, "flood": False, "state": state}
+
+        if fn is None:
+            state["open_fraction"] = 0.0
+            state["reason"] = "no controller registered"
+            return {"fraction": 0.0, "flood": False, "state": state}
+
+        new_state = dict(fn(state, vector, params))
         state.clear()
         state.update(new_state)
         fraction = float(new_state.get("open_fraction", 0.0))
         if not 0.0 <= fraction <= 1.0:
             warnings.append(
-                f"Gate '{gate.id}' controller returned open_fraction="
-                f"{fraction}, outside [0,1] — clamped."
+                f"Gate '{gate.id}' returned open_fraction={fraction}, "
+                f"outside [0,1] — clamped."
             )
             fraction = max(0.0, min(1.0, fraction))
-        return fraction
+        return {"fraction": fraction,
+                "flood": isinstance(gate, AutoGate) and fraction > 0.0,
+                "state": state}
 
-    def _transfer(self, gate, reading, open_fraction: float, state: dict):
+    def _identity_opening(self, gate, presented, state: dict) -> dict:
         """
-        What actually crosses, and the write into the receiving lamina.
+        An identity key: the right KIND of thing arrived.
 
-        Three stages, in this order, and each one is a defence against a
-        different failure:
+        No band, and rule 4 exempts it for the reason the exemption
+        exists — a label matches or it does not, and there is no noise
+        between the two for a single boundary to chatter on.  `expect`
+        names the label this receptor accepts; a receptor naming none
+        accepts whatever the channel it sits on carries, which is the
+        honest default for a channel that only ever carries one thing.
+        """
+        offered_label = (presented or {}).get("label")
+        expected = gate.key.get("expect")
+        if offered_label is None:
+            fraction, reason = 0.0, "nothing is presented at the channel"
+        elif expected and offered_label != expected:
+            fraction, reason = 0.0, (
+                f"'{offered_label}' is not the '{expected}' this gate takes")
+        else:
+            fraction, reason = 1.0, f"'{offered_label}' recognised"
+        state.clear()
+        state.update({
+            "open_fraction": fraction,
+            "open":          fraction > 0.0,
+            "reason":        reason,
+            "metric":        "identity",
+            "label":         offered_label,
+        })
+        return {"fraction": fraction, "flood": False, "state": state}
 
-          1. DELAY.  The reading goes into a ring buffer `time_delay`
-             cycles long and what comes out the far end is what crossed
-             that many cycles ago.  Phase 2 measured that there is no
-             implicit lag to lean on — the receiver re-derives within the
-             same tick — so a delay only exists if it is declared.
+    def _side(self, gates, own_vec, presented, warnings) -> dict:
+        """
+        One membrane's decision, from the gates on it.
 
-          2. EWMA.  transmitted ← transmitted + rate·open_fraction·
-             (delayed − transmitted).  A low-pass filter, and G4's main
-             line against two feedback loops pulling on each other
-             through an open gate.
+        Auto gates are evaluated FIRST and, when one opens, the key
+        gates on that side are not consulted at all.  That ordering is
+        the whole content of "an auto gate is a protection layer": a
+        relief valve does not ask the controller for permission, and a
+        configuration that could suppress it would not be a protection
+        layer.
 
-          3. WRITE, through set_inter_lamina, with provenance saying
-             which gate, from which lamina, how open it was, and how old
-             the number is.
+        A side is open when ANY of its gates is open, because gates on
+        one membrane sit in parallel — four ion channels in a patch of
+        membrane do not have to agree before anything passes.  Rule 8
+        caps that parallelism at four per face.
 
-        On the open_fraction: the plan's formula multiplied it into the
-        VALUE — `delayed · f(open_fraction)`.  That is wrong for a
-        physiological quantity: a half-open gate would report a cardiac
-        output of 2.4 L/min, which is not a partial reading of 4.8, it is
-        a different and false one.  It goes into the RATE instead, so a
-        half-open gate moves the receiver toward the true value at half
-        speed — which is what a half-open valve does.  For the shipped
-        gate the two are identical anyway, because binary mode only ever
-        produces 0 or 1; the difference is real only for a proportional
-        gate, which is exactly where a scaled value would do damage.
+        A flood is DECLARED HERE AND STAYS HERE (C4, Q3 settled
+        2026-09-03): it sets THIS side's rate to 1 and bypasses THIS
+        side's weighting, and says nothing whatever about the far side's
+        gates.  If a sender's emergency could force a receiver open, the
+        sender's fail-safe would be a forced write into another lamina —
+        the disorder the gates exist to prevent, arriving through the
+        door marked "safety".
+        """
+        opening = {"fraction": 0.0, "flood": False, "weight": 1.0,
+                   "gate": None, "gates": []}
+        for kind in (AutoGate, KeyGate):
+            for gate in [g for g in gates if isinstance(g, kind)]:
+                result = self._gate_opening(gate, own_vec, presented, warnings)
+                opening["gates"].append({
+                    "id":            gate.id,
+                    "kind":          ("auto" if isinstance(gate, AutoGate)
+                                      else "key"),
+                    "open":          result["fraction"] > 0.0,
+                    "open_fraction": round(result["fraction"], 6),
+                    "flood":         result["flood"],
+                    "reason":        result["state"].get("reason", ""),
+                    # The gate's own working, carried beside its verdict.
+                    # A pattern trigger's drift telemetry lives here, and
+                    # G7 says measure the drift before correcting it —
+                    # which needs it to be readable every cycle rather
+                    # than only off the snapshot.
+                    "state":         _scalars(result["state"]),
+                })
+                if result["fraction"] > opening["fraction"]:
+                    opening["fraction"] = result["fraction"]
+                    opening["gate"] = gate
+                    opening["weight"] = float(getattr(gate, "weight", 1.0))
+                if result["flood"]:
+                    opening["flood"] = True
+            if opening["flood"]:
+                break
+        if opening["flood"]:
+            # A flood bypasses this side's WEIGHTING and sets its rate to
+            # 1; it does not decide how open the valve is.  Forcing the
+            # fraction to 1 here turned a half-open protection gate into
+            # a fully open one, which is a valve reporting a position it
+            # is not in — and it made the open fraction of a
+            # proportional auto gate unobservable.
+            opening["weight"] = 1.0
+        return opening
+
+    def _breaker_shut(self, gates) -> dict:
+        """
+        Every gate on one side, shut by the body breaker and SAYING so.
+
+        A valve that reports only a boolean makes the reader guess
+        between "the value is inside the deadband" and "the breaker
+        fired", which are not the same news.  Worse, leaving each gate's
+        last reason in place would have the snapshot explain a shut
+        valve with the reason it shut for some earlier, unrelated
+        cycle.
+        """
+        entries = []
+        for gate in gates:
+            state = self._gate_state.setdefault(gate.id, {})
+            state.clear()
+            state.update({"open_fraction": 0.0, "open": False,
+                          "reason": "organism breaker"})
+            entries.append({
+                "id":            gate.id,
+                "kind":          "auto" if isinstance(gate, AutoGate) else "key",
+                "open":          False,
+                "open_fraction": 0.0,
+                "flood":         False,
+                "reason":        "organism breaker",
+                "state":         _scalars(state),
+            })
+        return {"fraction": 0.0, "flood": False, "weight": 1.0,
+                "gate": gates[0] if gates else None, "gates": entries}
+
+    def _run_channel(self, channel, warnings: list) -> dict:
+        """
+        One channel, both membranes, in the order C11 fixes.
+
+        Transmit is resolved before receive because the receiver's key
+        gates match against what is actually on offer, and "what is on
+        offer" is not known until the sender has decided.  That is the
+        same one-directional ordering the tick already uses between
+        laminae, applied inside a single crossing.
+        """
+        cstate = self._channel_state.setdefault(channel.id, {})
+        src_twin = self.twins[channel.source.lamina]
+        dst_twin = self.twins[channel.dest.lamina]
+        dst_attr = dst_twin.attributes.get(channel.dest.member)
+
+        src_attr = src_twin.attributes.get(channel.extract)
+        reading = src_attr.value if src_attr else None
+        src_vec = src_twin.get_composite_vector(channel.source.member)
+
+        if self.gates_locked:
+            tx = self._breaker_shut(channel.transmit)
+        else:
+            tx = self._side(channel.transmit, src_vec, None, warnings)
+
+        # ── The sender offers, or the offer ages where it lies ───────
+        if tx["fraction"] > 0.0 and reading is not None:
+            cstate["offered"] = reading
+            cstate["label"] = channel.source.member
+            cstate["offered_age"] = 0
+        elif cstate.get("offered") is not None:
+            cstate["offered_age"] = int(cstate.get("offered_age", 0)) + 1
+
+        presented = {
+            "label":  cstate.get("label"),
+            "value":  cstate.get("offered"),
+            "vector": src_vec if tx["fraction"] > 0.0 else None,
+        }
+        if self.gates_locked:
+            rx = self._breaker_shut(channel.receive)
+        else:
+            rx = self._side(channel.receive, self._face_vector(
+                channel.dest.lamina), presented, warnings)
+
+        open_fraction = tx["fraction"] * rx["fraction"]
+        cstate.pop("close_reason", None)
+        transmitted = self._absorb(channel, cstate, dst_attr, dst_twin,
+                                   tx, rx, open_fraction)
+
+        return {
+            "open_fraction": round(open_fraction, 6),
+            "reading":       reading,
+            "transmitted":   transmitted,
+            "offered":       cstate.get("offered"),
+            "offered_age":   int(cstate.get("offered_age", 0)),
+            "state":         self._channel_report_state(
+                tx, rx, dst_attr, transmitted, cstate),
+            "transmit":      tx["gates"],
+            "receive":       rx["gates"],
+            "flood":         bool(tx["flood"] or rx["flood"]),
+            # The channel's OWN state, reported beside the gates' rather
+            # than merged into them.  Two owners, and a reader can see
+            # that neither reaches the other's keys — which is the
+            # arrangement a measured bug produced: a shared dict let a
+            # controller wipe the delay line between its being filled
+            # and being read.
+            "channel_state": _scalars(cstate),
+        }
+
+    def _channel_report_state(self, tx, rx, dst_attr, transmitted,
+                              cstate) -> str:
+        """
+        One word for what this channel is doing, and `waiting` is the
+        new one.
+
+        `waiting` and `held` are the pair worth keeping apart: waiting
+        means the sender has put something down and the receiver has not
+        picked it up; held means the receiver picked something up a
+        while ago and it is going stale.  Reading one as the other is
+        the same family of mistake as reading a dead stream as a live
+        one, which is what most of this project's measured bugs have
+        turned out to be.
+        """
+        if tx["fraction"] > 0.0 and rx["fraction"] > 0.0:
+            # Both gates open is not the same as something having
+            # crossed: a declared band can refuse the VALUE while the
+            # gate that would carry it is wide open. Reporting
+            # "crossing" then would name a number that never landed,
+            # which is the class of small lie the rest of this file
+            # spends its time preventing.
+            if transmitted is not None:
+                return "crossing"
+            return cstate.get("close_reason") or "shut"
+        if tx["fraction"] > 0.0:
+            return "waiting"
+        provenance = (dst_attr.provenance or {}) if dst_attr else {}
+        state = provenance.get("state")
+        if state in ("held", "decaying"):
+            return state
+        return "shut"
+
+    def _absorb(self, channel, cstate, dst_attr, dst_twin, tx, rx,
+                open_fraction: float):
+        """
+        What the receiver takes, and the write into its state.
+
+        Three stages, each a defence against a different failure:
+
+          1. DELAY — the offer goes into a ring buffer `time_delay`
+             cycles long and what comes out is what was offered that
+             many cycles ago.  The buffer belongs to the CHANNEL because
+             a delay is a property of the wire.
+
+          2. WEIGHT — received = baseline + weight*(offered - baseline)
+             (C5, Q4 settled 2026-09-03).  The weight multiplies the
+             DEVIATION from what the receiver was already assuming, not
+             the value.  Multiplying the value would turn a cardiac
+             output of 4.8 at weight 0.5 into 2.4 L/min, which is not a
+             partial reading of 4.8 — it is a different and false one.
+             Information is the departure from the assumption, so that
+             is what a partial coupling takes a fraction of.
+
+          3. EWMA — x <- x + rate*open*(target - x), the low-pass line
+             against two feedback loops pulling on each other through an
+             open channel.  `rate` comes from the RECEIVING gate,
+             because how fast to believe something is the receiver's
+             business.  A flood sets its own side's rate to 1; the
+             receiver's rate still governs the receiver.
 
         The receiver eases out of wherever it already sits rather than
         jumping: on the first crossing the filter is seeded from the
-        destination's current value, so a seam that has been resting on
-        its declared baseline of 5.0 walks up to the sender's number
-        instead of snapping to it.
+        destination's current value, so a seam resting on its declared
+        baseline of 5.0 walks up to the sender's number instead of
+        snapping to it.
         """
-        transfer = gate.transfer
-        dst_twin = self.twins[gate.dest.lamina]
-        dst_attr = dst_twin.attributes.get(gate.dest.member)
         if dst_attr is None:
             return None
+        rx_gate = rx["gate"]
 
-        delayed = self._through_delay(state, reading, transfer.time_delay)
+        if open_fraction <= 0.0:
+            reason = ("the receiving side is shut" if tx["fraction"] > 0.0
+                      else "shut")
+            return self._on_close(channel, cstate, dst_attr, rx_gate, reason)
 
-        # A band gate carries the value only while it lies inside the
-        # declared band, and refuses outside it rather than clamping.
-        # Clamping is what the soft_range gate used to do, and it
-        # silently pulled out-of-range physiology back toward normal —
-        # a MAP of 120 displayed as 110, masking the pathology the twin
-        # exists to show.  Refusing says "this seam does not model that",
-        # which is true; clamping says "it is 110", which is not.
-        out_of_band = (
-            transfer.mode == "band" and delayed is not None and not (
-                (transfer.band_min is None or delayed >= transfer.band_min)
-                and (transfer.band_max is None or delayed <= transfer.band_max)
-            )
-        )
+        delayed = self._through_delay(cstate, cstate.get("offered"),
+                                      channel.time_delay)
+        if delayed is None:
+            return self._on_close(channel, cstate, dst_attr, rx_gate,
+                                  "waiting for the delay line")
 
-        if open_fraction <= 0.0 or delayed is None or out_of_band:
-            reason = (
-                "out of band" if out_of_band
-                else "waiting for the delay line" if delayed is None
-                else "shut"
-            )
-            return self._on_close(gate, state, dst_attr, reason)
+        # A receptor with a declared band carries the value only while it
+        # lies inside it, and REFUSES outside rather than clamping.
+        # Clamping is what the old soft_range gate did, and it silently
+        # pulled out-of-range physiology back toward normal — a MAP of
+        # 120 displayed as 110, masking the pathology the twin exists to
+        # show. Refusing says "this seam does not model that", which is
+        # true; clamping says "it is 110", which is not.
+        band_min = getattr(rx_gate, "band_min", None)
+        band_max = getattr(rx_gate, "band_max", None)
+        if band_min is not None and not band_min <= delayed <= band_max:
+            return self._on_close(channel, cstate, dst_attr, rx_gate,
+                                  "out of band")
 
-        previous = state.get("transmitted")
+        weight = tx["weight"] * rx["weight"]
+        baseline = dst_attr.baseline
+        if weight != 1.0 and baseline is not None:
+            target = baseline + weight * (delayed - baseline)
+        else:
+            target = delayed
+
+        previous = cstate.get("transmitted")
         if previous is None:
-            previous = dst_attr.value if dst_attr.value is not None else delayed
-        effective_rate = max(0.0, min(1.0, transfer.rate * open_fraction))
-        transmitted = previous + effective_rate * (delayed - previous)
+            previous = dst_attr.value if dst_attr.value is not None else target
+        rate = 1.0 if rx["flood"] else float(getattr(rx_gate, "rate", 1.0))
+        effective_rate = max(0.0, min(1.0, rate * open_fraction))
+        transmitted = previous + effective_rate * (target - previous)
 
         dst_twin.set_inter_lamina(
-            gate.dest.member,
+            channel.dest.member,
             transmitted,
-            confidence=transfer.confidence,
+            confidence=float(getattr(rx_gate, "confidence", 1.0)),
             provenance={
-                # Self-describing: the snapshot supplies "coupled" as a
-                # default for provenance that says nothing, so anything
-                # that CAN say should, and `held` needs somewhere to be
-                # said from.
                 "state":         "coupled",
-                "gate":          gate.id,
-                "from":          gate.source.lamina,
+                "channel":       channel.id,
+                "gate":          rx_gate.id if rx_gate else channel.id,
+                "transmit":      [g["id"] for g in tx["gates"] if g["open"]],
+                "receive":       [g["id"] for g in rx["gates"] if g["open"]],
+                "from":          channel.source.lamina,
                 "open_fraction": round(open_fraction, 4),
                 "age":           0,
-                # What the filter is walking toward, so a reader can see
-                # the gap rather than inferring it from two ticks.
-                "target":        round(delayed, 6),
+                "target":        round(target, 6),
                 "rate":          round(effective_rate, 6),
-                "delay":         transfer.time_delay,
+                "weight":        round(weight, 6),
+                "flood":         bool(tx["flood"] or rx["flood"]),
+                "delay":         channel.time_delay,
             },
         )
-        state["transmitted"] = transmitted
-        state["last_transmitted"] = transmitted
-        # Why it last DIDN'T carry stops being true the moment it does.
-        # A report showing an open gate beside close_reason="shut" is a
-        # small lie of the same family as everything else this phase
-        # spent its time on.
-        state.pop("close_reason", None)
+        cstate["transmitted"] = transmitted
+        cstate["last_transmitted"] = transmitted
+        cstate.pop("close_reason", None)
         return transmitted
 
-    def _through_delay(self, state: dict, reading, time_delay: int):
+    def _through_delay(self, cstate: dict, reading, time_delay: int):
         """
-        Push this cycle's reading into the gate's delay line, pop what is
-        due.
+        Push this cycle's offer into the channel's delay line, pop what
+        is due.
 
-        A plain list rather than a deque because the state travels on the
-        snapshot and has to survive JSON.  `time_delay` is counted in
-        cycles of the RECEIVING lamina, which on an organism tick is the
-        same cycle for both — one tick, one entry.
-
-        Returns None while the line is still filling.  That is a real
-        state, not an error: a gate with a five-cycle delay genuinely has
-        nothing to deliver for its first five cycles, and inventing
-        something for it to say would be the point at which the delay
-        stopped meaning anything.
+        A plain list rather than a deque because the state travels on
+        the snapshot and has to survive JSON.  Returns None while the
+        line is still filling — a real state, not an error: a channel
+        with a five-cycle delay genuinely has nothing to deliver for its
+        first five cycles, and inventing something for it to say is the
+        point at which the delay stops meaning anything.
         """
         if reading is None:
             return None
-        buffer = state.setdefault("buffer", [])
+        buffer = cstate.setdefault("buffer", [])
         buffer.append(reading)
         if len(buffer) > max(0, int(time_delay)):
             return buffer.pop(0)
         return None
 
-    def _on_close(self, gate, state: dict, dst_attr, reason: str):
+    def _on_close(self, channel, cstate: dict, dst_attr, rx_gate, reason: str):
         """
         What the receiver is left holding when nothing crosses.
 
@@ -1513,36 +1519,38 @@ class Organism:
         snapping back to a baseline nobody chose.
 
         `decay_to_baseline` walks it back to the attribute's declared
-        `<baseline>` at the transfer rate — the right choice where a
-        stale coupled value is worse than an honest uninformed one, and
-        the reason `<baseline>` is required on an INTER_LAMINA attribute
-        in the first place (G9).
+        `<baseline>` at the receiving gate's rate — the right choice
+        where a stale coupled value is worse than an honest uninformed
+        one, and the reason `<baseline>` is required on an INTER_LAMINA
+        attribute in the first place (G9).
         """
-        state["close_reason"] = reason
+        cstate["close_reason"] = reason
 
-        # Nothing this gate ever carried is nothing this gate may claim.
-        # A seam still resting on its declared baseline must keep
+        # Nothing this channel ever carried is nothing it may claim.  A
+        # seam still resting on its declared baseline must keep
         # reporting itself uncoupled: decaying an untouched value toward
-        # the baseline it is already sitting on changes no number, but
-        # stamps provenance on it, and an untouched baseline that looks
-        # like a decayed coupled value is worse than either.
-        if state.get("transmitted") is None:
+        # the baseline it already sits on changes no number but stamps
+        # provenance on it, and an untouched baseline that looks like a
+        # decayed coupled value is worse than either.
+        if cstate.get("transmitted") is None:
             return None
 
-        if gate.transfer.on_close == "decay_to_baseline" \
-                and dst_attr.baseline is not None:
-            current = state["transmitted"]
-            decayed = current + gate.transfer.rate * (dst_attr.baseline - current)
-            state["transmitted"] = decayed
+        on_close = getattr(rx_gate, "on_close", "hold")
+        rate = float(getattr(rx_gate, "rate", 0.0))
+        if on_close == "decay_to_baseline" and dst_attr.baseline is not None:
+            current = cstate["transmitted"]
+            decayed = current + rate * (dst_attr.baseline - current)
+            cstate["transmitted"] = decayed
             age = int((dst_attr.provenance or {}).get("age", 0)) + 1
-            self.twins[gate.dest.lamina].set_inter_lamina(
-                gate.dest.member,
+            self.twins[channel.dest.lamina].set_inter_lamina(
+                channel.dest.member,
                 decayed,
-                confidence=gate.transfer.confidence,
+                confidence=float(getattr(rx_gate, "confidence", 1.0)),
                 provenance={
                     "state":         "decaying",
-                    "gate":          gate.id,
-                    "from":          gate.source.lamina,
+                    "channel":       channel.id,
+                    "gate":          rx_gate.id if rx_gate else channel.id,
+                    "from":          channel.source.lamina,
                     "open_fraction": 0.0,
                     "age":           age,
                     "target":        dst_attr.baseline,
@@ -1551,29 +1559,38 @@ class Organism:
             )
             return None
 
-        self._age_held_value(gate, reason)
+        self._age_held_value(channel, rx_gate, reason)
         return None
 
-    def _age_held_value(self, gate, reason: str = "shut") -> None:
+    def _age_held_value(self, channel, rx_gate, reason: str = "shut") -> None:
         """
         Mark the receiver's held value as one cycle older.
 
-        Only touches a value THIS gate put there: an attribute still on
-        its declared baseline has nothing to age, and one fed by another
-        gate is that gate's to account for.
+        The number does not move; only its age and the reason it stopped
+        moving do.  A reader looking at a held value has to be able to
+        tell how stale it is without diffing two snapshots.
         """
-        attr = self.twins[gate.dest.lamina].attributes.get(gate.dest.member)
-        if attr is None or not attr.provenance:
+        dst_twin = self.twins[channel.dest.lamina]
+        dst_attr = dst_twin.attributes.get(channel.dest.member)
+        if dst_attr is None or dst_attr.value is None:
             return
-        if attr.provenance.get("gate") != gate.id:
+        provenance = dict(dst_attr.provenance or {})
+        if not provenance:
             return
-        attr.provenance = {
-            **attr.provenance,
+        provenance.update({
             "state":         "held",
+            "channel":       channel.id,
+            "gate":          rx_gate.id if rx_gate else channel.id,
             "open_fraction": 0.0,
-            "age":           int(attr.provenance.get("age", 0)) + 1,
+            "age":           int(provenance.get("age", 0)) + 1,
             "reason":        reason,
-        }
+        })
+        dst_twin.set_inter_lamina(
+            channel.dest.member,
+            dst_attr.value,
+            confidence=float(getattr(rx_gate, "confidence", 1.0)),
+            provenance=provenance,
+        )
 
     # ── Reporting ────────────────────────────────────────────────────
 
@@ -1581,73 +1598,85 @@ class Organism:
         """
         One payload describing the whole body.
 
-        Per-lamina snapshots keep the exact shape a single-lamina session
-        already sends, nested under their lamina id, so anything that can
-        read one lamina can read one of these without learning a second
-        format.
+        Per-lamina snapshots keep the exact shape a single-lamina
+        session already sends, nested under their lamina id, so anything
+        that can read one lamina can read one of these without learning
+        a second format.
 
-        `gates` is the reader-facing view of each seam: what it was
-        declared to be and what it is doing right now, in one entry.  It
-        used to be `gate_declarations` and carry only the first half,
-        which is exactly the split that makes a consumer go looking for
-        the state somewhere else and then draw a valve without one.
-
-        Related but not the same thing as `tick()`'s report: the report
-        is what happened on ONE cycle, including the controller's reason
-        for it, and it is the thing a test reads.  This is the standing
-        state of the body, and it is the thing a screen reads.
+        `channels` is the reader-facing view of each seam: what it was
+        declared to be and what it is doing right now, both ends of it,
+        in one entry.
         """
         return {
             "organism_id": self.spec.id,
             "name":        self.spec.name,
+            "levels":      dict(self.spec.levels),
             "laminae":     {
                 lamina_id: _simulation_snapshot(twin)
                 for lamina_id, twin in self.twins.items()
             },
-            "gates":       [self._gate_entry(gate) for gate in self.gates],
+            "channels":    [self._channel_entry(ch) for ch in self.channels],
+        }
+
+    def _channel_entry(self, channel) -> dict:
+        """
+        One channel, declaration and live state together, both sides.
+
+        The provenance comes off the RECEIVING attribute rather than off
+        the channel's own state, and that is deliberate: it is the same
+        object the receiving lamina's own snapshot shows under
+        `inbound`, so the seam drawn on a body diagram and the value
+        shown beside the far side's inputs can never disagree about how
+        old the number is.  Two places computing the same claim is how
+        they drift.
+        """
+        cstate = self._channel_state.get(channel.id, {})
+        dst_attr = self.twins[channel.dest.lamina].attributes.get(
+            channel.dest.member)
+        provenance = dict(dst_attr.provenance) if (
+            dst_attr is not None and dst_attr.provenance) else {}
+        if provenance.get("channel") != channel.id:
+            provenance = {}
+
+        return {
+            "id":          channel.id,
+            "from":        str(channel.source),
+            "to":          str(channel.dest),
+            "from_lamina": channel.source.lamina,
+            "to_lamina":   channel.dest.lamina,
+            "extract":     channel.extract,
+            "time_delay":  channel.time_delay,
+            "description": channel.description,
+            "transmit":    [self._gate_entry(g) for g in channel.transmit],
+            "receive":     [self._gate_entry(g) for g in channel.receive],
+            "offered":     cstate.get("offered"),
+            "offered_age": int(cstate.get("offered_age", 0)),
+            "last_value":  cstate.get("last_transmitted"),
+            "provenance":  provenance,
         }
 
     def _gate_entry(self, gate) -> dict:
-        """
-        One gate, declaration and live state together.
-
-        The provenance comes off the RECEIVING attribute rather than off
-        the gate's own state, and that is deliberate: it is the same
-        object the receiving lamina's own snapshot shows under `inbound`,
-        so the seam drawn on a body diagram and the value shown beside
-        the far side's inputs can never disagree about how old the number
-        is.  Two places computing the same claim is how they drift.
-        """
+        """One gate: what it was declared to be, and what it just did."""
         state = self._gate_state.get(gate.id, {})
-        controller_state = state.get("controller", {})
-        transfer_state = state.get("transfer", {})
-        dst_attr = self.twins[gate.dest.lamina].attributes.get(gate.dest.member)
-        provenance = dict(dst_attr.provenance) if (
-            dst_attr is not None and dst_attr.provenance) else {}
-        # A seam this gate has never fed is not this gate's to describe.
-        if provenance.get("gate") != gate.id:
-            provenance = {}
-
-        open_fraction = float(controller_state.get("open_fraction", 0.0))
-        return {
-            # Declaration — what the XML says this seam is.
+        fraction = float(state.get("open_fraction", 0.0))
+        entry = {
             "id":            gate.id,
-            "from":          str(gate.source),
-            "to":            str(gate.dest),
-            "from_lamina":   gate.source.lamina,
-            "to_lamina":     gate.dest.lamina,
-            "controller":    gate.controller,
-            "extract":       gate.extract,
-            "mode":          gate.transfer.mode,
+            "kind":          "auto" if isinstance(gate, AutoGate) else "key",
+            "side":          gate.side,
             "description":   gate.description,
-            # Live — what it is doing.
-            "open_fraction": round(open_fraction, 6),
-            "open":          open_fraction > 0.0,
-            "reason":        controller_state.get("reason", ""),
-            "watch_value":   controller_state.get("watch_value"),
-            "last_value":    transfer_state.get("last_transmitted"),
-            "provenance":    provenance,
+            "open_fraction": round(fraction, 6),
+            "open":          fraction > 0.0,
+            "reason":        state.get("reason", ""),
+            "state":         _scalars(state),
         }
+        if isinstance(gate, AutoGate):
+            entry["trigger"] = gate.trigger_kind
+        else:
+            entry["metric"] = gate.key.get("metric", "identity")
+            entry["weight"] = gate.weight
+            entry["rate"] = gate.rate
+            entry["on_close"] = gate.on_close
+        return entry
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -1722,6 +1751,7 @@ class Channel:
 
     def __str__(self) -> str:                       # pragma: no cover — display
         return f"{self.source} → {self.dest}"
+    description: str = ""
 
 
 @dataclass(frozen=True)
@@ -1744,6 +1774,7 @@ class AutoGate:
     refractory_cycles: int = 0
     side: str = ""                                  # "transmit" | "receive"
     learnables: list = field(default_factory=list)  # list[Learnable]
+    description: str = ""
 
 
 @dataclass(frozen=True)
@@ -1764,8 +1795,18 @@ class KeyGate:
     rate: float = 0.2
     on_close: str = "hold"
     confidence: float = 0.8
+    #: The range this receptor will accept a value inside.  Outside it
+    #: the value is REFUSED, not clamped: clamping silently pulls
+    #: out-of-range physiology back toward normal, which is how a MAP of
+    #: 120 gets displayed as 110 and masks the pathology the twin exists
+    #: to show.  Refusing says "this seam does not model that", which is
+    #: true; clamping says "it is 110", which is not.  Both edges or
+    #: neither — half a band is a bound nobody declared.
+    band_min: Optional[float] = None
+    band_max: Optional[float] = None
     side: str = ""                                  # "transmit" | "receive"
     learnables: list = field(default_factory=list)  # list[Learnable]
+    description: str = ""
 
 
 def _finite_attr(el, name: str, owner: str, default: Optional[float] = None):
@@ -2068,13 +2109,13 @@ def _parse_auto_gate(gate_el, channel_id: str, side: str) -> AutoGate:
                     f"<pattern>; two is two gates wearing one id."
                 )
             trigger_el = child
-        elif child.tag == "learnable":
+        elif child.tag in ("learnable", "description"):
             continue
         else:
             raise OrganismError(
                 f"Gate '{gate_id}' declares a <{child.tag}>. An auto gate "
                 f"answers to one <threshold> or <pattern> trigger and may "
-                f"carry <learnable>s — nothing else."
+                f"carry <description> and <learnable>s — nothing else."
             )
     if trigger_el is None:
         raise OrganismError(
@@ -2103,6 +2144,7 @@ def _parse_auto_gate(gate_el, channel_id: str, side: str) -> AutoGate:
         refractory_cycles=refractory,
         side=side,
         learnables=_parse_learnables(gate_el, gate_id),
+        description=(gate_el.findtext("description", "") or "").strip()
     )
 
 
@@ -2120,6 +2162,13 @@ def _parse_key_gate(gate_el, channel_id: str, side: str) -> KeyGate:
         raise OrganismError(
             f"Channel '{channel_id}' {side} declares a <key_gate> with no "
             f"id attribute."
+        )
+    if gate_el.get("time_delay") is not None:
+        raise OrganismError(
+            f"Gate '{gate_id}' declares time_delay. A delay is a property "
+            f"of the WIRE, not of either end of it, so it belongs on the "
+            f"<channel>. Declared here it would be read by nobody, which "
+            f"is worse than being refused."
         )
     _reject_open_declaration(gate_el, gate_id)
 
@@ -2142,19 +2191,33 @@ def _parse_key_gate(gate_el, channel_id: str, side: str) -> KeyGate:
                     f"gate holds exactly one reference to match against."
                 )
             key_el = child
-        elif child.tag == "learnable":
+        elif child.tag in ("learnable", "description"):
             continue
         else:
             raise OrganismError(
                 f"Gate '{gate_id}' declares a <{child.tag}>. A key gate "
-                f"carries one <key> and may carry <learnable>s — nothing "
-                f"else."
+                f"carries one <key> and may carry <description> and "
+                f"<learnable>s — nothing else."
             )
     if key_el is None:
         raise OrganismError(
             f"Gate '{gate_id}' is a key gate and declares no <key> block."
         )
 
+    band_min = _finite_attr(gate_el, "band_min", f"Gate '{gate_id}'")
+    band_max = _finite_attr(gate_el, "band_max", f"Gate '{gate_id}'")
+    if (band_min is None) != (band_max is None):
+        raise OrganismError(
+            f"Gate '{gate_id}' declares only "
+            f"{'band_min' if band_max is None else 'band_max'}. A band has "
+            f"two edges; one edge is a bound in a direction nobody said, so "
+            f"declare both or neither."
+        )
+    if band_min is not None and not band_min < band_max:
+        raise OrganismError(
+            f"Gate '{gate_id}' has band_min={band_min} which is not below "
+            f"band_max={band_max}. A band that way round accepts nothing."
+        )
     return KeyGate(
         id=gate_id,
         key=_parse_key_block(key_el, gate_id),
@@ -2164,6 +2227,9 @@ def _parse_key_gate(gate_el, channel_id: str, side: str) -> KeyGate:
         confidence=confidence,
         side=side,
         learnables=_parse_learnables(gate_el, gate_id),
+        description=(gate_el.findtext("description", "") or "").strip(),
+        band_min=band_min,
+        band_max=band_max
     )
 
 
@@ -2245,6 +2311,22 @@ def _parse_channel_v2(channel_el) -> Channel:
             f"line cannot run for a negative number of cycles."
         )
 
+    # An element the channel does not understand is refused rather than
+    # skipped, on the same argument as rule 10.  A <learnable> written
+    # here instead of inside a gate parses, is read by nobody, and leaves
+    # a file that says a parameter may adapt while nothing ever adapts
+    # it — a declaration that is quietly untrue, which is worse than one
+    # that fails.
+    known = {"description", "extract", "transmit", "receive", "transform"}
+    for child in channel_el:
+        if child.tag not in known:
+            raise OrganismError(
+                f"Channel '{channel_id}' declares a <{child.tag}>, which a "
+                f"channel does not carry. It holds <description>, "
+                f"<extract>, <transmit> and <receive>. A <learnable> "
+                f"belongs inside the gate whose parameter it names."
+            )
+
     transmit_el = channel_el.find("transmit")
     receive_el = channel_el.find("receive")
     if transmit_el is None:
@@ -2267,6 +2349,7 @@ def _parse_channel_v2(channel_el) -> Channel:
         time_delay=time_delay,
         transmit=transmit,
         receive=receive,
+        description=(channel_el.findtext("description", "") or "").strip(),
     )
 
 
@@ -2375,6 +2458,18 @@ def parse_organism_v2(path: Path | str) -> OrganismSpec:
                     f"{lamina_ids}."
                 )
 
+        # A channel from a lamina to itself is caught by adjacency below
+        # — the distance is 0, not 1 — but the message that produces
+        # names the same lamina twice with the same level and reads like
+        # a claim about two different ones.  Said plainly here instead.
+        if ch.source.lamina == ch.dest.lamina:
+            raise OrganismError(
+                f"Channel '{ch.id}' runs from lamina '{ch.source.lamina}' "
+                f"to itself. A channel couples two laminae; a lamina "
+                f"reaching its own attributes is doing that inside its "
+                f"own file, where it needs no channel and no gates."
+            )
+
         # ── Rule 7: adjacency ─────────────────────────────────────────
         # A channel is a talk between neighbours.  Coupling a lamina to a
         # grandparent hides the middle of the stack from the thing that
@@ -2470,7 +2565,6 @@ def parse_organism_v2(path: Path | str) -> OrganismSpec:
         id=organism_id,
         version=root.get("version", "2.0"),
         lamina_ids=lamina_ids,
-        gates=[],
         name=(root.findtext("name", "") or "").strip(),
         description=(root.findtext("description", "") or "").strip(),
         levels=levels,

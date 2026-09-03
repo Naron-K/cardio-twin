@@ -237,16 +237,22 @@ def test_the_shipped_organism_loads_and_passes_every_rule():
     assert spec.lamina_ids == ["lamina_circulatory", "lamina_respiratory"]
     assert set(twins) == set(spec.lamina_ids)
 
-    gate = spec.gates[0]
-    assert gate.id == "pg_co_to_resp"
-    assert (gate.source.lamina, gate.source.member) == \
+    assert spec.levels == {"lamina_circulatory": 1, "lamina_respiratory": 2}
+
+    channel = spec.channels[0]
+    assert channel.id == "ch_co_to_resp"
+    assert (channel.source.lamina, channel.source.member) == \
         ("lamina_circulatory", "pump_state")
-    assert (gate.dest.lamina, gate.dest.member) == \
+    assert (channel.dest.lamina, channel.dest.member) == \
         ("lamina_respiratory", "CO_ref")
-    assert gate.controller == "threshold"
-    assert gate.extract == "CO"
-    assert gate.transfer.rate == 0.2
-    assert gate.transfer.on_close == "hold"
+    assert channel.extract == "CO"
+    # The sender decides whether to offer; the receiver decides whether
+    # to take, and holds the terms it absorbs on.
+    assert channel.transmit[0].id == "ta_pump_deviation"
+    assert channel.transmit[0].trigger_kind == "threshold"
+    assert channel.receive[0].id == "rk_co"
+    assert channel.receive[0].rate == 0.2
+    assert channel.receive[0].on_close == "hold"
 
 
 def test_the_two_halves_of_the_seam_agree():
@@ -257,18 +263,33 @@ def test_the_two_halves_of_the_seam_agree():
     talking about the same thing.
     """
     spec, twins = load_organism()
-    gate = spec.gates[0]
-    dest = twins[gate.dest.lamina].attributes[gate.dest.member]
+    channel = spec.channels[0]
+    dest = twins[channel.dest.lamina].attributes[channel.dest.member]
     assert dest.source == INTER_LAMINA
-    source_comp = twins[gate.source.lamina].composites[gate.source.member]
-    assert gate.extract in source_comp.attribute_ids
+    source_comp = twins[channel.source.lamina].composites[channel.source.member]
+    assert channel.extract in source_comp.attribute_ids
 
 
-def test_gates_are_indexable_by_which_lamina_they_touch():
+def test_channels_are_indexable_by_which_lamina_they_touch():
     spec = parse_organism()
-    assert [g.id for g in spec.gates_into("lamina_respiratory")] == ["pg_co_to_resp"]
-    assert [g.id for g in spec.gates_out_of("lamina_circulatory")] == ["pg_co_to_resp"]
-    assert spec.gates_into("lamina_circulatory") == []
+    assert [c.id for c in spec.channels_into("lamina_respiratory")] == \
+        ["ch_co_to_resp"]
+    assert [c.id for c in spec.channels_out_of("lamina_circulatory")] == \
+        ["ch_co_to_resp"]
+    assert spec.channels_into("lamina_circulatory") == []
+
+
+def test_gates_are_indexable_by_the_lamina_whose_membrane_they_sit_on():
+    """
+    A gate belongs to the lamina it is ON — the transmit side of a
+    channel leaving it, the receive side of one arriving at it.  That is
+    the ownership the two-sided design exists to make explicit, and the
+    two faces rule 8 counts separately.
+    """
+    spec = parse_organism()
+    assert [g.id for g in spec.gates_on("lamina_circulatory")] == \
+        ["ta_pump_deviation"]
+    assert [g.id for g in spec.gates_on("lamina_respiratory")] == ["rk_co"]
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -301,7 +322,7 @@ def _twins_for(spec):
 
 
 #: The one line of the shipped gate the learnable tests hang things off.
-_EXTRACT = '<extract attribute="CO" />'
+_EXTRACT = '<extract attribute="CO"/>'
 
 
 def test_rule_1_a_gate_cannot_be_declared_open():
@@ -312,8 +333,11 @@ def test_rule_1_a_gate_cannot_be_declared_open():
     it, so "born open" is not a thing anyone can express.
     """
     spec = parse_organism()
-    assert all(g.starts_closed for g in spec.gates)
-    assert not hasattr(spec.gates[0], "initial_open")
+    gates = [g for c in spec.channels for g in (*c.transmit, *c.receive)]
+    assert gates
+    for gate in gates:
+        assert not hasattr(gate, "initial_open")
+        assert not hasattr(gate, "starts_open")
 
 
 def test_rule_2_the_source_must_be_a_composite(tmp_path):
@@ -372,9 +396,15 @@ def test_rule_4_the_band_must_be_the_right_way_round(tmp_path):
         parse_organism(path)
 
 
+#: The receiving gate's key — the anchor the learnable tests hang off.
+#: A <learnable> belongs INSIDE a gate in v2, because the parameter it
+#: names (a weight, a threshold) is the gate's and not the channel's.
+_KEY = '<key metric="identity"/>'
+
+
 def _with_learnable(tmp_path, declaration: str):
-    """The shipped gate, plus one <learnable> spelled however the test wants."""
-    return _organism(tmp_path, _EXTRACT, f"{_EXTRACT}\n      {declaration}")
+    """The shipped receive gate, plus one <learnable> however spelled."""
+    return _organism(tmp_path, _KEY, f"{_KEY}\n          {declaration}")
 
 
 def test_rule_5_a_learnable_without_a_clamp_does_not_parse(tmp_path):
@@ -394,7 +424,7 @@ def test_rule_5_a_clamped_learnable_parses(tmp_path):
     path = _with_learnable(
         tmp_path,
         '<learnable name="match_threshold" min="0.5" max="0.99" initial="0.9" />')
-    gate = parse_organism(path).gates[0]
+    gate = parse_organism(path).channels[0].receive[0]
     assert len(gate.learnables) == 1
     assert (gate.learnables[0].min, gate.learnables[0].max) == (0.5, 0.99)
     assert gate.learnables[0].initial == 0.9
@@ -410,15 +440,19 @@ def test_rule_5_a_learnable_cannot_start_outside_its_own_clamp(tmp_path):
 
 # ── The vocabulary checks that stop a silent no-op ────────────────────
 
-def test_an_unknown_controller_does_not_parse(tmp_path):
-    path = _organism(tmp_path,
-                     'controller="threshold"',
-                     'controller="magic"')
-    with pytest.raises(OrganismError, match="Known controllers"):
+def test_an_unknown_trigger_does_not_parse(tmp_path):
+    """
+    An unrecognised element inside a gate is refused rather than
+    ignored. Ignoring it leaves a gate whose declared condition nobody
+    evaluates — which runs, and quietly means something other than what
+    the file says.
+    """
+    path = _organism(tmp_path, '<threshold ', '<telepathy ')
+    with pytest.raises(OrganismError, match="telepathy"):
         parse_organism(path)
 
 
-def test_a_gate_from_a_lamina_to_itself_does_not_parse(tmp_path):
+def test_a_channel_from_a_lamina_to_itself_does_not_parse(tmp_path):
     path = _organism(tmp_path,
                      'to="lamina_respiratory:CO_ref"',
                      'to="lamina_circulatory:CO_ref"')
@@ -442,18 +476,18 @@ def test_a_gate_naming_an_unlisted_lamina_does_not_parse(tmp_path):
         parse_organism(path)
 
 
-def test_a_transfer_rate_outside_zero_to_one_does_not_parse(tmp_path):
+def test_an_absorption_rate_outside_zero_to_one_does_not_parse(tmp_path):
     path = _organism(tmp_path,
                      'rate="0.2"',
                      'rate="1.8"')
-    with pytest.raises(OrganismError, match="EWMA coefficient"):
+    with pytest.raises(OrganismError, match=r"outside \[0,1\]"):
         parse_organism(path)
 
 
 def test_extracting_something_the_composite_does_not_hold(tmp_path):
     path = _organism(tmp_path,
                      _EXTRACT,
-                     '<extract attribute="PaO2" />')
+                     '<extract attribute="PaO2"/>')
     spec = parse_organism(path)
     twins = _twins_for(spec)
     with pytest.raises(OrganismError, match="not in composite"):
@@ -493,12 +527,14 @@ def test_rule_6_two_gates_cannot_feed_one_attribute(tmp_path):
     gate that did not put it there.
     """
     text = DEFAULT_ORGANISM.read_text(encoding="utf-8")
-    start = text.index("<gate id=")
-    end = text.index("</gate>") + len("</gate>")
+    start = text.index("<channel id=")
+    end = text.index("</channel>") + len("</channel>")
     one = text[start:end]
-    two = one.replace('id="pg_co_to_resp"', 'id="pg_rival"')
+    two = (one.replace('id="ch_co_to_resp"', 'id="ch_rival"')
+              .replace('id="ta_pump_deviation"', 'id="ta_rival"')
+              .replace('id="rk_co"', 'id="rk_rival"'))
 
-    path = tmp_path / "two_gates.xml"
+    path = tmp_path / "two_channels.xml"
     path.write_text(text.replace(one, one + "\n" + two), encoding="utf-8")
 
     with pytest.raises(OrganismError, match="already feeds"):
@@ -515,12 +551,15 @@ def test_rule_6_leaves_two_gates_out_of_one_lamina_alone(tmp_path):
     two writers overwrite each other.
     """
     text = DEFAULT_ORGANISM.read_text(encoding="utf-8")
-    start = text.index("<gate id=")
-    end = text.index("</gate>") + len("</gate>")
+    start = text.index("<channel id=")
+    end = text.index("</channel>") + len("</channel>")
     one = text[start:end]
-    # Same source, a destination that does not exist — so if it gets past
-    # rule 6 it fails on rule 3 instead, which is the proof it got past.
-    two = (one.replace('id="pg_co_to_resp"', 'id="pg_elsewhere"')
+    # Same source composite (rule 9 requires it), a destination that
+    # exists but is not INTER_LAMINA — so if it gets past rule 6 it
+    # fails on rule 3 instead, which is the proof it got past.
+    two = (one.replace('id="ch_co_to_resp"', 'id="ch_elsewhere"')
+              .replace('id="ta_pump_deviation"', 'id="ta_elsewhere"')
+              .replace('id="rk_co"', 'id="rk_elsewhere"')
               .replace('to="lamina_respiratory:CO_ref"',
                        'to="lamina_respiratory:PaO2"'))
 
@@ -528,6 +567,6 @@ def test_rule_6_leaves_two_gates_out_of_one_lamina_alone(tmp_path):
     path.write_text(text.replace(one, one + "\n" + two), encoding="utf-8")
 
     spec = parse_organism(path)          # rule 6 does not object
-    assert [g.id for g in spec.gates] == ["pg_co_to_resp", "pg_elsewhere"]
+    assert [c.id for c in spec.channels] == ["ch_co_to_resp", "ch_elsewhere"]
     with pytest.raises(OrganismError, match="INTER_LAMINA"):
         validate_against_laminae(spec, _twins_for(spec))

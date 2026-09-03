@@ -173,6 +173,10 @@ class OrganismSpec:
     #: which is why it is read here and not off the lamina file, and why
     #: adjacency (rule 7) is decided against this.
     levels: dict = field(default_factory=dict)
+    #: `<lamina_id> → composite` for laminae that declare their interface
+    #: composite explicitly.  Derivable for any lamina that sends, and
+    #: required for one that only receives — see the parser.
+    faces: dict = field(default_factory=dict)
 
     def channels_into(self, lamina_id: str) -> list:
         """Every channel whose destination is this lamina."""
@@ -398,6 +402,15 @@ def validate_against_laminae(spec: OrganismSpec,
                 f"was supplied for it."
             )
 
+    for lamina_id, face in spec.faces.items():
+        twin = twins.get(lamina_id)
+        if twin is not None and face not in twin.composites:
+            raise OrganismError(
+                f"Lamina '{lamina_id}' declares face=\"{face}\", which is "
+                f"not a composite it holds. Known composites: "
+                f"{sorted(twin.composites)}."
+            )
+
     for channel in spec.channels:
         src_twin: UniversalTwin = twins[channel.source.lamina]
         dst_twin: UniversalTwin = twins[channel.dest.lamina]
@@ -441,26 +454,51 @@ def validate_against_laminae(spec: OrganismSpec,
             )
 
         # ── Every gate's coordinates exist on the composite it reads ──
-        for gate in channel.transmit:
-            _validate_gate_coordinates(gate, channel, composite,
-                                       channel.source.member)
-        for gate in channel.receive:
-            if isinstance(gate, AutoGate):
-                face = _lamina_face(spec, channel.dest.lamina)
-                if face is None:
+        # Which composite that is depends on what the gate is and where
+        # it sits, and getting it wrong here passes a body that fails on
+        # its first tick — the failure this function exists to bring
+        # forward in time.
+        for side, gates, own_lamina, presented_lamina in (
+            ("transmit", channel.transmit,
+             channel.source.lamina, channel.dest.lamina),
+            ("receive", channel.receive,
+             channel.dest.lamina, channel.source.lamina),
+        ):
+            for gate in gates:
+                if isinstance(gate, AutoGate):
+                    # An auto gate reads its OWN lamina's face.
+                    read_lamina, member = own_lamina, _lamina_face(
+                        spec, own_lamina)
+                    if member is None:
+                        raise OrganismError(
+                            f"Gate '{gate.id}' is an auto gate on lamina "
+                            f"'{own_lamina}', so it reads that lamina's own "
+                            f"interface composite — but no channel leaves "
+                            f"that lamina and it declares no face=\"...\". "
+                            f"Give the <lamina> a face, or make this a key "
+                            f"gate reading what the channel presents."
+                        )
+                elif gate.key.get("from") is not None:
+                    # A key that names its source reads exactly that.
+                    endpoint = gate.key["from"]
+                    read_lamina, member = endpoint.lamina, endpoint.member
+                else:
+                    # Otherwise a key reads what the far side presents,
+                    # which is that lamina's face.
+                    read_lamina = presented_lamina
+                    member = _lamina_face(spec, presented_lamina)
+                    if member is None:
+                        continue
+
+                twin = twins.get(read_lamina)
+                if twin is None or member not in twin.composites:
                     raise OrganismError(
-                        f"Gate '{gate.id}' is an auto gate on lamina "
-                        f"'{channel.dest.lamina}', so it reads that lamina's "
-                        f"own interface composite — but no channel leaves "
-                        f"that lamina, so it has not declared one. Give the "
-                        f"lamina an outgoing channel, or make this a key "
-                        f"gate reading what the channel presents."
+                        f"Gate '{gate.id}' (channel '{channel.id}', {side}) "
+                        f"reads '{read_lamina}:{member}', which is not a "
+                        f"composite this body holds."
                     )
-                own = twins[channel.dest.lamina].composites[face]
-                _validate_gate_coordinates(gate, channel, own, face)
-            else:
-                _validate_gate_coordinates(gate, channel, composite,
-                                           channel.source.member)
+                _validate_gate_coordinates(gate, channel,
+                                           twin.composites[member], member)
 
 
 def _lamina_face(spec: OrganismSpec, lamina_id: str):
@@ -472,6 +510,9 @@ def _lamina_face(spec: OrganismSpec, lamina_id: str):
     and therefore has no face — which is only a problem for a gate that
     wants to read one, and is reported there rather than here.
     """
+    declared = spec.faces.get(lamina_id)
+    if declared is not None:
+        return declared
     for channel in spec.channels:
         if channel.source.lamina == lamina_id:
             return channel.source.member
@@ -776,12 +817,33 @@ def key_gate_controller(state: dict, source_vec: dict, params: dict) -> dict:
     threshold = float(params.get("match_threshold", 0.9))
     release = float(params.get("release_below", threshold))
     was_open = bool(state.get("open", False))          # G6: born closed
-    if not was_open and match >= threshold:
-        is_open = True
+    refractory = int(state.get("refractory", 0))
+    transitioned = False
+
+    # The refractory, on the same terms the threshold controller has
+    # always had it.  The deadband stops chatter from NOISE; this stops
+    # it from a fast GENUINE swing, which a shape match is more exposed
+    # to than a threshold is: a pattern keyed on a composite that the
+    # crossing itself moves will otherwise open, change the very
+    # coordinates it matched on, and shut again on the next cycle —
+    # measured at four transitions in eight cycles on a receive-side
+    # crisis trigger before this existed.
+    #
+    # It was missing here while `refractory_cycles` was already
+    # accepted on the declaration, so a body could ask for a hold and
+    # get none: a parameter read by nobody, which is worse than one
+    # that is refused.
+    if refractory > 0:
+        refractory -= 1
+        is_open = was_open
+    elif not was_open and match >= threshold:
+        is_open, transitioned = True, True
     elif was_open and match <= release:
-        is_open = False
+        is_open, transitioned = False, True
     else:
         is_open = was_open                              # inside the band
+    if transitioned:
+        refractory = int(params.get("refractory_cycles", 0))
 
     # ── drift telemetry ──────────────────────────────────────────────
     alpha = float(params.get("drift_alpha", DEFAULT_DRIFT_ALPHA))
@@ -797,15 +859,17 @@ def key_gate_controller(state: dict, source_vec: dict, params: dict) -> dict:
     return {
         "open_fraction":  1.0 if is_open else 0.0,
         "open":           is_open,
+        "refractory":     refractory,
+        "transitions":    int(state.get("transitions", 0)) + int(transitioned),
         "match":          match,
         "distance":       distance,
         "reason":         (
+            f"refractory ({refractory} to go)" if refractory > 0
+            and not transitioned else
             f"match {match:.3f} vs open>={threshold} shut<={release}"
             + ("" if is_open == was_open else
                f" — {'opened' if is_open else 'shut'}")
         ),
-        "transitions":    int(state.get("transitions", 0))
-                          + int(is_open != was_open),
         # Telemetry.  `drift` is the whole question in one number: how
         # far the EWMA has moved from the distance this key saw the very
         # first time it was evaluated.
@@ -1101,11 +1165,33 @@ class Organism:
         gate actually asks to read it, and `_gate_opening` raises there,
         naming the gate.
         """
+        declared = self.spec.faces.get(lamina_id)
+        if declared is not None:
+            return self.twins[lamina_id].get_composite_vector(declared)
         for channel in self.channels:
             if channel.source.lamina == lamina_id:
                 return self.twins[lamina_id].get_composite_vector(
                     channel.source.member)
         return None
+
+    def _named_vector(self, gate, endpoint):
+        """
+        The composite a key names explicitly with `from`.
+
+        Refused rather than skipped when it is not there: a key that
+        silently reads nothing is a gate that can never open, and a gate
+        that can never open is a condition the file claims to enforce and
+        does not.
+        """
+        twin = self.twins.get(endpoint.lamina)
+        if twin is None or endpoint.member not in twin.composites:
+            raise OrganismError(
+                f"Gate '{gate.id}' keys on '{endpoint}', which is not a "
+                f"composite this body can read. A key naming a composite "
+                f"that is not there can never open, so it is refused "
+                f"rather than left permanently shut."
+            )
+        return twin.get_composite_vector(endpoint.member)
 
     def _gate_opening(self, gate, own_vec, presented, warnings) -> dict:
         """
@@ -1149,7 +1235,20 @@ class Organism:
             params["key_weights"] = params.pop("weights", {})
             params["refractory_cycles"] = 0
             fn = self._gate_controller_registry.get("key")
-            vector = (presented or {}).get("vector")
+            # A key reads what is presented AT the channel. On the
+            # receiving side that is the sender's face, arriving with the
+            # value.  On the SENDING side it is the receiver's face —
+            # its need — which is what lets a sender open because the far
+            # side is asking rather than because its own state moved
+            # (C3).  An explicit `from` wins over either: a body that
+            # names the composite it keys on has said something more
+            # specific than the default, and the default should not
+            # quietly override it.
+            named = gate.key.get("from")
+            if named is not None:
+                vector = self._named_vector(gate, named)
+            else:
+                vector = (presented or {}).get("vector")
             if vector is None:
                 state.clear()
                 state.update({
@@ -1321,7 +1420,13 @@ class Organism:
         if self.gates_locked:
             tx = self._breaker_shut(channel.transmit)
         else:
-            tx = self._side(channel.transmit, src_vec, None, warnings)
+            # What the RECEIVER is presenting to the sender: its own
+            # face, which is how a transmit-side key reads demand.
+            demand = {
+                "label":  channel.dest.lamina,
+                "vector": self._face_vector(channel.dest.lamina),
+            }
+            tx = self._side(channel.transmit, src_vec, demand, warnings)
 
         # ── The sender offers, or the offer ages where it lies ───────
         if tx["fraction"] > 0.0 and reading is not None:
@@ -2413,6 +2518,7 @@ def parse_organism_v2(path: Path | str) -> OrganismSpec:
         )
     lamina_ids: list = []
     levels: dict = {}
+    faces: dict = {}
     for el in laminae_el.findall("lamina"):
         lid = (el.get("id") or "").strip()
         if not lid:
@@ -2432,6 +2538,16 @@ def parse_organism_v2(path: Path | str) -> OrganismSpec:
             )
         level = _int_attr(el, "level", f"Lamina '{lid}'")
         levels[lid] = level
+        # The composite this lamina presents to its neighbours.  Usually
+        # derivable — rule 9 makes every channel leaving a lamina use the
+        # same one — but a lamina at the end of a stack SENDS nothing and
+        # so derives nothing, and then an auto gate on its receiving face
+        # has no own-state to read.  Declaring it here gives the
+        # outermost lamina a protection layer, which the design says both
+        # sides are entitled to.
+        face = (el.get("face") or "").strip()
+        if face:
+            faces[lid] = face
         lamina_ids.append(lid)
     if not lamina_ids:
         raise OrganismError(
@@ -2452,7 +2568,7 @@ def parse_organism_v2(path: Path | str) -> OrganismSpec:
     seen_gates: dict = {}                 # gate id -> channel id
     feeding: dict = {}                    # destination address -> channel id
     face_counts: dict = {}                # (lamina, face) -> gate count
-    faces: dict = {}                      # (lamina, direction) -> (member, id)
+    seen_faces: dict = {}                 # lamina -> (composite, channel)
 
     for channel_el in channels_el.findall("channel"):
         ch = _parse_channel_v2(channel_el)
@@ -2554,7 +2670,16 @@ def parse_organism_v2(path: Path | str) -> OrganismSpec:
         # need.  If no such composite exists, that is a signal the lamina
         # is doing two jobs, and the fix is to split it rather than to
         # give it a second face.
-        previous = faces.get(ch.source.lamina)
+        declared = faces.get(ch.source.lamina)
+        if declared is not None and declared != ch.source.member:
+            raise OrganismError(
+                f"Channel '{ch.id}' leaves lamina '{ch.source.lamina}' on "
+                f"composite '{ch.source.member}', but that lamina declares "
+                f"face=\"{declared}\". Rule 9: a lamina presents ONE "
+                f"interface composite, and the declaration and the wiring "
+                f"have to be the same one."
+            )
+        previous = seen_faces.get(ch.source.lamina)
         if previous is not None and previous[0] != ch.source.member:
             raise OrganismError(
                 f"Channel '{ch.id}' leaves lamina '{ch.source.lamina}' on "
@@ -2565,7 +2690,7 @@ def parse_organism_v2(path: Path | str) -> OrganismSpec:
                 f"outside, the lamina IS that composite. A lamina needing "
                 f"two faces is two laminae."
             )
-        faces.setdefault(ch.source.lamina, (ch.source.member, ch.id))
+        seen_faces.setdefault(ch.source.lamina, (ch.source.member, ch.id))
 
         for gate in [*ch.transmit, *ch.receive]:
             if gate.id in seen_gates:
@@ -2585,5 +2710,6 @@ def parse_organism_v2(path: Path | str) -> OrganismSpec:
         name=(root.findtext("name", "") or "").strip(),
         description=(root.findtext("description", "") or "").strip(),
         levels=levels,
+        faces=faces,
         channels=channels,
     )

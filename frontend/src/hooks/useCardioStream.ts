@@ -164,12 +164,22 @@ export interface StreamTick {
  * (uncoupled)" while the seam itself said "held 76 cycles".
  */
 export interface InboundProvenance {
-  state: 'coupled' | 'held' | 'uncoupled'
+  state: 'coupled' | 'held' | 'uncoupled' | 'decaying'
   detail?: string
   gate?: string
+  /** Which channel put it there, once a crossing has two ends. */
+  channel?: string
   from?: string
   age?: number
   open_fraction?: number
+  /**
+   * Something is on the wire that this lamina has not taken.
+   *
+   * A fact about the CHANNEL, carried here because a reader looking at the
+   * value wants to know it. The value itself is still the held one — this is
+   * an extra clause on that, never a replacement for its state.
+   */
+  offer_waiting?: boolean
 }
 
 export type StreamStatus = 'connecting' | 'open' | 'closed'

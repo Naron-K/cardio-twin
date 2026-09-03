@@ -159,11 +159,21 @@ export function InputRail({
               // A gate that opened and then shut leaves this number behind:
               // it is neither live nor the declared baseline, and calling it
               // either is a false claim about where it came from.
+              // A fourth thing worth saying, and it is about the CHANNEL
+              // rather than about this number: something is on the wire and
+              // this lamina has not taken it. The value in front of the
+              // reader is still the held one — saying "waiting" instead of
+              // "held" would have them believe otherwise — so it is an extra
+              // clause, not a different state.
+              const waiting = Boolean(prov?.offer_waiting)
               const line =
                 state === 'coupled'
                   ? `via ${prov?.gate ?? 'gate'} from ${prov?.from ?? 'another lamina'}`
                   : state === 'held'
-                    ? `held from ${prov?.gate ?? 'gate'} — ${prov?.age ?? 0} cycles old, gate shut`
+                    ? `held from ${prov?.gate ?? 'gate'} — ${prov?.age ?? 0} cycles old` +
+                      (waiting
+                        ? ', and a newer one is waiting at the gate'
+                        : ', gate shut')
                     : (prov?.detail ?? 'baseline (uncoupled)')
               return (
                 <div key={attr.id} className="block" title={attr.description}>

@@ -7,30 +7,44 @@
  * question — a lamina is a box here, because from the body's point of view
  * that is all it is. What the body adds is the seams.
  *
- * A seam is a VALVE, not a wire, and the whole point of drawing it is that a
- * valve has a state. Three of them:
+ * ── Why this looks different from the version before it ─────────────────────
  *
- *   open   something is crossing right now
- *   held   nothing is crossing, and the far side is still holding the last
- *          value that did — labelled with how many cycles ago
- *   shut   nothing is crossing and nothing ever has
+ * A seam used to be one valve in the middle of a wire. It is now a CHANNEL
+ * with a gate on each membrane, and three things follow for a diagram:
  *
- * The middle one is why this is worth drawing at all. A held value and a live
- * one are the same number on screen, and this project has already shipped that
- * bug once: CO_ref sat at 8.73 calling itself current while the circulation had
- * gone back to 4.84. The backend now says which it is; a diagram that drew both
- * as a glowing line would put the lie back.
+ *   1. The stack is vertical. Laminae are placed by their declared `level`,
+ *      higher level higher on screen, because "the layer above" and "the
+ *      layer below" are the words the rules are written in and a left-to-right
+ *      row makes them meaningless.
+ *
+ *   2. An edge carries TWO valves, one at each end, because two laminae are
+ *      each deciding. A value crosses only when both are open, and a reader
+ *      has to be able to see which end is refusing.
+ *
+ *   3. An AUTO gate and a KEY gate get different glyphs. They are different
+ *      things: an auto gate reads its own lamina and is a protection layer
+ *      nobody may switch off; a key gate reads what arrives. Drawing them
+ *      alike would leave a reader unable to tell a safety interlock from a
+ *      policy.
+ *
+ * And one new state. `waiting` means the sender has put something on the wire
+ * and the receiver has not taken it — which is NOT `held`, where the receiver
+ * took something a while ago and it is going stale. This project has already
+ * shipped the failure of drawing a stale number as a live one once; drawing
+ * "outside the door" and "in the house since Tuesday" in one colour would be
+ * the same mistake with a new name.
  *
  * Every box, every edge and every label is read out of `GET /api/organism` and
- * the gate entries on the socket. Nothing is positioned by hand and no lamina,
- * attribute or gate is named in this file, so a body of four laminae and six
- * seams draws itself here on first load.
+ * the channel entries on the socket. Nothing is positioned by hand and no
+ * lamina, attribute or gate is named in this file, so a body of four laminae
+ * and six seams draws itself here on first load.
  */
 import { useMemo, useState } from 'react'
 import { fmtValue } from '../../twin/schema'
-import { gateDisplayState, gateSummary } from '../../twin/organism'
+import { channelDisplayState, channelSummary } from '../../twin/organism'
 import type {
-  GateDisplayState,
+  ChannelDisplayState,
+  ChannelState,
   GateState,
   OrganismSchema,
 } from '../../twin/organism'
@@ -39,146 +53,214 @@ import type { LaminaTick } from '../../hooks/useOrganismStream'
 interface Props {
   /** The declaration — what this body is made of. */
   schema: OrganismSchema
-  /** Live gate state, in declaration order. Empty before the first tick. */
-  gates: GateState[]
+  /** Live channel state, in declaration order. Empty before the first tick. */
+  channels: ChannelState[]
   /** Live per-lamina headline, by lamina id. */
   laminae: Record<string, LaminaTick>
+  /** What the container reported each channel is doing, by channel id. */
+  channelStates?: Record<string, string>
   /** True once the body-level breaker has shut every gate. */
   gatesLocked?: boolean
 }
 
 // ── Layout ───────────────────────────────────────────────────────────────────
 //
-// Laminae are laid out left to right in declaration order, and a gate is an
-// edge between two of them. Nothing here knows how many there are.
+// Laminae are stacked by level; a channel is an edge between two adjacent
+// rows. Nothing here knows how many there are.
 
-const BOX_W = 250
-const BOX_H = 132
-const GAP_X = 210
+const BOX_W = 300
+const BOX_H = 116
+const GAP_Y = 132
 const PAD = 28
-/** Vertical separation between two gates joining the same pair of laminae. */
-const LANE_H = 46
+/** Horizontal separation between two channels joining the same pair. */
+const LANE_X = 118
+/** How far from a box a valve sits — on the membrane, not in mid-air. */
+const VALVE_INSET = 30
 
-const STATE_TONE: Record<GateDisplayState, {
+const STATE_TONE: Record<ChannelDisplayState, {
   stroke: string
   label: string
   dash?: string
   width: number
   glow?: string
 }> = {
-  open: { stroke: '#00e3fd', label: '#bdf4ff', width: 2.4, glow: 'rgba(0,227,253,0.35)' },
-  held: { stroke: '#f0a13c', label: '#ffd8a8', width: 1.6, dash: '7 4' },
-  shut: { stroke: 'rgba(216,227,251,0.22)', label: 'rgba(216,227,251,0.45)', width: 1.2, dash: '2 5' },
+  crossing: { stroke: '#00e3fd', label: '#bdf4ff', width: 2.4, glow: 'rgba(0,227,253,0.35)' },
+  waiting:  { stroke: '#a78bfa', label: '#d9ccff', width: 2.0, dash: '1 6', glow: 'rgba(167,139,250,0.28)' },
+  held:     { stroke: '#f0a13c', label: '#ffd8a8', width: 1.6, dash: '7 4' },
+  decaying: { stroke: '#f0a13c', label: '#ffd8a8', width: 1.3, dash: '3 6' },
+  shut:     { stroke: 'rgba(216,227,251,0.22)', label: 'rgba(216,227,251,0.45)', width: 1.2, dash: '2 5' },
 }
+
+const LEGEND: { state: ChannelDisplayState; caption: string }[] = [
+  { state: 'crossing', caption: 'crossing' },
+  { state: 'waiting', caption: 'waiting (offered, not taken)' },
+  { state: 'held', caption: 'held (shut, value still there)' },
+  { state: 'shut', caption: 'shut' },
+]
 
 interface Placed {
   id: string
   name: string
+  level: number
   x: number
   y: number
   inbound: string[]
 }
 
 interface Drawn {
-  gate: GateState | null
-  spec: OrganismSchema['gates'][number]
+  channel: ChannelState | null
+  spec: OrganismSchema['channels'][number]
   path: string
+  /** Where each end's valves sit — sender's first. */
+  txAt: { x: number; y: number }
+  rxAt: { x: number; y: number }
   midX: number
   midY: number
-  state: GateDisplayState
+  state: ChannelDisplayState
 }
 
 /**
- * Where each lamina sits, and the path each gate takes between two of them.
+ * Where each lamina sits, and the path each channel takes between two of them.
  *
- * A gate running right-to-left (a lamina sending back to one declared before
- * it) is routed under the boxes rather than through them. That case does not
- * arise on the body that ships, and leaving it to overlap would mean the first
- * organism that declares a return seam draws a line through a box and looks
- * broken rather than looking like a return seam.
+ * Rows come from the declared levels rather than from declaration order, and
+ * a level with two laminae in it spreads them across the row. Nothing on the
+ * body that ships exercises that, but a stack is a stack and the first body
+ * that puts two systems at one height should not draw them on top of each
+ * other.
  */
-function layout(schema: OrganismSchema, gates: GateState[]) {
-  const placed: Placed[] = schema.laminae.map((lamina, i) => ({
-    id: lamina.id,
-    name: lamina.name || lamina.id,
-    x: PAD + i * (BOX_W + GAP_X),
-    y: PAD,
-    inbound: lamina.inbound,
-  }))
-  const at = new Map(placed.map((p) => [p.id, p]))
-  const byId = new Map(gates.map((g) => [g.id, g]))
+function layout(
+  schema: OrganismSchema,
+  channels: ChannelState[],
+  reported: Record<string, string>,
+) {
+  const levels = schema.levels ?? {}
+  const rows = [...new Set(schema.laminae.map((l) => levels[l.id] ?? 0))]
+    .sort((a, b) => b - a)              // highest level at the top
 
-  // How many gates already join this same pair, so the second one is drawn on
-  // its own lane instead of on top of the first.
+  const placed: Placed[] = []
+  rows.forEach((level, rowIndex) => {
+    const inRow = schema.laminae.filter((l) => (levels[l.id] ?? 0) === level)
+    inRow.forEach((lamina, columnIndex) => {
+      placed.push({
+        id: lamina.id,
+        name: lamina.name || lamina.id,
+        level,
+        x: PAD + columnIndex * (BOX_W + 60),
+        y: PAD + rowIndex * (BOX_H + GAP_Y),
+        inbound: lamina.inbound,
+      })
+    })
+  })
+
+  const at = new Map(placed.map((p) => [p.id, p]))
+  const byId = new Map(channels.map((c) => [c.id, c]))
+  // How many channels already join this same pair, so the second one is drawn
+  // on its own lane instead of on top of the first.
   const lanes = new Map<string, number>()
 
-  const drawn: Drawn[] = schema.gates.map((spec) => {
+  const drawn: Drawn[] = schema.channels.map((spec) => {
     const from = at.get(spec.from_lamina)
     const to = at.get(spec.to_lamina)
     const live = byId.get(spec.id) ?? null
+    const empty = { x: 0, y: 0 }
+    if (!from || !to) {
+      return {
+        channel: live, spec, path: '', txAt: empty, rxAt: empty,
+        midX: 0, midY: 0, state: 'shut' as const,
+      }
+    }
+
     const pairKey = [spec.from_lamina, spec.to_lamina].sort().join('>')
     const lane = lanes.get(pairKey) ?? 0
     lanes.set(pairKey, lane + 1)
 
-    if (!from || !to) {
-      return { gate: live, spec, path: '', midX: 0, midY: 0, state: 'shut' as const }
-    }
+    // Sending edge of the source box, receiving edge of the destination.
+    const fromBottom = from.y < to.y
+    const x = from.x + BOX_W / 2 + (lane - 0.5) * LANE_X * (lanes.size > 1 ? 1 : 0)
+    const y1 = fromBottom ? from.y + BOX_H : from.y
+    const y2 = fromBottom ? to.y : to.y + BOX_H
 
-    const forward = from.x < to.x
-    const y = from.y + BOX_H / 2 + lane * LANE_H
-    const x1 = forward ? from.x + BOX_W : from.x
-    const x2 = forward ? to.x : to.x + BOX_W
-
-    let path: string
-    let midX: number
-    let midY: number
-    if (forward) {
-      midX = (x1 + x2) / 2
-      midY = y
-      path = `M ${x1} ${y} C ${x1 + 50} ${y}, ${x2 - 50} ${y}, ${x2} ${y}`
-    } else {
-      // Route beneath, so a return seam never crosses a box.
-      const drop = from.y + BOX_H + 46 + lane * LANE_H
-      midX = (x1 + x2) / 2
-      midY = drop
-      path =
-        `M ${x1} ${y} C ${x1 - 60} ${y}, ${x1 - 60} ${drop}, ${midX} ${drop} ` +
-        `C ${x2 + 60} ${drop}, ${x2 + 60} ${y}, ${x2} ${y}`
-    }
+    const path = `M ${x} ${y1} L ${x} ${y2}`
+    const step = fromBottom ? VALVE_INSET : -VALVE_INSET
     return {
-      gate: live,
+      channel: live,
       spec,
       path,
-      midX,
-      midY,
-      state: live ? gateDisplayState(live) : 'shut',
+      txAt: { x, y: y1 + step },
+      rxAt: { x, y: y2 - step },
+      midX: x,
+      midY: (y1 + y2) / 2,
+      state: live
+        ? channelDisplayState(live, reported[spec.id])
+        : ('shut' as const),
     }
   })
 
-  // Height comes from what is actually drawn, not from a guess with room
-  // to spare. A fixed reserve looks fine on the body that prompted it and
-  // leaves a band of empty canvas on every other one — and because the svg
-  // scales to its container by viewBox, that band is stretched along with
-  // everything else rather than staying the size it was reserved at.
-  const lowest = drawn.reduce(
-    (deepest, d) => Math.max(deepest, d.path ? d.midY + 34 : 0),
-    PAD + BOX_H
-  )
-  return {
-    placed,
-    drawn,
-    width: PAD * 2 + placed.length * BOX_W + Math.max(0, placed.length - 1) * GAP_X,
-    height: lowest + PAD,
+  const widest = placed.reduce((w, p) => Math.max(w, p.x + BOX_W), 0)
+  const lowest = placed.reduce((h, p) => Math.max(h, p.y + BOX_H), 0)
+  return { placed, drawn, width: widest + PAD, height: lowest + PAD }
+}
+
+/**
+ * One valve, drawn as the kind of thing it is.
+ *
+ * An auto gate is a triangle: a relief valve, and the shape reads as one.
+ * A key gate is a circle with a keyway cut into it. The fill height inside
+ * each is how open it is, so a half-open gate looks half open rather than
+ * needing its number read.
+ */
+function Valve({ gate, tone }: { gate: GateState | undefined; tone: string }) {
+  const open = gate?.open_fraction ?? 0
+  const flooding = Boolean(gate?.state?.flood)
+  if (!gate) return null
+  if (gate.kind === 'auto') {
+    return (
+      <g>
+        <path
+          d="M 0,-11 L 11,8 L -11,8 Z"
+          fill="#0b1728"
+          stroke={tone}
+          strokeWidth={1.4}
+        />
+        <path
+          d="M 0,-11 L 11,8 L -11,8 Z"
+          fill={tone}
+          opacity={0.28 + 0.5 * open}
+        />
+        {flooding && <circle r={15} fill="none" stroke={tone} strokeWidth={0.8} opacity={0.6} />}
+      </g>
+    )
   }
+  return (
+    <g>
+      <circle r={11} fill="#0b1728" stroke={tone} strokeWidth={1.4} />
+      <rect
+        x={-6}
+        y={6 - 12 * open}
+        width={12}
+        height={12 * open}
+        fill={tone}
+        opacity={0.7}
+      />
+      {/* the keyway, so the shape is not just "circle" */}
+      <path d="M 0,-5 L 0,4 M -3,4 L 3,4" stroke={tone} strokeWidth={1.3} fill="none" />
+    </g>
+  )
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export function OrganismMap({ schema, gates, laminae, gatesLocked = false }: Props) {
+export function OrganismMap({
+  schema,
+  channels,
+  laminae,
+  channelStates = {},
+  gatesLocked = false,
+}: Props) {
   const [hover, setHover] = useState<string | null>(null)
   const { placed, drawn, width, height } = useMemo(
-    () => layout(schema, gates),
-    [schema, gates]
+    () => layout(schema, channels, channelStates),
+    [schema, channels, channelStates]
   )
   const selected = drawn.find((d) => d.spec.id === hover) ?? null
 
@@ -196,8 +278,8 @@ export function OrganismMap({ schema, gates, laminae, gatesLocked = false }: Pro
           role="img"
           aria-label={
             `${schema.name || schema.organism_id}: ${schema.laminae.length} laminae ` +
-            `joined by ${schema.gates.length} permeability gate` +
-            `${schema.gates.length === 1 ? '' : 's'}`
+            `stacked by level and joined by ${schema.channels.length} channel` +
+            `${schema.channels.length === 1 ? '' : 's'}, each with a gate at both ends`
           }
         >
           <defs>
@@ -218,8 +300,8 @@ export function OrganismMap({ schema, gates, laminae, gatesLocked = false }: Pro
           {drawn.map((d) => {
             const tone = STATE_TONE[d.state]
             const faded = hover !== null && hover !== d.spec.id
-            const label = d.gate
-              ? `${d.spec.extract} ${fmtValue(d.gate.last_value ?? undefined)}`
+            const label = d.channel
+              ? `${d.spec.extract} ${fmtValue(d.channel.last_value ?? undefined)}`
               : d.spec.extract
             return (
               <g
@@ -230,8 +312,8 @@ export function OrganismMap({ schema, gates, laminae, gatesLocked = false }: Pro
                 style={{ transition: 'opacity 180ms ease' }}
               >
                 {/* Fat transparent path so the edge is hoverable at all. */}
-                <path d={d.path} fill="none" stroke="transparent" strokeWidth={18} />
-                {d.state === 'open' && (
+                <path d={d.path} fill="none" stroke="transparent" strokeWidth={22} />
+                {tone.glow && (
                   <path
                     d={d.path}
                     fill="none"
@@ -250,44 +332,39 @@ export function OrganismMap({ schema, gates, laminae, gatesLocked = false }: Pro
                   color={tone.stroke}
                 />
 
-                {/* The valve itself: a filled wedge showing how open it is. */}
-                <g transform={`translate(${d.midX} ${d.midY})`}>
-                  <circle
-                    r={13}
-                    fill="#0b1728"
-                    stroke={tone.stroke}
-                    strokeWidth={1.4}
-                  />
-                  <rect
-                    x={-7}
-                    y={7 - 14 * (d.gate?.open_fraction ?? 0)}
-                    width={14}
-                    height={14 * (d.gate?.open_fraction ?? 0)}
-                    fill={tone.stroke}
-                    opacity={0.75}
-                  />
-                  <text
-                    y={-20}
-                    textAnchor="middle"
-                    fontSize={11}
-                    fontFamily="JetBrains Mono, monospace"
-                    fill={tone.label}
-                  >
-                    {label}
-                  </text>
-                  <text
-                    y={32}
-                    textAnchor="middle"
-                    fontSize={9.5}
-                    fontFamily="JetBrains Mono, monospace"
-                    fill={tone.label}
-                    opacity={0.75}
-                  >
-                    {d.state === 'held'
-                      ? `held ${d.gate?.provenance.age ?? 0}c`
-                      : d.state}
-                  </text>
+                {/* One valve per membrane. The sender's gates sit against the
+                    sending box, the receiver's against the receiving one, so
+                    which end is refusing is readable at a glance. */}
+                <g transform={`translate(${d.txAt.x} ${d.txAt.y})`}>
+                  <Valve gate={d.channel?.transmit?.[0]} tone={tone.stroke} />
                 </g>
+                <g transform={`translate(${d.rxAt.x} ${d.rxAt.y})`}>
+                  <Valve gate={d.channel?.receive?.[0]} tone={tone.stroke} />
+                </g>
+
+                <text
+                  x={d.midX + 16}
+                  y={d.midY - 4}
+                  fontSize={11}
+                  fontFamily="JetBrains Mono, monospace"
+                  fill={tone.label}
+                >
+                  {label}
+                </text>
+                <text
+                  x={d.midX + 16}
+                  y={d.midY + 12}
+                  fontSize={9.5}
+                  fontFamily="JetBrains Mono, monospace"
+                  fill={tone.label}
+                  opacity={0.75}
+                >
+                  {d.state === 'held'
+                    ? `held ${d.channel?.provenance.age ?? 0}c`
+                    : d.state === 'waiting'
+                      ? `waiting ${d.channel?.offered_age ?? 0}c`
+                      : d.state}
+                </text>
               </g>
             )
           })}
@@ -320,9 +397,22 @@ export function OrganismMap({ schema, gates, laminae, gatesLocked = false }: Pro
                 >
                   {lamina.id}
                 </text>
+                {/* Where it stands. The rules are written in "the layer above"
+                    and "the layer below", so the number those phrases refer to
+                    belongs on the box. */}
+                <text
+                  x={BOX_W - 16}
+                  y={26}
+                  textAnchor="end"
+                  fontSize={10}
+                  fontFamily="JetBrains Mono, monospace"
+                  fill="rgba(189,244,255,0.4)"
+                >
+                  {`level ${lamina.level}`}
+                </text>
                 <text
                   x={16}
-                  y={50}
+                  y={52}
                   fontSize={17}
                   fontFamily="Sora, sans-serif"
                   fontWeight={600}
@@ -337,16 +427,7 @@ export function OrganismMap({ schema, gates, laminae, gatesLocked = false }: Pro
                   fontFamily="JetBrains Mono, monospace"
                   fill="rgba(216,227,251,0.5)"
                 >
-                  {`cycle ${live?.cycle ?? 0}`}
-                </text>
-                <text
-                  x={16}
-                  y={95}
-                  fontSize={11}
-                  fontFamily="JetBrains Mono, monospace"
-                  fill="rgba(216,227,251,0.5)"
-                >
-                  {`|X''| ${fmtValue(live?.feedbackNorm)}`}
+                  {`cycle ${live?.cycle ?? 0}   |X''| ${fmtValue(live?.feedbackNorm)}`}
                 </text>
                 {/* What this lamina cannot answer for itself. Drawn on the box
                     because it is the reason the seam exists: a lamina with an
@@ -354,7 +435,7 @@ export function OrganismMap({ schema, gates, laminae, gatesLocked = false }: Pro
                 {lamina.inbound.length > 0 && (
                   <text
                     x={16}
-                    y={116}
+                    y={98}
                     fontSize={10.5}
                     fontFamily="JetBrains Mono, monospace"
                     fill="rgba(240,161,60,0.85)"
@@ -368,12 +449,12 @@ export function OrganismMap({ schema, gates, laminae, gatesLocked = false }: Pro
         </svg>
       </div>
 
-      {/* The caption, and the legend that makes the three line styles readable.
-          A diagram whose states are only distinguishable by colour is a
-          diagram that says nothing to a reader who does not already know the
+      {/* The caption, and the legend that makes the line styles readable. A
+          diagram whose states are only distinguishable by colour is a diagram
+          that says nothing to a reader who does not already know the
           convention. */}
       <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-[11px]">
-        {(['open', 'held', 'shut'] as GateDisplayState[]).map((state) => (
+        {LEGEND.map(({ state, caption }) => (
           <span key={state} className="flex items-center gap-2" style={{ color: STATE_TONE[state].label }}>
             <svg width={26} height={8} aria-hidden="true">
               <line
@@ -386,9 +467,19 @@ export function OrganismMap({ schema, gates, laminae, gatesLocked = false }: Pro
                 strokeDasharray={STATE_TONE[state].dash}
               />
             </svg>
-            {state === 'held' ? 'held (shut, value still there)' : state}
+            {caption}
           </span>
         ))}
+        <span className="flex items-center gap-2 text-ink/55">
+          <svg width={16} height={14} aria-hidden="true">
+            <path d="M 8,2 L 14,12 L 2,12 Z" fill="none" stroke="currentColor" strokeWidth={1.2} />
+          </svg>
+          auto (protection)
+          <svg width={16} height={14} aria-hidden="true" className="ml-2">
+            <circle cx={8} cy={7} r={5.5} fill="none" stroke="currentColor" strokeWidth={1.2} />
+          </svg>
+          key (policy)
+        </span>
         {gatesLocked && (
           <span className="text-danger">
             body breaker tripped — every gate shut until reset
@@ -397,28 +488,31 @@ export function OrganismMap({ schema, gates, laminae, gatesLocked = false }: Pro
       </div>
 
       <p className="mt-3 min-h-[2.5rem] text-[13px] leading-snug text-ink/70">
-        {selected && selected.gate ? (
+        {selected && selected.channel ? (
           <>
             <span className="font-mono text-oxy">{selected.spec.id}</span>{' '}
             <span className="font-mono text-ink/50">
               {selected.spec.from} → {selected.spec.to}
             </span>{' '}
-            — {gateSummary(selected.gate)}.{' '}
+            — {channelSummary(selected.channel, channelStates[selected.spec.id])}.{' '}
             <span className="text-ink/45">
-              {selected.spec.controller} controller, {selected.spec.transfer.mode}{' '}
-              transfer at rate {selected.spec.transfer.rate}
-              {selected.spec.transfer.time_delay > 0
-                ? `, delayed ${selected.spec.transfer.time_delay} cycles`
+              Sender:{' '}
+              {selected.spec.transmit.map((g) => `${g.id} (${g.kind})`).join(', ')}.
+              {' '}Receiver:{' '}
+              {selected.spec.receive.map((g) => `${g.id} (${g.kind})`).join(', ')}.
+              {selected.spec.time_delay > 0
+                ? ` Delayed ${selected.spec.time_delay} cycles.`
                 : ''}
-              .
             </span>
           </>
         ) : (
           <span className="text-ink/45">
-            {schema.gates.length} seam{schema.gates.length === 1 ? '' : 's'} between{' '}
-            {schema.laminae.length} laminae. Hover one to read what it is doing.
-            A gate is shut until its controller opens it — closed is the resting
-            state, not a failure.
+            {schema.channels.length} channel
+            {schema.channels.length === 1 ? '' : 's'} between{' '}
+            {schema.laminae.length} laminae, each with a gate at both ends.
+            Hover one to read what it is doing. A value crosses only when both
+            membranes are open — and a gate is shut until its trigger opens it,
+            because closed is the resting state and not a failure.
           </span>
         )}
       </p>

@@ -1451,6 +1451,13 @@ class Organism:
         cstate.pop("close_reason", None)
         transmitted = self._absorb(channel, cstate, dst_attr, dst_twin,
                                    tx, rx, open_fraction)
+        # Decided here and remembered, so the snapshot and the tick report
+        # give a reader the same word.  Only the container knows a band
+        # refused a value while both gates were open, and two places
+        # computing one claim is how they drift.
+        state_word = self._channel_report_state(tx, rx, dst_attr,
+                                                transmitted, cstate)
+        cstate["state"] = state_word
 
         return {
             "open_fraction": round(open_fraction, 6),
@@ -1458,8 +1465,7 @@ class Organism:
             "transmitted":   transmitted,
             "offered":       cstate.get("offered"),
             "offered_age":   int(cstate.get("offered_age", 0)),
-            "state":         self._channel_report_state(
-                tx, rx, dst_attr, transmitted, cstate),
+            "state":         state_word,
             "transmit":      tx["gates"],
             "receive":       rx["gates"],
             "flood":         bool(tx["flood"] or rx["flood"]),
@@ -1674,10 +1680,11 @@ class Organism:
             )
             return None
 
-        self._age_held_value(channel, rx_gate, reason)
+        self._age_held_value(channel, rx_gate, reason, cstate)
         return None
 
-    def _age_held_value(self, channel, rx_gate, reason: str = "shut") -> None:
+    def _age_held_value(self, channel, rx_gate, reason: str = "shut",
+                        cstate: dict | None = None) -> None:
         """
         Mark the receiver's held value as one cycle older.
 
@@ -1685,6 +1692,7 @@ class Organism:
         moving do.  A reader looking at a held value has to be able to
         tell how stale it is without diffing two snapshots.
         """
+        cstate = cstate if cstate is not None else {}
         dst_twin = self.twins[channel.dest.lamina]
         dst_attr = dst_twin.attributes.get(channel.dest.member)
         if dst_attr is None or dst_attr.value is None:
@@ -1699,6 +1707,14 @@ class Organism:
             "open_fraction": 0.0,
             "age":           int(provenance.get("age", 0)) + 1,
             "reason":        reason,
+            # The value on screen is HELD — old, and this lamina's own. That
+            # the channel is meanwhile holding an offer this lamina has not
+            # taken is a different fact about a different object, so it is a
+            # separate field rather than a different state word. Collapsing
+            # the two would have a reader believe the number in front of them
+            # is the one waiting outside, which it is not.
+            "offer_waiting": cstate.get("offered") is not None
+                             and cstate.get("state") == "waiting",
         })
         dst_twin.set_inter_lamina(
             channel.dest.member,
@@ -1767,6 +1783,7 @@ class Organism:
             "offered":     cstate.get("offered"),
             "offered_age": int(cstate.get("offered_age", 0)),
             "last_value":  cstate.get("last_transmitted"),
+            "state":       cstate.get("state", "shut"),
             "provenance":  provenance,
         }
 

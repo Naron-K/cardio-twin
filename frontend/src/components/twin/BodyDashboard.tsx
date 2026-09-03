@@ -88,8 +88,45 @@ export function BodyDashboard({ organism = null, onOrganism, onBack }: Props) {
     return () => { cancelled = true }
   }, [])
 
-  const gates = latest?.gates ?? []
-  const laminaTicks = useMemo(() => latest?.laminae ?? {}, [latest])
+  // 5b — the two guards TwinDashboard has had since the lamina picker, and
+  // this screen has not. A body picker makes both reachable here.
+  //
+  // The first: the schema is fetched once and the socket streams
+  // continuously, so a backend switched onto a different body underneath an
+  // open page would draw one body's structure over another body's numbers.
+  // Both halves are TAGGED rather than cleared — clearing leaves a render
+  // pass in between holding one model's values under another's labels, which
+  // is the bug.
+  const streamOrganism = latest?.organismId ?? ''
+  const mismatch = Boolean(
+    schema && streamOrganism && streamOrganism !== schema.organism_id
+  )
+  useEffect(() => {
+    if (mismatch && streamOrganism) onOrganism?.(streamOrganism)
+  }, [mismatch, streamOrganism, onOrganism])
+
+  // The second: when the socket is not open the numbers on screen are a
+  // photograph. The connection chip already says so; the numbers, which are
+  // what anyone is actually reading, did not.
+  const [now, setNow] = useState(() => Date.now())
+  const lastTickAt = useMemo(() => Date.now(), [latest])
+  useEffect(() => {
+    if (status === 'open') return
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [status])
+  const staleAge =
+    status !== 'open' && latest
+      ? Math.max(0, Math.round((now - lastTickAt) / 1000))
+      : null
+
+  const live = mismatch ? null : latest
+  const channels = live?.channels ?? []
+  const laminaTicks = useMemo(() => live?.laminae ?? {}, [live])
+  const channelStates = useMemo(
+    () => Object.fromEntries(channels.map((c) => [c.id, c.state ?? 'shut'])),
+    [channels]
+  )
 
   if (error) {
     return (
@@ -167,6 +204,17 @@ export function BodyDashboard({ organism = null, onOrganism, onBack }: Props) {
           >
             ● {closeReason ?? status}
           </span>
+          {/* The numbers are a photograph, and say so with their age. The
+              connection chip above says the socket is down; this says the
+              readings are, which is the half anyone is actually looking at. */}
+          {staleAge !== null && (
+            <span
+              className="text-danger"
+              title="The socket is not open — nothing on screen is updating."
+            >
+              Frozen · last tick {staleAge}s ago
+            </span>
+          )}
           <button
             onClick={() => sendControl({ type: 'reset' })}
             className="rounded-el border border-white/15 px-3 py-1 text-ink/70 hover:border-oxy/50 hover:text-oxy"
@@ -180,6 +228,19 @@ export function BodyDashboard({ organism = null, onOrganism, onBack }: Props) {
           )}
         </div>
       </header>
+
+      {/* One body's structure over another body's numbers is the mismatch
+          this guard exists to prevent, so no value is rendered at all until
+          the schema catches up with what the socket is actually sending. */}
+      {mismatch && (
+        <div className="mb-gutter rounded-el border border-warn/40 bg-warn/5 p-4
+                        font-mono text-[12px] leading-relaxed text-warn">
+          This screen was drawn for <b>{schema.organism_id}</b> and the socket
+          is sending <b>{streamOrganism}</b>. Values are held back rather than
+          shown under the wrong model. Re-reading the structure for{' '}
+          {streamOrganism}…
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-gutter xl:grid-cols-[340px_minmax(0,1fr)]">
         <div className="flex flex-col gap-gutter">
@@ -213,20 +274,21 @@ export function BodyDashboard({ organism = null, onOrganism, onBack }: Props) {
         </div>
 
         <Panel
-          eyebrow="permeability gates"
-          title="Where a value crosses from one lamina to another"
+          eyebrow="channels"
+          title="Where a value crosses, and who has to agree"
           className="min-w-0"
         >
           <OrganismMap
             schema={schema}
-            gates={gates}
+            channels={channels}
             laminae={laminaTicks}
-            gatesLocked={latest?.gatesLocked}
+            channelStates={channelStates}
+            gatesLocked={live?.gatesLocked}
           />
 
-          {latest && latest.warnings.length > 0 && (
+          {live && live.warnings.length > 0 && (
             <ul className="mt-4 space-y-1 font-mono text-[11px] text-warn">
-              {latest.warnings.map((w, i) => (
+              {live.warnings.map((w, i) => (
                 <li key={i}>{w}</li>
               ))}
             </ul>
@@ -235,18 +297,24 @@ export function BodyDashboard({ organism = null, onOrganism, onBack }: Props) {
           <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-1 font-mono text-[11px] text-ink/55 sm:grid-cols-3">
             <div>
               <dt className="inline text-ink/40">cycle </dt>
-              <dd className="inline text-ink/80">{latest?.tick ?? 0}</dd>
+              <dd className="inline text-ink/80">{live?.tick ?? 0}</dd>
             </div>
             <div>
               <dt className="inline text-ink/40">body |X''| </dt>
               <dd className="inline text-ink/80">
-                {(latest?.totalFeedbackNorm ?? 0).toFixed(5)}
+                {(live?.totalFeedbackNorm ?? 0).toFixed(5)}
               </dd>
             </div>
             <div>
-              <dt className="inline text-ink/40">gates </dt>
+              <dt className="inline text-ink/40">crossing </dt>
               <dd className="inline text-ink/80">
-                {gates.filter((g) => g.open).length} / {schema.gates.length} open
+                {channels.filter((c) => c.state === 'crossing').length} /{' '}
+                {schema.channels.length}
+                {channels.some((c) => c.state === 'waiting') && (
+                  <span className="text-warn">
+                    {' '}· {channels.filter((c) => c.state === 'waiting').length} waiting
+                  </span>
+                )}
               </dd>
             </div>
           </dl>

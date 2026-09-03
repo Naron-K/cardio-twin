@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { pushRing } from '../utils/ringBuffer'
 import type { InboundProvenance } from './useCardioStream'
-import type { GateState } from '../twin/organism'
+import type { ChannelState } from '../twin/organism'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -51,7 +51,7 @@ export interface OrganismTick {
   tick: number
   organismId: string
   /** Every gate, declaration and live state together, in declaration order. */
-  gates: GateState[]
+  channels: ChannelState[]
   /** Sum of every lamina's own feedback norm — the body-level probe. */
   totalFeedbackNorm: number
   /**
@@ -61,6 +61,8 @@ export interface OrganismTick {
    * coupling.
    */
   gatesLocked: boolean
+  /** Where each lamina stands, so the map can lay the stack out vertically. */
+  levels: Record<string, number>
   laminae: Record<string, LaminaTick>
   warnings: string[]
 }
@@ -111,7 +113,8 @@ type RawLamina = {
 }
 type RawOrganism = {
   organism_id?: string
-  gates?: GateState[]
+  channels?: ChannelState[]
+  levels?: Record<string, number>
   laminae?: Record<string, RawLamina>
   organism_report?: {
     cycle?: number
@@ -151,11 +154,14 @@ function parseSnapshot(raw: unknown): OrganismTick | null {
     return {
       tick:              report.cycle ?? 0,
       organismId:        s.organism_id ?? '',
-      // Gates arrive already shaped for a reader — declaration and live state
-      // on one entry — so there is nothing to assemble here. If that ever
-      // stops being true, the fix belongs in the backend: the alternative is
-      // this file and the diagram each deciding what "open" means.
-      gates:             s.gates ?? [],
+      // Channels arrive already shaped for a reader — both ends and their
+      // live state on one entry — so there is nothing to assemble here. If
+      // that ever stops being true, the fix belongs in the backend: the
+      // alternative is this file and the diagram each deciding what
+      // "crossing" means, and two places computing one claim is how they
+      // drift.
+      channels:          s.channels ?? [],
+      levels:            s.levels ?? {},
       totalFeedbackNorm: report.total_feedback_norm ?? 0,
       gatesLocked:       report.gates_locked ?? false,
       laminae,

@@ -103,11 +103,21 @@ KNOWN_TRIGGER_KINDS = frozenset({"threshold", "pattern"})
 #: KNOWN_CONTROLLERS).
 KNOWN_V2_GATE_TAGS = frozenset({"auto_gate", "key_gate"})
 
-#: The most gates any (lamina, side, direction) may carry (rule 8).
-#: Lee's L5 says ≤ 8 per lamina, 4 up and 4 down; split across the two
-#: sides of the membrane this becomes 4 per (lamina, side, direction),
-#: which is the finer rule the parser enforces.
-MAX_GATES_PER_SIDE_DIRECTION = 4
+#: The most gates one FACE of a lamina may carry (rule 8).
+#:
+#: L5 says at most 8 per lamina, 4 up and 4 down.  A lamina has exactly
+#: two faces — one toward the layer above, one toward the layer below —
+#: and every gate it owns sits on one of them, whether it is transmitting
+#: through that face or receiving through it.  So the count is per
+#: (lamina, face) with both sides summed, and 4 + 4 comes to Lee's 8.
+#:
+#: Counting per (lamina, side, face) instead would allow sixteen, which
+#: is not the rule Lee wrote; and taking the CHANNEL's direction as the
+#: face for both ends would file a receiving lamina's gates under the
+#: direction the value travels rather than the direction it arrives
+#: from — putting the respiratory lamina's receptors on its upward face
+#: when the wire reaches it from below.
+MAX_GATES_PER_FACE = 4
 
 
 class OrganismError(ValueError):
@@ -2441,7 +2451,7 @@ def parse_organism_v2(path: Path | str) -> OrganismSpec:
     seen_channels: set = set()
     seen_gates: dict = {}                 # gate id -> channel id
     feeding: dict = {}                    # destination address -> channel id
-    side_counts: dict = {}                # (lamina, side, direction) -> int
+    face_counts: dict = {}                # (lamina, face) -> gate count
     faces: dict = {}                      # (lamina, direction) -> (member, id)
 
     for channel_el in channels_el.findall("channel"):
@@ -2504,23 +2514,30 @@ def parse_organism_v2(path: Path | str) -> OrganismSpec:
             )
         feeding[address] = ch.id
 
-        # ── Rule 8: at most 4 gates per (lamina, side, direction) ──────
-        for side in ("transmit", "receive"):
-            lamina = (ch.source.lamina if side == "transmit"
-                      else ch.dest.lamina)
-            key = (lamina, side, direction)
-            side_counts[key] = (
-                side_counts.get(key, 0) + len(getattr(ch, side))
+        # ── Rule 8: at most 4 gates on one FACE of a lamina ────────────
+        # A face is a direction seen from the lamina itself, which is not
+        # the same as the channel's direction.  The sender looks toward
+        # the destination; the receiver looks back toward the source, so
+        # a wire that travels UP presents the receiving lamina with a
+        # DOWNWARD face.  Both sides' gates land on the same face count,
+        # because a gate is on the membrane whether it is letting
+        # something out through it or in through it.
+        for side, lamina, face in (
+            ("transmit", ch.source.lamina, direction),
+            ("receive", ch.dest.lamina, "down" if direction == "up" else "up"),
+        ):
+            key = (lamina, face)
+            face_counts[key] = (
+                face_counts.get(key, 0) + len(getattr(ch, side))
             )
-            if side_counts[key] > MAX_GATES_PER_SIDE_DIRECTION:
+            if face_counts[key] > MAX_GATES_PER_FACE:
                 raise OrganismError(
-                    f"Channel '{ch.id}' brings {side_counts[key]} gates to "
-                    f"lamina '{lamina}', side '{side}', direction "
-                    f"'{direction}'. Rule 8: at most "
-                    f"{MAX_GATES_PER_SIDE_DIRECTION} gates per (lamina, "
-                    f"side, direction). A lamina that needs more "
-                    f"conditions than that on one face is more than one "
-                    f"lamina."
+                    f"Channel '{ch.id}' brings lamina '{lamina}' to "
+                    f"{face_counts[key]} gates on its {face}ward face. "
+                    f"Rule 8: at most {MAX_GATES_PER_FACE} per face, so at "
+                    f"most {MAX_GATES_PER_FACE * 2} on a lamina. A face "
+                    f"needing more conditions than that is more than one "
+                    f"face."
                 )
 
         # ── Rule 9: ONE interface composite per lamina ─────────────────

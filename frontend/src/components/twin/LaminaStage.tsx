@@ -210,14 +210,17 @@ export function LaminaStage({
           order.map((id) => {
             const place = placeholders[id]
             if (!place.flow || !place.geometry.path) return null
-            particleRefs.current[id] = []
             return (
               <g key={`flow-${id}`}>
                 {Array.from({ length: place.flow.particles }, (_, p) => (
                   <circle
                     key={p}
+                    // The list is created here, in the ref callback, rather than
+                    // reset during render: refs may not be written while
+                    // rendering. React hands each callback null on unmount, and
+                    // the frame loop skips nulls, so a shrinking count is safe.
                     ref={(el) => {
-                      particleRefs.current[id][p] = el
+                      ;(particleRefs.current[id] ??= [])[p] = el
                     }}
                     r={place.flow!.radius}
                     fill={place.flow!.colour}

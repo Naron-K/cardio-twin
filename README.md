@@ -112,7 +112,28 @@ npm run dev
 
 The application will be available at `http://localhost:5173`.
 
-### 3. Run the standalone demo (optional)
+### 3. Presenting on a big screen
+
+For a talk or a long-running demo, serve the production build instead of the
+dev server:
+
+```bash
+cd frontend
+npm run build
+npm run preview
+```
+
+The app is then at `http://localhost:4173`. The dev server is fine for
+development but not for a demo left open: React's development build records a
+performance entry for every component render, which `src/main.tsx` clears every
+10 s to keep the dev tab alive. The production build records none. Measured on
+the dashboard over 3 minutes: zero entries, a flat ~13 MB heap, no errors.
+
+If something else already holds port 8000, start the backend on another port
+(`python serve.py circulatory 8010`) and point the frontend at it with
+`CARDIOTWIN_API=http://localhost:8010` before `npm run dev` or `npm run preview`.
+
+### 4. Run the standalone demo (optional)
 
 The demo script exercises the simulation engine directly from the command line, without the web interface:
 

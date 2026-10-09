@@ -73,11 +73,9 @@ cardio-twin/
 │   ├── hypertension.xml
 │   └── heart_failure.xml
 │
-├── docs/
-│   ├── development_guide.md
-│   └── roadmap.md
-│
-└── demo.py                        # Standalone CLI demo (no frontend required)
+└── docs/
+    ├── development_guide.md
+    └── roadmap.md
 ```
 
 **Stack:** Python 3.10+ / FastAPI — React 19 / Vite / TypeScript / TailwindCSS / Recharts
@@ -132,16 +130,6 @@ the dashboard over 3 minutes: zero entries, a flat ~13 MB heap, no errors.
 If something else already holds port 8000, start the backend on another port
 (`python serve.py circulatory 8010`) and point the frontend at it with
 `CARDIOTWIN_API=http://localhost:8010` before `npm run dev` or `npm run preview`.
-
-### 4. Run the standalone demo (optional)
-
-The demo script exercises the simulation engine directly from the command line, without the web interface:
-
-```bash
-python demo.py
-```
-
-This runs the normal, hypertension, and heart failure scenarios and prints computed values, composite vectors, and gate validation results to the console.
 
 ---
 

@@ -22,6 +22,9 @@ import { useToast } from './components/Toast'
 import { StreamingDashboard } from './components/StreamingDashboard'
 import { TwinDashboard } from './components/twin/TwinDashboard'
 import { BodyDashboard } from './components/twin/BodyDashboard'
+import { Dashboard } from './components/dashboard/Dashboard'
+import { TWIN_FORMS } from './components/dashboard/forms'
+import type { TwinForm } from './components/dashboard/forms'
 
 // Computed attributes shown as gauges (most clinically significant)
 const GAUGE_ATTRS = ['MAP', 'CO', 'Q']
@@ -88,22 +91,36 @@ export default function App() {
   // Deep-linkable view: #twin / #stream open straight into that screen, which
   // also makes the app scriptable for headless screenshots.  #game still
   // resolves — the 2D screen was the game view before it became the
-  // schema-driven one, and old links should not break.
-  const [mode, setMode] = useState<'analysis' | 'stream' | 'twin' | 'body'>(() => {
+  // schema-driven one, and old links should not break.  No hash at all is the
+  // single dashboard; the analysis screen moved to #analysis to make room.
+  const [mode, setMode] = useState<'dashboard' | 'analysis' | 'stream' | 'twin' | 'body'>(() => {
     const [screen] = window.location.hash.replace('#', '').split('/')
     if (screen === 'twin' || screen === 'game') return 'twin'
     if (screen === 'body') return 'body'
-    return screen === 'stream' ? 'stream' : 'analysis'
+    if (screen === 'stream') return 'stream'
+    return screen === 'analysis' ? 'analysis' : 'dashboard'
   })
 
-  // Which lamina the 2D view is on, carried in the hash as `#twin/<lamina_id>`.
-  // The lamina is a property of the connection now rather than of the backend
-  // process, so it is part of *where you are* and belongs in the URL: a link
-  // opens the lamina it names, and a reload stays on it. Null means "whatever
-  // the backend defaults to", which is what a bare `#twin` has always meant.
+  // Which lamina the dashboard or the 2D view is on, carried in the hash as
+  // `#dashboard/<lamina_id>` or `#twin/<lamina_id>`. The lamina is a property
+  // of the connection now rather than of the backend process, so it is part of
+  // *where you are* and belongs in the URL: a link opens the lamina it names,
+  // and a reload stays on it. Null means "whatever the backend defaults to".
   const [laminaId, setLaminaId] = useState<string | null>(() => {
-    const [, lamina] = window.location.hash.replace('#', '').split('/')
-    return lamina || null
+    const [screen, lamina] = window.location.hash.replace('#', '').split('/')
+    return (screen === 'twin' || screen === 'game' || screen === 'dashboard') && lamina
+      ? lamina
+      : null
+  })
+
+  // Which form the dashboard's twin zone takes, carried as the third part of
+  // `#dashboard/<lamina_id>/<form>`, so a presenter can open a talk straight
+  // onto the table or the trends.
+  const [dashForm, setDashForm] = useState<TwinForm>(() => {
+    const [screen, , form] = window.location.hash.replace('#', '').split('/')
+    return screen === 'dashboard' && TWIN_FORMS.includes(form as TwinForm)
+      ? (form as TwinForm)
+      : 'animation'
   })
 
   // Which body the `#body` screen is on, carried the same way: `#body/<file>`.
@@ -119,17 +136,22 @@ export default function App() {
 
   // Keep the URL in step with the view so the current screen is shareable.
   useEffect(() => {
-    const screen = mode === 'analysis' ? '' : `#${mode}`
+    const dashboard =
+      laminaId || dashForm !== 'animation'
+        ? `#dashboard/${laminaId ?? ''}${dashForm !== 'animation' ? `/${dashForm}` : ''}`
+        : ''
     const target =
-      mode === 'twin' && laminaId
-        ? `#twin/${laminaId}`
-        : mode === 'body' && organismId
-          ? `#body/${organismId}`
-          : screen
+      mode === 'dashboard'
+        ? dashboard
+        : mode === 'twin' && laminaId
+          ? `#twin/${laminaId}`
+          : mode === 'body' && organismId
+            ? `#body/${organismId}`
+            : `#${mode}`
     if (window.location.hash !== target) {
       window.history.replaceState(null, '', target || window.location.pathname)
     }
-  }, [mode, laminaId, organismId])
+  }, [mode, laminaId, organismId, dashForm])
 
   const handleChartType = useCallback((type: ChartType) => {
     setChartType(type)
@@ -342,6 +364,19 @@ export default function App() {
     triggerXMLDownload(filename, label)
     showToast(`Saved settled snapshot (cycle ${cycle})`, 'success')
   }, [cycle, schema, triggerXMLDownload, showToast])
+
+  // ── The single dashboard — the default screen ───────────────────────────────
+  if (mode === 'dashboard') {
+    return (
+      <Dashboard
+        lamina={laminaId}
+        onLamina={setLaminaId}
+        form={dashForm}
+        onForm={setDashForm}
+        onOpen={setMode}
+      />
+    )
+  }
 
   // ── Streaming mode — full-page, no schema needed ────────────────────────────
   if (mode === 'stream') {

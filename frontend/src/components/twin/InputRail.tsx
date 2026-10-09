@@ -46,6 +46,13 @@ interface Props {
   /** What kind of feed is producing those readings, per the backend. */
   sourceKind?: string
   disabled?: boolean
+  /**
+   * How to group the controls. `segment` asks which subsystem an input
+   * belongs to; `channel` asks how it gets in, by the ingestion channel the
+   * lamina maps it to. An input the lamina maps to no channel is listed under
+   * that heading rather than folded into a channel it does not have.
+   */
+  groupBy?: 'segment' | 'channel'
   onChange: (id: string, value: number) => void
 }
 
@@ -56,6 +63,7 @@ export function InputRail({
   inboundProvenance = {},
   sourceKind = 'unknown',
   disabled = false,
+  groupBy = 'segment',
   onChange,
 }: Props) {
   /** What the reader has set, by attribute id. Empty until they touch one. */
@@ -69,14 +77,30 @@ export function InputRail({
     )
   }
 
-  // Grouped by the segment that owns each input, in segment declaration order,
-  // with anything unclaimed collected at the end rather than dropped.
+  // Grouped by the segment that owns each input (or the channel that carries
+  // it), in declaration order, with anything unclaimed collected at the end
+  // rather than dropped.
+  const channels = index.schema.channel_mappings ?? {}
   const groups = new Map<string, { label: string; ids: string[] }>()
   for (const attr of index.sensors) {
-    const seg = index.segmentOfAttribute[attr.id]
-    const key = seg?.id ?? '·unassigned'
-    if (!groups.has(key)) groups.set(key, { label: seg?.name ?? 'Listed by no segment', ids: [] })
+    let key: string
+    let label: string
+    if (groupBy === 'channel') {
+      key = channels[attr.id] ?? '·unassigned'
+      label = channels[attr.id] ?? 'Mapped to no channel'
+    } else {
+      const seg = index.segmentOfAttribute[attr.id]
+      key = seg?.id ?? '·unassigned'
+      label = seg?.name ?? 'Listed by no segment'
+    }
+    if (!groups.has(key)) groups.set(key, { label, ids: [] })
     groups.get(key)!.ids.push(attr.id)
+  }
+  // Unclaimed last, whichever way the inputs are grouped.
+  const unclaimed = groups.get('·unassigned')
+  if (unclaimed) {
+    groups.delete('·unassigned')
+    groups.set('·unassigned', unclaimed)
   }
 
   return (

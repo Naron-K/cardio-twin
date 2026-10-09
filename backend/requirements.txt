@@ -13,6 +13,7 @@ python-multipart==0.0.6
 
 # Testing
 pytest>=8.0.0
+httpx>=0.28.1    # required by fastapi.testclient, which the API and WebSocket tests use
 
 # Optional: Type checking and formatting
 # mypy==1.8.0

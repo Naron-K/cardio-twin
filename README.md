@@ -231,4 +231,4 @@ This is the format `POST /api/upload` accepts. The files in `presets/` demonstra
 
 ## License
 
-This project is licensed under the MIT License.
+This project is licensed under the [MIT License](./LICENSE).

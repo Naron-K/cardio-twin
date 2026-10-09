@@ -1,0 +1,279 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ==================================================================
+  METABOLIC LAMINA — tissue oxygen supply, demand, and the lactate that
+  appears when the two stop matching.
+
+  Third in the stack (level 3), above respiration.  It is the first
+  lamina in this project written to be the RECEIVING end of a channel
+  that carries error backwards, and the physiology is why: a tissue has
+  no pump and no lung, so when oxygen runs short every correction
+  available lives one lamina down.  An outcome that its own lamina
+  cannot fix is exactly what a return path is for.
+
+  ==================================================================
+  WHAT ARRIVES ON supply_index, AND WHY IT IS NOT CALLED DO2
+
+  A channel carries a composite's STATE VALUE: one number in [0,1] that
+  the sending face weighs all its attributes into.  Respiration's face
+  is `transport_state`, which holds four — Hb, SpO2, CaO2, DO2 — so what
+  crosses is a BLEND, and mapping a blend onto any single quantity's
+  declared range puts a decimal point on a lie.
+
+  Measured on the shipped feed: `transport_state` sits at 0.6663 while
+  respiration's own DO2 reads 988 mL/min.  Mapped onto DO2's declared
+  range [150, 2500] that index would arrive here as 1715.8 mL/min —
+  overstated by 74%, in an attribute labelled "oxygen delivery".
+
+  So it is declared for what it is: a dimensionless supply index in
+  [0,1].  This lamina converts it into a consumption ceiling using its
+  OWN `VO2_capacity`, which is the right home for that conversion — how
+  much oxygen a tissue could use is a fact about the tissue, not about
+  the lung.
+
+  The tension is worth naming rather than hiding.  Rule 14 requires a
+  face to hold two or more attributes before anything can be taught to
+  it, and two or more attributes means the wire carries an index rather
+  than a named quantity.  A seam is one or the other.  This one is an
+  index; the cardiac-output seam below is a quantity, because its face
+  holds exactly one attribute.
+
+  ==================================================================
+  THE ELBOW, which is the whole point of the chain
+
+  Oxygen consumption is supply-INDEPENDENT above a critical delivery and
+  supply-DEPENDENT below it (Cain 1977).  Above the elbow the tissue
+  takes what it demands and extraction rises to compensate as supply
+  falls; below it, consumption is capped by what arrived and the
+  shortfall is anaerobic.
+
+  A model without that elbow would let oxygen delivery fall to zero
+  while still reporting a comfortable tissue, which is the class of
+  quiet wrongness this project keeps finding and removing.
+
+  ==================================================================
+  SCOPE — steady state at one operating point, for teaching and for
+  exercising the universal machinery.  No regional distribution, no
+  oxygen-debt repayment over time, no lactate clearance kinetics, no
+  acid-base coupling.  Not a clinical tool.
+  ==================================================================
+-->
+<lamina id="lamina_metabolic" name="Metabolic" level="3">
+
+  <description>
+    Tissue oxygen metabolism: what the supply allows, what the demand
+    asks for, and the lactate that measures the gap. The receiving end
+    of the first channel in this body with a return path.
+  </description>
+
+  <!-- Steady-state algebra, same as the two laminae below. The chain
+       here is a straight line with no feedback onto its own inputs, so
+       one pass in step order resolves it. A fixed_point solver exists
+       for a lamina that closes a loop on itself; this one does not. -->
+  <behaviour_solver type="algebraic_chain" dt="1.0" unit="second" />
+
+  <attributes>
+
+    <!-- ── What another lamina attaches to ─────────────────────── -->
+    <attribute id="supply_index">
+      <name>Oxygen Supply Index</name>
+      <unit>dimensionless</unit>
+      <source>INTER_LAMINA</source>
+      <physio_min>0.0</physio_min>
+      <physio_max>1.0</physio_max>
+      <baseline>0.5</baseline>
+      <description>The composite STATE VALUE respiration presents at its face, and the only thing this lamina learns about the world below it. An INDEX in [0,1], NOT oxygen delivery in mL/min: the face it comes from blends four attributes into one number, so naming it DO2 would claim a precision the wire does not carry — measured, the same index would read as 1715.8 mL/min against a true 988. Until a gate opens onto it, it rests at the baseline below and the snapshot says "baseline (uncoupled)" rather than letting a placeholder pass for a live coupled value. No noise_sigma: a synthetic feed does not emit for this source, and jitter here would be inventing a measurement error for a number that is not a measurement.</description>
+    </attribute>
+
+    <!-- ── What the tissue asks for and could use ──────────────── -->
+    <attribute id="VO2_demand">
+      <name>Oxygen Demand</name>
+      <unit>mL/min</unit>
+      <source>SENSOR</source>
+      <physio_min>150</physio_min>
+      <physio_max>1500</physio_max>
+      <baseline>250</baseline>
+      <description>How much oxygen the tissue is asking for this cycle. Roughly 250 mL/min at rest for an adult; exercise raises it several-fold, and driving this attribute is how a test makes the supply seam matter. It is a SENSOR because metabolic demand is set outside this model — by activity, temperature, and work — not derived from anything inside it.</description>
+    </attribute>
+
+    <attribute id="VO2_capacity">
+      <name>Oxygen Consumption Capacity</name>
+      <unit>mL/min</unit>
+      <source>SENSOR</source>
+      <physio_min>200</physio_min>
+      <physio_max>2000</physio_max>
+      <baseline>1200</baseline>
+      <description>What this tissue could consume if the supply index were 1.0 — the scale that turns a dimensionless index into mL/min. It belongs here rather than on the sending lamina because it is a property of the consumer: the same oxygen supply means something different to a resting calf and to a working myocardium.</description>
+    </attribute>
+
+    <!-- ── The lactate relation's two declared coefficients ─────── -->
+    <attribute id="lactate_base">
+      <name>Baseline Lactate</name>
+      <unit>mmol/L</unit>
+      <source>SENSOR</source>
+      <physio_min>0.5</physio_min>
+      <physio_max>2.0</physio_max>
+      <baseline>1.0</baseline>
+      <description>Resting arterial lactate with no oxygen deficit at all. Normal is under 2 mmol/L, and about 1.0 in a well-perfused adult.</description>
+    </attribute>
+
+    <attribute id="lactate_k">
+      <name>Lactate Yield</name>
+      <unit>mmol/L per mL/min</unit>
+      <source>SENSOR</source>
+      <physio_min>0.005</physio_min>
+      <physio_max>0.05</physio_max>
+      <baseline>0.015</baseline>
+      <description>How much lactate a sustained oxygen deficit produces. Declared here rather than written into the Python, following the lesson CVP taught this project: a coefficient buried in code is one a domain expert can neither see nor change. At the baseline of 0.015 a deficit of 200 mL/min lifts lactate from 1.0 to 4.0 — comfortably out of the target band, which is what makes the supply seam observable.</description>
+    </attribute>
+
+    <!-- ── The chain ───────────────────────────────────────────── -->
+    <attribute id="VO2">
+      <name>Oxygen Consumption</name>
+      <unit>mL/min</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>100</physio_min>
+      <physio_max>2000</physio_max>
+      <computed_by>o2_consumption</computed_by>
+      <depends_on>VO2_demand, supply_index, VO2_capacity</depends_on>
+      <description>What the tissue actually consumes: its demand, or the ceiling the arriving supply allows, whichever is smaller. The min() IS the elbow — above the critical supply this equals demand and does not care what the lung is doing, below it consumption follows supply down.</description>
+    </attribute>
+
+    <attribute id="O2_utilisation">
+      <name>Supply Utilisation</name>
+      <unit>fraction</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0.0</physio_min>
+      <physio_max>1.0</physio_max>
+      <computed_by>supply_utilisation</computed_by>
+      <depends_on>VO2, supply_index, VO2_capacity</depends_on>
+      <description>What fraction of the CONSUMABLE oxygen this tissue is using — VO2 over the ceiling, so it reaches exactly 1.0 when consumption becomes supply-limited. Deliberately NOT called the oxygen extraction ratio: a true O2ER is VO2 over oxygen DELIVERED, and this lamina never receives a delivery in mL/min, only an index. Naming it O2ER would put a familiar clinical label on a different quantity, which is the mistake Q carries in the circulatory lamina and which this project has spent real effort undoing. Reported rather than acted on: it says HOW CLOSE the tissue is to the elbow, which a lactate of exactly baseline does not.</description>
+    </attribute>
+
+    <attribute id="O2_deficit">
+      <name>Oxygen Deficit</name>
+      <unit>mL/min</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0</physio_min>
+      <physio_max>1200</physio_max>
+      <computed_by>oxygen_deficit</computed_by>
+      <depends_on>VO2_demand, VO2</depends_on>
+      <description>The shortfall between what was asked for and what was consumed, and the only quantity here that is zero when everything is fine. Floored at zero: a tissue offered more than it asked for has no surplus to bank, because consumption is already capped at demand upstream.</description>
+    </attribute>
+
+    <attribute id="lactate">
+      <name>Arterial Lactate</name>
+      <unit>mmol/L</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0.5</physio_min>
+      <physio_max>15</physio_max>
+      <computed_by>lactate_production</computed_by>
+      <depends_on>lactate_base, lactate_k, O2_deficit</depends_on>
+      <description>The endpoint of this lamina and the outcome the return path carries. A deliberately linear stand-in for anaerobic metabolism — no clearance, no time constant, no acid-base coupling — which gets right the one thing this body needs from it: it sits at baseline while supply meets demand, and rises when it does not, for a reason no correction inside THIS lamina could fix.</description>
+    </attribute>
+
+  </attributes>
+
+  <functions>
+
+    <function id="o2_consumption" step="1">
+      <name>Oxygen Consumption</name>
+      <formula>VO2 = min(VO2_demand, supply_index * VO2_capacity)</formula>
+      <inputs>VO2_demand, supply_index, VO2_capacity</inputs>
+      <output>VO2</output>
+      <description>The biphasic DO2/VO2 relationship in one line (Cain 1977). supply_index * VO2_capacity is the ceiling — the most this tissue could consume given what arrived. Below the ceiling, consumption is set by demand and is independent of supply, which is why a healthy person does not consume more oxygen by breathing harder.</description>
+    </function>
+
+    <function id="supply_utilisation" step="2">
+      <name>Supply Utilisation</name>
+      <formula>O2_utilisation = VO2 / (supply_index * VO2_capacity)</formula>
+      <inputs>VO2, supply_index, VO2_capacity</inputs>
+      <output>O2_utilisation</output>
+      <description>The denominator is the same ceiling as step 1, recomputed rather than passed along, so the two can never disagree about what was on offer. A ceiling of zero or less is refused rather than divided by — a utilisation fraction of infinity is not a measurement.</description>
+    </function>
+
+    <function id="oxygen_deficit" step="3">
+      <name>Oxygen Deficit</name>
+      <formula>O2_deficit = max(0, VO2_demand - VO2)</formula>
+      <inputs>VO2_demand, VO2</inputs>
+      <output>O2_deficit</output>
+      <description>What the tissue asked for and did not get. Zero whenever consumption met demand, which is the ordinary case.</description>
+    </function>
+
+    <function id="lactate_production" step="4">
+      <name>Lactate Production</name>
+      <formula>lactate = lactate_base + lactate_k * O2_deficit</formula>
+      <inputs>lactate_base, lactate_k, O2_deficit</inputs>
+      <output>lactate</output>
+      <description>Anaerobic metabolism as a straight line through the deficit. Both coefficients are declared attributes rather than constants in Python, so the relation can be retuned without touching code.</description>
+    </function>
+
+  </functions>
+
+  <composites>
+
+    <!--
+      What this lamina groups together, and what a gate on its membrane
+      would read.  Equal quarters: nobody has measured which of these
+      four best represents "how is the tissue doing", so the weights say
+      so honestly rather than encoding a guess.
+
+      Deliberately NO learning rule.  A composite may only learn if it
+      declares a clamp (rule 5), and there is nothing to teach this one:
+      no channel leaves this lamina, so nothing downstream can tell it
+      that its summary was wrong.  The learning in this body happens on
+      the SENDING side of the seam above — respiration's transport_state,
+      which does declare one.
+    -->
+    <composite id="tissue_state">
+      <name>Tissue State</name>
+      <attributes>supply_index, VO2, O2_utilisation, lactate</attributes>
+      <description>How the tissue is faring: what arrived, what it used, how much of the available supply it is using, and what that cost.</description>
+      <absorption_vector>
+        <weight attribute="supply_index">0.25</weight>
+        <weight attribute="VO2">0.25</weight>
+        <weight attribute="O2_utilisation">0.25</weight>
+        <weight attribute="lactate">0.25</weight>
+      </absorption_vector>
+      <distribution_vector>
+        <weight attribute="supply_index">0.25</weight>
+        <weight attribute="VO2">0.25</weight>
+        <weight attribute="O2_utilisation">0.25</weight>
+        <weight attribute="lactate">0.25</weight>
+      </distribution_vector>
+    </composite>
+
+  </composites>
+
+  <segments>
+
+    <segment name="Tissue Oxygenation" id="seg_tissue">
+      <description>Supply, demand, and the gap between them</description>
+      <attributes>supply_index, VO2_demand, VO2_capacity, lactate_base, lactate_k, VO2, O2_utilisation, O2_deficit, lactate</attributes>
+      <composites>tissue_state</composites>
+      <functions>o2_consumption, supply_utilisation, oxygen_deficit, lactate_production</functions>
+      <behavioural_outcomes>
+        <outcome id="target_lactate" attribute="lactate" target="1.0" tolerance="1.0"
+                 name="Target Lactate" unit="mmol/L">
+          <description>Normal arterial lactate is under 2 mmol/L; the band here is 0 to 2. This is the outcome whose error travels BACK up the supply channel, because it is the one this lamina cannot act on: a tissue has no pump and no lung. Everything that could raise oxygen supply lives one lamina down.</description>
+        </outcome>
+      </behavioural_outcomes>
+    </segment>
+
+  </segments>
+
+  <!--
+    NO <tags> block, and that is a decision rather than an omission.
+
+    A tag drives corrective X'' into a composite of THIS lamina. There is
+    no correction available here: lactate is high because supply is
+    short, and nothing this lamina owns can make more supply. Declaring a
+    tag would give the model a loop that grinds against its own clamps
+    while the real cause sits one level down, untouched.
+
+    The correction this lamina IS entitled to is the one it sends
+    backwards, and that is declared on the channel in organism_metabolic.xml,
+    not here — a lamina must not know what it is coupled to.
+  -->
+
+</lamina>

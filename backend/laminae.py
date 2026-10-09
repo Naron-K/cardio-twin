@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Type
 
 from circulatory_lamina import CirculatoryLamina
+from metabolic_lamina import MetabolicLamina
 from respiratory_lamina import RespiratoryLamina
 from universal_twin import UniversalTwin
 
@@ -40,6 +41,7 @@ DEFAULT_LAMINA = Path(__file__).parent / "circulatory_lamina.xml"
 _IMPLEMENTATIONS: dict[str, Type[UniversalTwin]] = {
     "lamina_circulatory": CirculatoryLamina,
     "lamina_respiratory": RespiratoryLamina,
+    "lamina_metabolic":   MetabolicLamina,
 }
 
 

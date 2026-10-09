@@ -1,0 +1,208 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ==================================================================
+  ORGANISM — the three-lamina body, and the first one with a RETURN PATH
+
+  This is a second body, not a replacement.  `organism.xml` stays at two
+  laminae and stays the default: its 1800-value baseline is frozen, and
+  a body is added here by dropping a file in rather than by editing the
+  one everything else is measured against.  `available_organisms()`
+  globs `organism*.xml`, so nothing in code changes to offer this.
+
+  ==================================================================
+  WHY IT EXISTS
+
+  The backward pass has been buildable since the gate channels landed
+  and unusable on the shipped body, for a reason that is arithmetic
+  rather than oversight: circulation's face `output_state` holds ONE
+  attribute (CO), and a composite's state value is the weighted mean of
+  its attributes — so with one attribute the state IS that attribute
+  whatever its weight, and every learning step is exactly zero.  Rule 14
+  refuses that rather than letting a return path run forever and move
+  nothing.
+
+  Respiration's `transport_state` is the opposite case and was already
+  eligible before this file existed: four attributes (Hb, SpO2, CaO2,
+  DO2) AND a learning rule its own file declares.  All it lacked was
+  somebody above it to send to.  `lamina_metabolic` is that somebody.
+
+  ==================================================================
+  WHAT THE SECOND SEAM CARRIES, AND WHAT IT DOES NOT
+
+  Read this before adding another multi-attribute face anywhere.
+
+  A channel carries a composite's STATE VALUE — one number in [0,1] —
+  and the receiver maps it onto its own declared range.  When the face
+  holds ONE attribute that round-trips exactly: `output_state` is CO, so
+  `CO_ref` receives a cardiac output.  When the face holds FOUR, the
+  state value is a blend, and mapping it onto any single quantity's
+  range would be a lie with a decimal point on it.
+
+  Measured here: `transport_state` sits at 0.6663 while respiration's
+  own DO2 reads 988.4 mL/min.  Mapped onto DO2's declared range that
+  index would arrive as 1715.8 mL/min — wrong by 74%, in a number
+  labelled "oxygen delivery".
+
+  So the receiving attribute is `supply_index`, dimensionless, [0,1],
+  and it is named for what it is.  The metabolic lamina turns it into a
+  consumption ceiling with its OWN declared capacity, which is the right
+  place for that conversion: how much oxygen this tissue could use is a
+  fact about the tissue, not about the lung.
+
+  The tension is worth stating plainly rather than hiding: Rule 14 needs
+  two or more attributes for a face to be teachable, and two or more
+  attributes means the wire carries an index rather than a named
+  quantity.  A seam is one or the other.  This one is an index.
+
+  ==================================================================
+  THE RETURN PATH
+
+      delta = polarity * lambda_gate * E
+
+  E is the metabolic lamina's lactate error in tolerances; lambda is the
+  openness the forward pass used this cycle.  Error is payload and
+  payload obeys gates.
+
+  polarity="1" and it is NOT the default, so it is argued here.  The
+  sign MULTIPLIES the deviation, exactly as on a tag.  The default -1 is
+  right when raising the source RAISES the far outcome.  Here the
+  coupling runs the other way: more oxygen supply means LESS lactate.
+  Lactate above target gives a positive deviation, and the sender has to
+  respond by sending MORE — so the sign has to flip.  Getting this
+  backwards does not fail loudly; it diverges quietly, which is why the
+  derivation is written down.
+
+  ==================================================================
+-->
+<organism id="bdt_metabolic" version="2.0">
+
+  <name>Three-Lamina Body</name>
+  <description>
+    Circulation, respiration and tissue metabolism, stacked. The second
+    seam carries an oxygen supply index upward and lactate error back
+    down — the first return path in this project that runs on real
+    laminae rather than on a body built for a test.
+  </description>
+
+  <laminae>
+    <lamina id="lamina_circulatory" level="1"/>
+    <lamina id="lamina_respiratory" level="2"/>
+    <lamina id="lamina_metabolic"   level="3"/>
+  </laminae>
+
+  <channels>
+
+    <!-- ==========================================================
+         Seam 1 — unchanged from organism.xml.
+
+         Copied rather than referenced because a body is a complete
+         declaration; a file that inherited half its channels from
+         another one would make "what does this body do" a question
+         with two files in the answer.
+         ========================================================== -->
+    <channel id="ch_co_to_resp"
+             from="lamina_circulatory:output_state"
+             to="lamina_respiratory:CO_ref"
+             time_delay="0">
+
+      <description>
+        Cardiac output crossing into oxygen delivery. Held shut while
+        the pump is unremarkable, because a respiratory model resting
+        on its own declared baseline of 5 L/min is not wrong — it is
+        only uninformed.
+      </description>
+
+      <extract mode="state"/>
+
+      <transmit>
+        <auto_gate id="ta_pump_deviation" refractory_cycles="5">
+          <description>
+            "Unremarkable" measured against what the receiver already
+            assumes, and two-sided so that shock counts as remarkable
+            too. Numbers as measured for organism.xml.
+          </description>
+          <threshold aggregate="deviation" reference="0.30"
+                     open_above="0.125" close_below="0.09"/>
+        </auto_gate>
+      </transmit>
+
+      <receive>
+        <key_gate id="rk_co" weight="1.0" rate="0.2"
+                  on_close="hold" confidence="0.8">
+          <description>
+            A receptor for cardiac output specifically: `identity`
+            matches the LABEL on the channel.
+          </description>
+          <key metric="identity"/>
+        </key_gate>
+      </receive>
+    </channel>
+
+    <!-- ==========================================================
+         Seam 2 — the new one, and the one with a return path.
+         ========================================================== -->
+    <channel id="ch_supply_to_tissue"
+             from="lamina_respiratory:transport_state"
+             to="lamina_metabolic:supply_index"
+             time_delay="0">
+
+      <description>
+        The oxygen supply index respiration presents, and the lactate
+        error the tissue sends back. Unlike seam 1 this one is open
+        whenever there is any supply at all: there is no valve between
+        a lung and a capillary bed, and a gate that pretended otherwise
+        would be modelling a mechanism the body does not have.
+      </description>
+
+      <extract mode="state"/>
+
+      <transmit>
+        <auto_gate id="ta_supply" refractory_cycles="0">
+          <description>
+            Open whenever respiration is delivering anything. The two
+            boundaries rule 4 requires are still both here and still
+            ordered — the band is simply placed near the floor, because
+            what this gate is really saying is "the lung is doing
+            something", and the only state it shuts for is one where
+            transport has collapsed entirely.
+
+            refractory_cycles is 0 for the same reason: a refractory
+            period exists to stop a gate re-firing on noise, and a gate
+            that is meant to sit open has nothing to re-fire on.
+          </description>
+          <threshold aggregate="state"
+                     open_above="0.10" close_below="0.05"/>
+        </auto_gate>
+      </transmit>
+
+      <receive>
+        <key_gate id="rk_supply" weight="1.0" rate="0.2"
+                  on_close="hold" confidence="0.9">
+          <description>
+            rate 0.2 matches seam 1 and for the same reason: how fast to
+            believe an arriving number is the receiver's business. The
+            tissue eases toward the supply it is offered rather than
+            snapping to it, which keeps this loop and respiration's own
+            from pulling on each other through an open channel.
+          </description>
+          <key metric="identity"/>
+        </key_gate>
+      </receive>
+
+      <!-- polarity="1": more supply means LESS lactate, so the sign
+           flips from the corrective default. See the header. -->
+      <backprop from="target_lactate" polarity="1">
+        <description>
+          Lactate is the outcome a tissue cannot fix by itself. It has
+          no pump and no lung; every correction available to it lives
+          one lamina down. That is exactly the case a return path is
+          for, and it is why this seam carries one while seam 1 does
+          not — respiration CAN act on a cardiac output it dislikes,
+          by changing how it breathes.
+        </description>
+      </backprop>
+    </channel>
+
+  </channels>
+
+</organism>

@@ -34,8 +34,6 @@ export type {
   OrganismLamina,
   GateSpec,
   GateState,
-  GateProvenance,
-  TransferSpec,
 } from '../twin/organism'
 
 /**

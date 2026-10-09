@@ -24,22 +24,16 @@
  * map otherwise. The map is available either way, because it is the only view
  * that shows the model's shape rather than its values.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useCardioStream } from '../../hooks/useCardioStream'
-import type { StreamTick } from '../../hooks/useCardioStream'
-import { fetchLaminae, fetchSchema } from '../../utils/api'
-import type { LaminaOption } from '../../utils/api'
-import { indexLamina, fmtValue } from '../../twin/schema'
-import type { LaminaIndex } from '../../twin/schema'
-import { loadStage } from '../../twin/stageTemplate'
-import type { LoadedStage } from '../../twin/stageTemplate'
-import { artworkFor } from '../../twin/stageRegistry'
+import { useMemo, useState } from 'react'
+import { useLaminaTwin } from '../../hooks/useLaminaTwin'
+import { fmtValue } from '../../twin/schema'
 import { anyOutOfBand } from '../../twin/outcomes'
 import { viewsFor, withinByOutcome } from '../../twin/views'
 import { LaminaStage } from './LaminaStage'
 import { LaminaMap } from './LaminaMap'
 import { ProvenanceStrip } from './ProvenanceStrip'
 import { InputRail } from './InputRail'
+import { LaminaPicker } from './LaminaPicker'
 import { Panel, Chip } from './ui'
 
 interface Props {
@@ -59,34 +53,29 @@ interface StageMode {
 const MAP_MODE: StageMode = { id: 'map', label: 'Lamina map' }
 
 export function TwinDashboard({ lamina, onLamina, onBack }: Props) {
-  // 300 ticks ≈ 30 s: long enough for a disturbance and the settling after it
-  // to sit in the convergence window together.
-  const { ticks, status, sendControl, lastTickAt, closeReason } = useCardioStream({
-    tickMs: 100,
-    bufferSize: 300,
-    lamina,
-  })
-  const newest: StreamTick | null = ticks.length > 0 ? ticks[ticks.length - 1] : null
+  // Structure, stream, the lamina-mismatch invariant and the stale-socket rule
+  // live in useLaminaTwin, shared with the single dashboard so the two screens
+  // cannot disagree about any of them.
+  const {
+    index,
+    schemaError,
+    laminae,
+    ticks,
+    latest,
+    status,
+    closeReason,
+    mismatch,
+    streamLamina,
+    stale,
+    staleAge,
+    artwork,
+    stage,
+    paused,
+    togglePause,
+    reset: handleReset,
+    setSensor,
+  } = useLaminaTwin({ lamina, onLamina })
 
-  /**
-   * The structure, tagged with the lamina it was fetched for.
-   *
-   * Tagged rather than cleared, because "which lamina is this the shape of" is
-   * the question the whole screen turns on. A structure whose tag no longer
-   * matches the lamina being asked for is not this screen's structure, and is
-   * not read — so no render passes through drawing one model over another's
-   * numbers, which is the failure this file exists to make impossible.
-   */
-  const [structure, setStructure] = useState<
-    { lamina: string | null; index: LaminaIndex } | null
-  >(null)
-  const [failure, setFailure] = useState<{ lamina: string | null; message: string } | null>(null)
-  const [laminae, setLaminae] = useState<LaminaOption[]>([])
-
-  const index = structure && structure.lamina === lamina ? structure.index : null
-  const schemaError = failure && failure.lamina === lamina ? failure.message : null
-  const [loaded, setLoaded] = useState<LoadedStage | null>(null)
-  const [paused, setPaused] = useState(false)
   /** What the reader picked, which may not exist for the lamina that loads. */
   const [chosen, setChosen] = useState<string | null>(null)
   const [chosenTab, setChosenTab] = useState<string | null>(null)
@@ -94,97 +83,7 @@ export function TwinDashboard({ lamina, onLamina, onBack }: Props) {
   /** The map is the one view whose useful size is the lamina's size, not ours. */
   const [mapExpanded, setMapExpanded] = useState(false)
 
-  // ── The model describes itself; everything below reads that description ───
-  //
-  // Re-read on every lamina change, and clear the old index first. A page that
-  // fetched its structure once and never again is how this went wrong: the old
-  // lamina's shape stayed on screen over the new one's numbers, named the old
-  // lamina in the header, and drew the old lamina's artwork — all of it looking
-  // entirely correct.
-  useEffect(() => {
-    let live = true
-    fetchSchema(lamina)
-      .then((raw) => live && setStructure({ lamina, index: indexLamina(raw) }))
-      .catch((e) =>
-        live &&
-        setFailure({
-          lamina,
-          message:
-            e?.response?.status === 404
-              ? `No lamina with id "${lamina}" — the backend does not serve one.`
-              : 'Schema failed to load — is the backend up on port 8000?',
-        })
-      )
-    return () => {
-      live = false
-    }
-  }, [lamina])
-
-  // What this backend can serve. The picker is built from the answer rather
-  // than from a list typed in here, so dropping a lamina XML into `backend/`
-  // is the whole of adding one.
-  useEffect(() => {
-    let live = true
-    fetchLaminae()
-      .then((r) => live && setLaminae(r.laminae))
-      .catch(() => live && setLaminae([]))
-    return () => {
-      live = false
-    }
-  }, [])
-
-  // ── The invariant: structure and values came from the same lamina ────────
-  //
-  // Checked every tick, because the ways it can break are not all things this
-  // component did. Restarting the backend onto another lamina behind an open
-  // tab is one — and is exactly how the bug was found. On a mismatch, no value
-  // is rendered at all: a number drawn under the wrong model's labels is worse
-  // than no number, and the effect below re-fetches the structure for whatever
-  // the socket is actually sending, which converges without a reload.
-  const streamLamina = newest?.laminaId ?? ''
-  const mismatch = Boolean(index && streamLamina && streamLamina !== index.schema.lamina_id)
-
-  useEffect(() => {
-    if (mismatch && streamLamina) onLamina(streamLamina)
-  }, [mismatch, streamLamina, onLamina])
-
-  // Nothing downstream sees a tick from a lamina this screen was not drawn for.
-  const latest: StreamTick | null = mismatch ? null : newest
-
-  // ── A dead socket must not look like a live one ──────────────────────────
-  //
-  // When the socket is not open, every number on screen is a photograph of the
-  // last tick. It does not dim, it does not stop, and the connection chip
-  // flipping to Reconnecting is not what anyone is reading. So the value
-  // columns are dimmed and the age of the last tick is stamped, on the same
-  // rule the ECG and the simulated feed already follow.
-  const stale = status !== 'open' && latest !== null
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    if (!stale) return
-    const id = setInterval(() => setNow(Date.now()), 500)
-    return () => clearInterval(id)
-  }, [stale])
-  const staleAge = stale && lastTickAt ? Math.max(0, Math.round((now - lastTickAt) / 1000)) : null
   const dim = stale ? 'opacity-40 transition-opacity duration-500' : 'transition-opacity duration-500'
-
-  const artwork = artworkFor(index?.schema.lamina_id)
-
-  // Artwork is fetched at runtime, so bindings can change without a rebuild.
-  // A lamina with no artwork is not an error; the map takes the centre. The
-  // loaded template is only ever *used* through `stage` below, which is gated
-  // on there being artwork at all, so no clearing pass is needed here.
-  useEffect(() => {
-    if (!artwork) return
-    let live = true
-    loadStage(artwork.dir)
-      .then((s) => live && setLoaded(s))
-      .catch(() => live && setLoaded(null))
-    return () => {
-      live = false
-    }
-  }, [artwork])
-  const stage = artwork ? loaded : null
 
   const stageModes: StageMode[] = useMemo(() => {
     if (!artwork) return [MAP_MODE]
@@ -204,24 +103,6 @@ export function TwinDashboard({ lamina, onLamina, onBack }: Props) {
   // storing a default would mean writing state from an effect on every load.
   const mode = chosen && stageModes.some((m) => m.id === chosen) ? chosen : stageModes[0].id
   const tab = chosenTab && views.some((v) => v.id === chosenTab) ? chosenTab : (views[0]?.id ?? null)
-
-  const togglePause = useCallback(() => {
-    setPaused((was) => {
-      sendControl({ type: was ? 'resume' : 'pause' })
-      return !was
-    })
-  }, [sendControl])
-
-  const handleReset = useCallback(() => {
-    sendControl({ type: 'reset' })
-    if (paused) sendControl({ type: 'resume' })
-    setPaused(false)
-  }, [sendControl, paused])
-
-  const setSensor = useCallback(
-    (id: string, value: number) => sendControl({ type: 'set_sensor', id, value }),
-    [sendControl]
-  )
 
   // The stage's entire data input: the computed half of the snapshot. Beat
   // timing included, via whichever attribute the template's rhythm binding
@@ -669,66 +550,6 @@ export function TwinDashboard({ lamina, onLamina, onBack }: Props) {
 }
 
 // ── Small pieces ──────────────────────────────────────────────────────────────
-
-/**
- * The lamina, as something you pick rather than something you restart into.
- *
- * The list is the backend's answer to "what can you serve", so a lamina that
- * exists shows up here without an edit. A lamina whose arithmetic nobody has
- * written is offered and marked, not hidden: it loads, draws its whole
- * structure and shows a dash on every computed node, which is a fair picture of
- * "declared but not implemented" and a reasonable thing to want to look at.
- *
- * Picking one is a single act upstream — the schema and the socket are both
- * reopened with that id, together or not at all. Falling back to a plain label
- * when the catalogue is unavailable keeps the header honest rather than
- * offering a choice that would not work.
- */
-function LaminaPicker({
-  laminae,
-  current,
-  onPick,
-}: {
-  laminae: LaminaOption[]
-  current: string
-  onPick: (id: string) => void
-}) {
-  const name = laminae.find((l) => l.id === current)?.name ?? current
-
-  if (laminae.length < 2) {
-    return (
-      <span className="font-display text-lg font-extrabold tracking-tight text-crimson-container truncate">
-        {name}
-      </span>
-    )
-  }
-
-  return (
-    <label className="relative flex items-baseline group" title="Switch lamina">
-      <select
-        value={current}
-        onChange={(e) => onPick(e.target.value)}
-        className="appearance-none cursor-pointer bg-transparent pr-4 font-display text-lg font-extrabold
-                   tracking-tight text-crimson-container outline-none
-                   focus-visible:ring-2 focus-visible:ring-crimson-container/50 rounded-el"
-      >
-        {laminae.map((l) => (
-          <option key={l.id} value={l.id} className="bg-surface-low text-ink font-body">
-            {l.name}
-            {l.implemented ? '' : ' — structure only'}
-          </option>
-        ))}
-      </select>
-      <span
-        aria-hidden
-        className="pointer-events-none absolute right-0 bottom-1 font-mono text-[9px] text-ink/35
-                   group-hover:text-ink/70 transition-colors"
-      >
-        ▼
-      </span>
-    </label>
-  )
-}
 
 function Readout({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (

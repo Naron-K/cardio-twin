@@ -52,7 +52,13 @@ function fmt(v: number): string {
 
 
 
-function Row({ o, note }: { o: BeforeAfter; note: string }) {
+/**
+ * One outcome on its physiological scale: the tolerance band, the target, the
+ * current value, and — when the loop moved it — the shadow pass with the loop
+ * switched off. Shared by this panel and the dashboard's outcome tiles, so the
+ * two cannot draw the same outcome differently.
+ */
+export function ToleranceBar({ o }: { o: BeforeAfter }) {
   const lo = o.physio_min
   const hi = o.physio_max
   const [bandLo, bandHi] = bandOf(o)
@@ -67,6 +73,47 @@ function Row({ o, note }: { o: BeforeAfter; note: string }) {
   const [linkLo, linkHi] = xBefore <= xAfter ? [xBefore, xAfter] : [xAfter, xBefore]
 
   return (
+    <div className="relative h-5">
+      {/* Scale */}
+      <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1.5 rounded-full bg-surface-lowest" />
+      {/* Tolerance band — target ± tolerance, as the outcome declares it */}
+      <div
+        className="absolute top-1/2 -translate-y-1/2 h-1.5 rounded-full bg-oxy-container/25"
+        style={{ left: `${xBand}%`, width: `${Math.max(0.5, wBand)}%` }}
+      />
+      {/* Target */}
+      <div
+        className="absolute top-1/2 -translate-y-1/2 w-px h-4 bg-oxy/60"
+        style={{ left: `${xTarget}%` }}
+      />
+      {/* What the loop moved */}
+      {moved && (
+        <div
+          className="absolute top-1/2 -translate-y-1/2 h-px border-t border-dashed border-warn-strong/70"
+          style={{ left: `${linkLo}%`, width: `${Math.max(0.4, linkHi - linkLo)}%` }}
+        />
+      )}
+      {/* Shadow pass — the same cycle with the loop switched off */}
+      {moved && (
+        <div
+          className="absolute top-1/2 w-2 h-2 -translate-x-1/2 -translate-y-1/2 rounded-full
+                     border border-warn-strong bg-surface-lowest"
+          style={{ left: `${xBefore}%` }}
+        />
+      )}
+      {/* Current value */}
+      <div
+        className={`absolute top-1/2 w-2.5 h-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full ${
+          o.within_after ? 'bg-oxy-container shadow-oxybloom-sm' : 'bg-crimson-container shadow-bloom-sm'
+        }`}
+        style={{ left: `${xAfter}%` }}
+      />
+    </div>
+  )
+}
+
+function Row({ o, note }: { o: BeforeAfter; note: string }) {
+  return (
     <div className="grid grid-cols-[58px_minmax(0,1fr)_96px] items-center gap-3">
       <div className="min-w-0">
         <p
@@ -80,42 +127,7 @@ function Row({ o, note }: { o: BeforeAfter; note: string }) {
       </div>
 
       <div>
-        <div className="relative h-5">
-          {/* Scale */}
-          <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1.5 rounded-full bg-surface-lowest" />
-          {/* Tolerance band — target ± tolerance, as the outcome declares it */}
-          <div
-            className="absolute top-1/2 -translate-y-1/2 h-1.5 rounded-full bg-oxy-container/25"
-            style={{ left: `${xBand}%`, width: `${Math.max(0.5, wBand)}%` }}
-          />
-          {/* Target */}
-          <div
-            className="absolute top-1/2 -translate-y-1/2 w-px h-4 bg-oxy/60"
-            style={{ left: `${xTarget}%` }}
-          />
-          {/* What the loop moved */}
-          {moved && (
-            <div
-              className="absolute top-1/2 -translate-y-1/2 h-px border-t border-dashed border-warn-strong/70"
-              style={{ left: `${linkLo}%`, width: `${Math.max(0.4, linkHi - linkLo)}%` }}
-            />
-          )}
-          {/* Shadow pass — the same cycle with the loop switched off */}
-          {moved && (
-            <div
-              className="absolute top-1/2 w-2 h-2 -translate-x-1/2 -translate-y-1/2 rounded-full
-                         border border-warn-strong bg-surface-lowest"
-              style={{ left: `${xBefore}%` }}
-            />
-          )}
-          {/* Current value */}
-          <div
-            className={`absolute top-1/2 w-2.5 h-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full ${
-              o.within_after ? 'bg-oxy-container shadow-oxybloom-sm' : 'bg-crimson-container shadow-bloom-sm'
-            }`}
-            style={{ left: `${xAfter}%` }}
-          />
-        </div>
+        <ToleranceBar o={o} />
       </div>
 
       <div className="text-right">

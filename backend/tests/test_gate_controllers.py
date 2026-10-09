@@ -32,17 +32,26 @@ from tests.test_organism import _organism, _twins_for   # noqa: F401
 
 
 THRESHOLD_PARAMS = {
-    "watch": "w", "aggregate": "attr",
+    "aggregate": "state",
     "open_above": 0.75, "close_below": 0.60, "refractory_cycles": 0,
 }
 
 
-def drive(series, params, controller=threshold_gate_controller, key="w"):
-    """Run a controller over a sequence, returning every state it produced."""
+def drive(series, params, controller=threshold_gate_controller):
+    """
+    Run a controller over a sequence, returning every state it produced.
+
+    A bare number in the series is a composite STATE VALUE, which is
+    what a threshold gate decides on; a dict is a composite's
+    coordinates, which is what a shape key matches against.  Both are
+    wrapped into the reading a controller is handed, because a
+    controller can no longer be given a bag of attributes.
+    """
     state, out = {}, []
     for value in series:
-        state = controller(state, {key: value} if not isinstance(value, dict)
-                           else value, params)
+        reading = ({"vector": value} if isinstance(value, dict)
+                   else {"state": value})
+        state = controller(state, reading, params)
         out.append(state)
     return out
 
@@ -57,14 +66,14 @@ def test_a_threshold_gate_is_born_shut():
     closed, so the very first evaluation has to be a decision to open
     rather than a value inheriting an assumption.
     """
-    shut = threshold_gate_controller({}, {"w": 0.70}, THRESHOLD_PARAMS)
+    shut = threshold_gate_controller({}, {"state": 0.70}, THRESHOLD_PARAMS)
     assert shut["open"] is False
     assert shut["open_fraction"] == 0.0
     assert shut["transitions"] == 0, "nothing happened, so nothing changed"
 
     # A value above open_above on the first cycle counts as a transition,
     # which is only true if the gate started closed.
-    opened = threshold_gate_controller({}, {"w": 0.99}, THRESHOLD_PARAMS)
+    opened = threshold_gate_controller({}, {"state": 0.99}, THRESHOLD_PARAMS)
     assert opened["open"] is True
     assert opened["transitions"] == 1
 
@@ -81,9 +90,9 @@ def test_the_deadband_holds_the_state_between_the_boundaries():
     shut there and an open gate stays open — the same input, two answers,
     which is the whole of what hysteresis means.
     """
-    shut = threshold_gate_controller({"open": False}, {"w": 0.70},
+    shut = threshold_gate_controller({"open": False}, {"state": 0.70},
                                      THRESHOLD_PARAMS)
-    open_ = threshold_gate_controller({"open": True}, {"w": 0.70},
+    open_ = threshold_gate_controller({"open": True}, {"state": 0.70},
                                       THRESHOLD_PARAMS)
     assert shut["open"] is False
     assert open_["open"] is True
@@ -139,7 +148,7 @@ def test_the_band_the_organism_actually_declares_is_quiet():
 
     def transitions(**overrides):
         p = dict(params, refractory_cycles=0, **overrides)
-        return drive(series, p, key="CO")[-1]["transitions"]
+        return drive(series, p)[-1]["transitions"]
 
     # One boundary, i.e. the deadband collapsed to nothing.
     one_boundary = transitions(close_below=params["open_above"] - 0.0001)
@@ -173,27 +182,37 @@ def test_the_refractory_holds_the_state_through_a_fast_swing():
 
 def test_a_gate_with_nothing_readable_holds_rather_than_guessing():
     """A missing reading is not evidence that the pump stopped."""
-    opened = threshold_gate_controller({}, {"w": 0.9}, THRESHOLD_PARAMS)
+    opened = threshold_gate_controller({}, {"state": 0.9}, THRESHOLD_PARAMS)
     assert opened["open"] is True
 
-    held = threshold_gate_controller(opened, {"w": None}, THRESHOLD_PARAMS)
+    held = threshold_gate_controller(opened, {"state": None}, THRESHOLD_PARAMS)
     assert held["open"] is True
     assert held["reason"] == "no readable value to watch"
 
-    shut_stays_shut = threshold_gate_controller({}, {"w": None},
+    shut_stays_shut = threshold_gate_controller({}, {"state": None},
                                                 THRESHOLD_PARAMS)
     assert shut_stays_shut["open"] is False
 
 
-@pytest.mark.parametrize("aggregate, expected_open", [
-    ("attr", False),    # watches w = 0.10
-    ("mean", False),    # (0.10 + 0.90) / 2 = 0.50
-    ("max", True),      # 0.90
+@pytest.mark.parametrize("aggregate, reading, expected_open", [
+    # The composite's value itself: 0.10, well under open_above.
+    ("state",     {"state": 0.10, "delta": 0.90}, False),
+    # How far that value MOVED this cycle: 0.90, which clears it.
+    ("delta",     {"state": 0.10, "delta": 0.90}, True),
+    # Its distance from a declared reference: |0.10 - 0.95| = 0.85.
+    ("deviation", {"state": 0.10, "delta": 0.0},  True),
 ])
 def test_the_aggregate_decides_what_the_thresholds_compare_against(
-        aggregate, expected_open):
-    params = dict(THRESHOLD_PARAMS, aggregate=aggregate)
-    state = threshold_gate_controller({}, {"w": 0.10, "other": 0.90}, params)
+        aggregate, reading, expected_open):
+    """
+    Three readings of ONE number, and not one of them can name an
+    attribute.  That is the whole difference from the v1 aggregates:
+    `attr` plus `watch` let a gate reach into the composite and
+    threshold on a single coordinate, which is the peek this
+    architecture exists to close.
+    """
+    params = dict(THRESHOLD_PARAMS, aggregate=aggregate, reference=0.95)
+    state = threshold_gate_controller({}, reading, params)
     assert state["open"] is expected_open
 
 
@@ -205,19 +224,19 @@ def test_proportional_mode_eases_in_and_still_obeys_the_state_machine():
     """
     params = dict(THRESHOLD_PARAMS, mode="proportional", steepness=8.0)
 
-    at_threshold = threshold_gate_controller({}, {"w": 0.75}, params)
+    at_threshold = threshold_gate_controller({}, {"state": 0.75}, params)
     assert at_threshold["open_fraction"] == pytest.approx(0.5, abs=1e-9)
 
-    well_above = threshold_gate_controller({}, {"w": 1.0}, params)
+    well_above = threshold_gate_controller({}, {"state": 1.0}, params)
     assert well_above["open_fraction"] > 0.85
 
     # Inside the deadband from shut: no sigmoid, because it is shut.
-    in_band = threshold_gate_controller({"open": False}, {"w": 0.70}, params)
+    in_band = threshold_gate_controller({"open": False}, {"state": 0.70}, params)
     assert in_band["open_fraction"] == 0.0
 
 
 def test_binary_mode_is_the_default():
-    state = threshold_gate_controller({}, {"w": 0.76}, THRESHOLD_PARAMS)
+    state = threshold_gate_controller({}, {"state": 0.76}, THRESHOLD_PARAMS)
     assert state["open_fraction"] == 1.0
 
 
@@ -234,7 +253,7 @@ KEY_PARAMS = {
 
 
 def test_an_exact_match_scores_one():
-    state = key_gate_controller({}, {"a": 0.50, "b": 0.80}, KEY_PARAMS)
+    state = key_gate_controller({}, {"vector": {"a": 0.50, "b": 0.80}}, KEY_PARAMS)
     assert state["distance"] == pytest.approx(0.0)
     assert state["match"] == pytest.approx(1.0)
     assert state["open"] is True
@@ -245,11 +264,11 @@ def test_matching_is_within_tolerance_not_exact():
     G2.  Real data is noisy, so an exact match on a float never happens,
     and a key that can never fire is not a gate.
     """
-    near = key_gate_controller({}, {"a": 0.53, "b": 0.83}, KEY_PARAMS)
+    near = key_gate_controller({}, {"vector": {"a": 0.53, "b": 0.83}}, KEY_PARAMS)
     assert near["distance"] == pytest.approx(0.03, abs=1e-9)
     assert near["open"] is True
 
-    far = key_gate_controller({}, {"a": 0.90, "b": 0.20}, KEY_PARAMS)
+    far = key_gate_controller({}, {"vector": {"a": 0.90, "b": 0.20}}, KEY_PARAMS)
     assert far["open"] is False
 
 
@@ -257,15 +276,15 @@ def test_weights_say_which_coordinate_matters():
     heavy_on_a = dict(KEY_PARAMS,
                       key_weights={"a": (9.0, 0.50), "b": (1.0, 0.80)})
     # Same total error, put on different coordinates.
-    a_wrong = key_gate_controller({}, {"a": 0.60, "b": 0.80}, heavy_on_a)
-    b_wrong = key_gate_controller({}, {"a": 0.50, "b": 0.90}, heavy_on_a)
+    a_wrong = key_gate_controller({}, {"vector": {"a": 0.60, "b": 0.80}}, heavy_on_a)
+    b_wrong = key_gate_controller({}, {"vector": {"a": 0.50, "b": 0.90}}, heavy_on_a)
     assert a_wrong["distance"] > b_wrong["distance"]
 
 
 def test_cosine_matches_on_direction_rather_than_magnitude():
     params = dict(KEY_PARAMS, metric="cosine")
-    scaled = key_gate_controller({}, {"a": 0.25, "b": 0.40}, params)
-    exact = key_gate_controller({}, {"a": 0.50, "b": 0.80}, params)
+    scaled = key_gate_controller({}, {"vector": {"a": 0.25, "b": 0.40}}, params)
+    exact = key_gate_controller({}, {"vector": {"a": 0.50, "b": 0.80}}, params)
     # Half the magnitude, same direction — cosine cannot tell them apart.
     assert scaled["distance"] == pytest.approx(exact["distance"], abs=1e-9)
     assert scaled["open"] is True
@@ -276,13 +295,13 @@ def test_a_key_gate_is_born_shut_and_keeps_its_band():
     Hysteresis here exists because measuring said so: a key with one
     threshold, sitting just above it, flipped 148 times in 400 cycles.
     """
-    assert key_gate_controller({}, {"a": 0.90, "b": 0.20}, KEY_PARAMS)["open"] \
+    assert key_gate_controller({}, {"vector": {"a": 0.90, "b": 0.20}}, KEY_PARAMS)["open"] \
         is False
 
     # b is 0.24 off its reference, so the mean weighted error is 0.12 and
     # the match is 0.88 — inside the band, above release_below and below
     # match_threshold. Same input, two answers, which is what a band is.
-    mid = {"a": 0.50, "b": 1.04}
+    mid = {"vector": {"a": 0.50, "b": 1.04}}
     from_shut = key_gate_controller({"open": False}, mid, KEY_PARAMS)
     from_open = key_gate_controller({"open": True}, mid, KEY_PARAMS)
 
@@ -319,7 +338,7 @@ def test_the_key_band_stops_the_chatter_it_was_measured_against():
 
 
 def test_a_key_with_no_readable_coordinate_stays_shut():
-    state = key_gate_controller({}, {"a": None, "b": None}, KEY_PARAMS)
+    state = key_gate_controller({}, {"vector": {"a": None, "b": None}}, KEY_PARAMS)
     assert state["open_fraction"] == 0.0
     assert "no key coordinate is readable" in state["reason"]
 
@@ -359,9 +378,9 @@ def test_both_controllers_return_state_the_snapshot_can_carry():
     A gate whose reasoning cannot be inspected is a gate nobody can
     debug, and the state travels on the snapshot to make that possible.
     """
-    threshold_state = threshold_gate_controller({}, {"w": 0.9},
+    threshold_state = threshold_gate_controller({}, {"state": 0.9},
                                                 THRESHOLD_PARAMS)
-    key_state = key_gate_controller({}, {"a": 0.5, "b": 0.8}, KEY_PARAMS)
+    key_state = key_gate_controller({}, {"vector": {"a": 0.5, "b": 0.8}}, KEY_PARAMS)
     for state in (threshold_state, key_state):
         assert json.loads(json.dumps(state)) == state
         assert 0.0 <= state["open_fraction"] <= 1.0

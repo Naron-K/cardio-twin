@@ -80,8 +80,12 @@ export interface ChannelSpec {
   from_member: string
   to_lamina: string
   to_member: string
-  /** Which attribute of the source composite goes on the wire. */
-  extract: string
+  /**
+   * What the source composite hands over: its state value, or how far
+   * that value moved this cycle. Never an attribute — the composite
+   * absorbs its attributes into one number before anything crosses.
+   */
+  carry: 'state' | 'state_delta'
   time_delay: number
   description: string
   /** Which way this wire climbs the stack, so a diagram need not recompute it. */
@@ -163,7 +167,7 @@ export interface ChannelState {
   to: string
   from_lamina: string
   to_lamina: string
-  extract: string
+  carry: 'state' | 'state_delta'
   time_delay: number
   description: string
   transmit: GateState[]
@@ -231,6 +235,21 @@ export function channelGates(channel: ChannelState): GateState[] {
 }
 
 /**
+ * What a channel puts on the wire, in words.
+ *
+ * The composite's own name, because that is what crosses now: the
+ * absorption vector weighs the attributes into one state value and the
+ * value is the whole of the payload. There is no attribute to name, and
+ * a caption that named one would be describing the old wire.
+ */
+function carried(channel: ChannelState): string {
+  const composite = channel.from.split(':')[1] ?? channel.from
+  return channel.carry === 'state_delta'
+    ? `the change in ${composite}`
+    : composite
+}
+
+/**
  * One line saying what the seam is doing, built from the channel alone.
  *
  * Deliberately not a lookup table of ids: the sentence is assembled from the
@@ -246,17 +265,17 @@ export function channelSummary(
     case 'crossing': {
       const open = channel.provenance?.open_fraction ?? 1
       return open < 1
-        ? `carrying ${channel.extract} at ${Math.round(open * 100)}% open`
-        : `carrying ${channel.extract}`
+        ? `carrying ${carried(channel)} at ${Math.round(open * 100)}% open`
+        : `carrying ${carried(channel)}`
     }
     case 'waiting':
-      return `offered — ${channel.extract} on the wire, not taken${
+      return `offered — ${carried(channel)} on the wire, not taken${
         channel.offered_age > 0 ? ` for ${channel.offered_age} cycles` : ''
       }`
     case 'held':
-      return `shut — holding the last ${channel.extract} that crossed, ${age} cycles ago`
+      return `shut — holding the last ${carried(channel)} that crossed, ${age} cycles ago`
     case 'decaying':
-      return `shut — the last ${channel.extract} is decaying back to baseline`
+      return `shut — the last ${carried(channel)} is decaying back to baseline`
     default: {
       const why = channel.transmit.find((g) => !g.open)?.reason
       return why ? `shut — ${why}` : 'shut'

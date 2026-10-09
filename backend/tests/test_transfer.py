@@ -41,12 +41,12 @@ _BODY = """<?xml version="1.0" encoding="UTF-8"?>
     <lamina id="lamina_respiratory" level="2"/>
   </laminae>
   <channels>
-    <channel id="ch_test" from="lamina_circulatory:pump_state"
+    <channel id="ch_test" from="lamina_circulatory:output_state"
              to="lamina_respiratory:CO_ref" time_delay="{delay}">
-      <extract attribute="CO"/>
+      <extract mode="state"/>
       <transmit>
         <auto_gate id="tx_stub" refractory_cycles="0">
-          <threshold watch="CO" aggregate="deviation" reference="0.30"
+          <threshold aggregate="deviation" reference="0.30"
                      open_above="0.125" close_below="0.09"/>
         </auto_gate>
       </transmit>
@@ -106,6 +106,21 @@ def co_ref(org):
     return org.twins["lamina_respiratory"].attributes["CO_ref"]
 
 
+def landed(org, normalised):
+    """
+    What a normalised offer becomes in the RECEIVER's own units.
+
+    The wire carries the source composite's state value, which lives in
+    [0,1] so that it means the same thing whatever the attributes behind
+    it are measured in; the receiving lamina maps it onto the range it
+    declares for itself.  Tests compare against this rather than against
+    the raw offer, because comparing the two directly would be comparing
+    a position in the vector space against a cardiac output.
+    """
+    attr = co_ref(org)
+    return attr.physio_min + normalised * (attr.physio_max - attr.physio_min)
+
+
 def run(org, cycles, hr=200.0):
     for _ in range(cycles):
         report = org.tick({"lamina_circulatory": {"HR": hr}})
@@ -152,7 +167,7 @@ def test_a_declared_delay_shifts_the_stream_by_exactly_that_many_cycles(
             )
         else:
             assert record["transmitted"] == pytest.approx(
-                offered[cycle - delay]), (
+                landed(org, offered[cycle - delay])), (
                 f"cycle {cycle}: delivered something other than the reading "
                 f"from {delay} cycles back"
             )
@@ -206,10 +221,10 @@ def test_the_receiver_walks_out_of_its_baseline_rather_than_jumping(make_body):
     """
     org, channel = make_body(rate=0.2)
     first = org.tick({"lamina_circulatory": {"HR": 200.0}})
-    reading = entry(first, channel)["reading"]
-    landed = co_ref(org).value
-    assert 5.0 < landed < reading, (
-        f"expected a step from 5.0 toward {reading}, landed on {landed}"
+    target = landed(org, entry(first, channel)["reading"])
+    arrived = co_ref(org).value
+    assert 5.0 < arrived < target, (
+        f"expected a step from 5.0 toward {target}, landed on {arrived}"
     )
 
 
@@ -277,7 +292,8 @@ def test_a_full_weight_takes_the_offer_whole(make_body):
     org, channel = make_body(rate=1.0, weight=1.0)
     report = run(org, 1)
     record = entry(report, channel)
-    assert record["transmitted"] == pytest.approx(record["reading"])
+    assert record["transmitted"] == pytest.approx(
+        landed(org, record["reading"]))
 
 
 def test_a_partial_weight_scales_the_deviation_not_the_value(make_body):
@@ -295,10 +311,11 @@ def test_a_partial_weight_scales_the_deviation_not_the_value(make_body):
     report = run(org, 1)
     record = entry(report, channel)
     baseline = co_ref(org).baseline
-    expected = baseline + 0.5 * (record["reading"] - baseline)
+    offered = landed(org, record["reading"])
+    expected = baseline + 0.5 * (offered - baseline)
 
     assert record["transmitted"] == pytest.approx(expected, rel=1e-9)
-    assert record["transmitted"] != pytest.approx(record["reading"] * 0.5), (
+    assert record["transmitted"] != pytest.approx(offered * 0.5), (
         "the weight multiplied the value instead of the deviation"
     )
 

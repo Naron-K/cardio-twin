@@ -135,7 +135,7 @@
   <channels>
 
     <channel id="ch_failing_pump"
-             from="lamina_circulatory:pump_state"
+             from="lamina_circulatory:output_state"
              to="lamina_respiratory:CO_ref"
              time_delay="0">
 
@@ -146,11 +146,17 @@
         which is exactly why a threshold on cardiac output cannot see it.
       </description>
 
-      <!-- The trigger reads the whole weighted vector; the channel
-           still carries exactly one attribute. Recognising a situation
-           and sending a number are two jobs, and only the second one
-           puts a value into the other lamina. -->
-      <extract attribute="CO"/>
+      <!-- Two composites, two jobs, and that is the whole shape of
+           this body. The channel leaves on output_state, so what
+           crosses is a cardiac output. The trigger names pump_state
+           instead, because recognising that a pump is FAILING needs the
+           machinery — filling collapsed, stroke volume with it, rate up
+           to hold the product steady — and that machinery is precisely
+           what a face exists to keep off the wire. An auto gate is
+           allowed to name it because auto means internal: it is
+           circulation reading circulation, and the parser refuses a
+           `from` pointing at any other lamina. -->
+      <extract mode="state"/>
 
       <transmit>
         <auto_gate id="ta_failing_pump" refractory_cycles="5">
@@ -159,7 +165,8 @@
             composite, that its pump has stopped being trustworthy.
             Nothing outside this lamina is consulted.
           </description>
-          <pattern match_threshold="0.90" release_below="0.85">
+          <pattern from="lamina_circulatory:pump_state"
+                   match_threshold="0.90" release_below="0.85">
             <weight attribute="EDV" ref="0.03">1.0</weight>
             <weight attribute="SV"  ref="0.11">1.0</weight>
             <weight attribute="HR"  ref="0.70">0.6</weight>

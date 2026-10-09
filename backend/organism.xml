@@ -54,7 +54,37 @@
   them is allowed to ignore the rest of the configuration.
 
   ==================================================================
-  THE TWELVE RULES, enforced when this file is parsed (organism.py)
+  THE BACKWARD PASS
+
+  A channel is one-way in the value it carries and, optionally, two-way
+  in what it LEARNS.  <backprop from="an_outcome"/> on a channel says:
+  when the receiving lamina's named outcome comes out wrong, carry that
+  error back up this wire and let the sending composite reweigh itself.
+
+      delta = polarity * lambda_gate * E
+
+  E is the receiver's error normalised into tolerances — the same
+  quantity a lamina's own learning loop uses, and the same function
+  computing it.  lambda_gate is the openness the FORWARD pass actually
+  used this cycle, so a shut gate returns nothing and a half-open gate
+  returns half: error is payload, and payload obeys gates.
+
+  There is no transposed weight matrix and no chain rule.  One scalar
+  goes back to one composite, which is what lets a body of ten laminae
+  route error the way a body of two does.  How fast a composite may
+  reweigh itself is declared on its own <absorption_vector> with the
+  clamp rule 5 requires — so a channel can only teach a composite that
+  has already said it may be taught.
+
+  No channel in THIS body declares one yet.  output_state holds a
+  single attribute (that is the point of it), and a composite's state
+  value is the weighted mean of its attributes, so with one attribute
+  the state is that attribute whatever its weight — there is nothing
+  for a learning step to reweigh.  Rule 14 refuses it rather than
+  letting a return path run forever and move nothing.
+
+  ==================================================================
+  THE FOURTEEN RULES, enforced when this file is parsed (organism.py)
 
   1. A gate is CLOSED until its trigger opens it.  Closed is the
      stable state; a pressure-cooker valve is shut and opens on
@@ -62,10 +92,11 @@
      attribute to write, which is the point.
 
   2. The SOURCE of a crossing is always a composite, never a bare
-     attribute.  A composite is the unit a lamina already reasons
-     about — it is what a tag addresses and what carries distribution
-     weights — so a channel that reads one is reading something the
-     model already says is meaningful together.
+     attribute, and what crosses is the composite's own STATE VALUE —
+     the single number its absorption vector weighs its attributes
+     into.  A composite is the unit a lamina already reasons about, and
+     collapsing it to one number before anything leaves is what lets
+     the far side stay independent of everything inside.
 
   3. The DESTINATION is always an attribute declared INTER_LAMINA.
      Writing into another lamina's SENSOR would forge a measurement;
@@ -122,6 +153,22 @@
  12. Both <transmit> and <receive> carry at least one gate.  A receive
      side with no gate is a wire writing straight into the far lamina,
      which is the arrangement this whole design exists to forbid.
+
+ 13. No gate names an attribute.  A trigger reads its composite's state
+     value — aggregate="state", "delta" or "deviation" — and watch= is
+     refused, as is <extract attribute="...">.  A valve that can see
+     the machinery behind the face has to be rewritten every time the
+     machinery changes, which is the coupling the face exists to stop.
+     A pattern still matches the SHAPE of a whole composite; that is
+     reading the face, not reaching past it.
+
+ 14. A <backprop> names an outcome the RECEIVING lamina actually
+     declares, and lands on a sending composite that holds more than
+     one attribute and has declared a learning rule with its clamp.
+     Each of the three is a way for a return path to exist, run every
+     cycle, and provably change nothing — which is worse than not
+     declaring one, because it looks like it works.
+
   ==================================================================
 -->
 <organism id="bdt_default" version="2.0">
@@ -157,12 +204,19 @@
          in its own description; this is the other half of that
          sentence.
 
-         Why the source is pump_state rather than CO: rule 2.  The
-         channel reads the composite and <extract> names which of its
-         attributes goes on the wire.  Reading the composite is what
-         lets the sending gate watch the state of the pump as a whole
-         while sending only the one number the far side declared room
-         for.
+         Why the source is output_state and not pump_state: a face is
+         what a lamina owes the outside, not a summary of everything
+         inside it.  EDV, SV and HR are how a cardiac output gets made;
+         oxygen delivery needs the output.  The composite absorbs its
+         attributes into one state value, that value is the whole of
+         what crosses, and both membranes' gates decide on it without
+         ever naming an attribute — which is what makes the far side
+         independent of anything circulation does internally.
+
+         Measured, when this channel left on pump_state with its four
+         attributes weighted equally: the number landing on CO_ref was
+         wrong by 1.84 L/min at HR 200 and the seam stopped opening for
+         shock at all.
 
          time_delay is 0 because there is nothing to compensate for:
          the receiver re-derives from a crossing within the same tick
@@ -172,7 +226,7 @@
          of the wire, not of either end.
          ========================================================== -->
     <channel id="ch_co_to_resp"
-             from="lamina_circulatory:pump_state"
+             from="lamina_circulatory:output_state"
              to="lamina_respiratory:CO_ref"
              time_delay="0">
 
@@ -184,8 +238,13 @@
         coupled one that oscillates.
       </description>
 
-      <!-- Which attribute of the source composite goes on the wire. -->
-      <extract attribute="CO"/>
+      <!-- What the composite hands over: its state value.  The other
+           option is mode="state_delta", which carries how far that
+           value moved this cycle instead — a displacement, which is why
+           the parser requires the destination to declare a baseline for
+           it to be a displacement FROM.  There is no third option
+           naming an attribute; that is the point. -->
+      <extract mode="state"/>
 
       <!-- ── The circulatory lamina's own membrane ────────────────
            One gate, and it is an AUTO gate: "my output has left the
@@ -211,18 +270,24 @@
             to treat shock as remarkable.
           </description>
 
-          <!-- watch names the attribute the trigger reads; aggregate
-               says how to reduce the composite's normalised vector to
-               the one number the thresholds compare against.  attr =
-               just the watched attribute; mean and max take the whole
-               vector; deviation = the watched attribute's DISTANCE
-               from reference.  Units are [0,1] — the normalised space
-               — so the same numbers mean the same thing whether the
-               attribute is in L/min or mmHg.
+          <!-- aggregate says which reading of the composite's STATE
+               VALUE the thresholds compare against: state = the value
+               itself, delta = how far it moved this cycle, deviation =
+               its DISTANCE from reference.  There is no watch: a gate
+               cannot name an attribute inside the composite, because a
+               valve that can see the machinery is a valve that has to
+               be rewritten every time the machinery changes.  Units are
+               [0,1] — the normalised space the state value lives in —
+               so the same numbers mean the same thing whatever the
+               attributes underneath are measured in.
 
                reference is the receiver's OWN declared baseline for
-               CO_ref (5.0 L/min) expressed in the sender's normalised
-               space: (5.0 - 2) / (12 - 2) = 0.30.  That is the point
+               CO_ref (5.0 L/min) expressed in the space the wire
+               carries: (5.0 - 2) / (12 - 2) = 0.30.  It is the same
+               arithmetic on both ends now — the receiver maps the
+               normalised quantity onto CO_ref's declared range, so a
+               state value of 0.30 lands exactly on the 5.0 the far side
+               was already assuming.  That is the point
                the gate should measure departure from, because it is
                precisely what the far side assumes while nothing is
                crossing.  The gate opens when reality stops matching
@@ -250,7 +315,7 @@
                the gate stops arguing with the noise. In CO terms: it
                opens when output leaves 5.0 +/- 1.25 L/min and shuts
                when it returns inside 5.0 +/- 0.9. -->
-          <threshold watch="CO" aggregate="deviation" reference="0.30"
+          <threshold aggregate="deviation" reference="0.30"
                      open_above="0.125" close_below="0.09"/>
         </auto_gate>
       </transmit>

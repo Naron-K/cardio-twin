@@ -24,7 +24,7 @@ from organism import MAX_GATES_PER_FACE, OrganismError, parse_organism_v2
 # ── Building a stack ──────────────────────────────────────────────────
 
 AUTO = ('<auto_gate id="{gid}" refractory_cycles="0">'
-        '<threshold watch="w" aggregate="attr"'
+        '<threshold aggregate="state"'
         ' open_above="0.6" close_below="0.4"/>'
         '</auto_gate>')
 KEY = ('<key_gate id="{gid}" weight="1.0" rate="0.2" on_close="hold"'
@@ -39,7 +39,7 @@ def channel(cid, frm, to, transmit=1, receive=1, composite="face"):
     """One channel, with however many gates on each of its two ends."""
     return (
         f'<channel id="{cid}" from="{frm}:{composite}" to="{to}:in_{cid}"'
-        f' time_delay="0"><extract attribute="w"/>'
+        f' time_delay="0"><extract mode="state"/>'
         f'<transmit>{gates(AUTO, f"{cid}_tx", transmit)}</transmit>'
         f'<receive>{gates(KEY, f"{cid}_rx", receive)}</receive>'
         f'</channel>'

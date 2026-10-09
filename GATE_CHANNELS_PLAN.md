@@ -376,3 +376,136 @@ gian nằm ở việc đo chứ không ở code.
 - OSI closed-layer principle; Schmitt trigger / deadband; Safety Instrumented Systems & layers of protection; kênh ion voltage-gated vs ligand-gated — link ở bảng §2.
 - `PERMEABILITY_GATES_PLAN.md` — thiết kế bị thay thế một phần; mọi số đo ở đó vẫn đúng và được tái dùng làm baseline.
 - `docs/laminae.md` — ba bài học của lamina thứ hai.
+
+---
+
+## Phase 7 — Cổng chỉ còn nhìn thấy composite (2026-09-03, chiều)
+
+Làm sau khi đối chiếu code với bản mô tả ba giai đoạn của Leelanga
+(hấp thụ → chuyển giao → kiểm soát). Bảy điểm đã khớp sẵn; bốn điểm
+không, và phần này là bốn điểm đó.
+
+### Cái gì đổi
+
+| # | Trước | Sau |
+|---|---|---|
+| G1 | Cổng nhận cả `dict` từng-attribute, trigger móc một cái ra bằng `watch="CO"` | Cổng nhận **một reading**: `{label, state, delta, vector, saturated}`. `watch` bị parser **từ chối** (luật 13). `aggregate ∈ {state, delta, deviation}`, đều đọc state value |
+| G2 | Absorption vector chỉ để **hiển thị** (`main.py`, `snapshot.py`) | Absorption vector **tính ra** state value: `s = Σ vᵢwᵢ / Σw` (`get_composite_state`). Nó nằm trên đường quyết định và đường tải |
+| G3 | `<extract attribute="CO"/>` — một attribute thô băng qua | `<extract mode="state"/>` hoặc `mode="state_delta"`. Dây mang đại lượng chuẩn hoá; **bên nhận** ánh xạ về đơn vị của mình |
+| G4 | `auto_adjust_weights` tồn tại, không ai gọi (D17 đóng băng) | Vòng phản hồi chỉnh trọng số mỗi chu kỳ, có **dead-zone** và **clamp bắt buộc** |
+
+Hợp đồng controller đổi theo: đối số thứ hai là `reading`, không phải
+`source_vec`. Threshold controller chỉ chạm `state`/`delta` — nó
+**không có đường nào** để hỏi một attribute.
+
+### Ba điều chỉ lộ ra khi đo
+
+**1. Chia đều trọng số làm seam mù trước sốc.** Nếu để `pump_state`
+(EDV, SV, HR, CO — mỗi cái 0.25) làm mặt tiếp giáp, state value ở HR 35
+lệch 0.091 so với ngưỡng mở 0.125 → **cổng không bao giờ mở cho sốc**,
+đúng lỗi 32% mà `organism.xml` nói nó sinh ra để chặn. Và giá trị đáp
+xuống sai tới 1.84 L/min ở HR 200. Lấy trung bình bộ máy thì loãng mất
+đúng tín hiệu cần truyền.
+
+Lối ra **không phải** bẻ trọng số cho tới khi con số vừa ý. Mặt tiếp
+giáp là thứ một lamina **nợ bên ngoài**, không phải bản tóm tắt mọi thứ
+bên trong. Nên tuần hoàn có composite mới:
+
+```xml
+<composite id="output_state">
+  <attributes>CO</attributes>
+  <absorption_vector><weight attribute="CO">1.0</weight></absorption_vector>
+</composite>
+```
+
+Đo qua 5 trọng số CO (0.70 → 1.00): sai số giao hàng lần lượt 0.735,
+0.368, 0.245, 0.147, **0.000** L/min. Chỉ 1.0 là trung thực.
+
+**2. Bảy trên chín kịch bản tái tạo baseline v1 CHÍNH XÁC.** Dây mang
+[0,1] rồi bên nhận ánh xạ qua dải của nó; `CO` và `CO_ref` cùng khai
+[2,12] nên vòng đi-về là ánh xạ đồng nhất. Kiến trúc nghiêm ngặt
+**không** phải trả giá bằng số — trừ hai chỗ:
+
+**3. Dây chuẩn hoá bão hoà, và cái giá vượt cả dung sai bên nhận.**
+`organism.xml/hr200` và `organism_key.xml/hr150_edv55` lệch, vì mô hình
+bị đẩy ra ngoài dải chính nó khai: CO đạt 13.2 L/min so với
+`physio_max` 12. Bão hoà **hiếm** (2/40 và 1/40 chu kỳ) nhưng **không
+nhỏ**:
+
+| | max \|Δ CO_ref\| | max \|Δ DO2\| |
+|---|---|---|
+| organism.xml / hr200 | 0.736 L/min | **275.0 mL/min** |
+| organism_key.xml / hr150_edv55 | 0.162 L/min | 31.9 mL/min |
+
+275 lớn hơn dung sai ±250 của chính `target_do2`. **Phát hiện này không
+nói về seam** — cả hai loại dây đều đang làm điều duy nhất có thể với
+một con số mà bản khai bảo là không tồn tại. Nó nói rằng `physio_max`
+12 của CO đã bị chính mô hình tính ra CO vượt qua. Nới dải đó là quyết
+định chuyên môn, **cố ý không làm ở đây**. Cái seam nợ là sự thành
+thật: mọi bản ghi trace và mọi provenance đều mang `saturated`, gọi tên
+attribute đã hết chỗ.
+
+### G4 — absorption thành ma trận trọng số động
+
+Khai trên `<absorption_vector>` của composite, trong file lamina:
+
+```xml
+<absorption_vector learns_from="target_do2" learning_rate="0.02"
+                   clamp_min="0.05" clamp_max="1.0">
+```
+
+Bốn thuộc tính hoặc không có cái nào — thiếu một là lỗi lúc parse. Bước
+học đi theo **gradient của state value**:
+
+    Δwᵢ = rate · signal · (vᵢ − s)        vì  ∂s/∂wᵢ = (vᵢ − s)/Σw
+
+Luật cũ `W ← W + rate·deviation` cộng cùng một số vào mọi trọng số nên
+gần như không dịch được trung bình có trọng số — đo được: 0.02 qua 200
+chu kỳ dịch state value **dưới 0.001**.
+
+`signal` là độ lệch **vượt quá** dung sai, chia cho dung sai:
+`sign(dev)·max(0, |dev| − tol)/tol`. Dead-zone không phải trang trí —
+thiếu nó, giữ HR 110 (DO2 ổn định ~1080, **nằm trong** dải 750–1250),
+trọng số vẫn đi từ bốn phần tư bằng nhau tới SpO2 0.497 với DO2 bị ghim
+đáy, và **vẫn đang đi** ở chu kỳ 200. Đó không phải học; đó là một vòng
+lặp không có gì để hội tụ, đang mài vào clamp của chính nó.
+
+Đo lại sau khi có dead-zone, cùng seed 11:
+
+| kịch bản | DO2 | trọng số |
+|---|---|---|
+| HR 110 | ~1080, trong dải | dịch đúng **1 chu kỳ / 160**, biên độ 2.8e-05 |
+| HR 35 | ~860, trong dải | đứng yên |
+| HR 200 | 2119 → 1212 | dịch tới c50 rồi **đứng yên** ở c50 = c150 = c299 |
+
+Vòng lặp phản ứng khi có sai lệch thật, rồi **dừng**. Clamp là điều
+kiện để cho nó chạy: vòng này nằm trong một vòng khác — absorption →
+state value → cổng → CO_ref → DO2 → absorption.
+
+D17 đóng băng vòng này vì sợ nó ghép với gate kernel qua hai vector.
+Không ghép: D2 tách chúng đúng cho việc này, kernel đọc
+`distribution_vector`, vòng học ghi `absorption_vector`, không ai chạm
+của ai.
+
+### Còn lại một chỗ cổng đọc toạ độ
+
+Trigger `pattern` (và key `weighted_distance`/`cosine`) vẫn khớp
+**hình dạng** của composite, tức là đọc từng toạ độ. Ranh giới đã vạch:
+một shape match tiêu thụ **cả composite**, còn `watch="CO"` móc ra một
+attribute rồi bỏ qua phần còn lại — đó mới là cái nhìn trộm. `pattern`
+được giữ vì bộ nhận dạng bơm-suy của `organism_key.xml` là năng lực
+thật, đã đo, có fixture riêng; và auto gate giờ khai được
+`from="lamina_circulatory:pump_state"` để nhận dạng nội bộ trên
+composite giàu, trong khi dây vẫn rời đi từ `output_state`. Parser từ
+chối `from` trỏ sang lamina khác.
+
+Nếu muốn chặt hơn nữa — auto gate chỉ được `<threshold>`, `pattern`
+chuyển hẳn sang key gate như văn bản của Leelanga phân loại — thì đó là
+một quyết định nữa, và nó sẽ viết lại `organism_key.xml`.
+
+### Trạng thái
+
+402 test backend xanh (+26 test mới cho vòng học, +19 cho state value),
+2 skip có chủ ý (hai kịch bản bão hoà, được khẳng định đầy đủ bằng test
+riêng), `tsc` sạch, `vite build` sạch, `/api/organism` và `/api/compute`
+trả đúng. `gate_traces_v1.json` **không bị đụng tới**.

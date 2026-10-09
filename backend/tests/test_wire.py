@@ -71,10 +71,10 @@ def test_a_channel_arrives_resolved_rather_than_as_raw_xml(client):
     channel = client.get("/api/organism").json()["channels"][0]
 
     assert channel["from_lamina"] == "lamina_circulatory"
-    assert channel["from_member"] == "pump_state"
+    assert channel["from_member"] == "output_state"
     assert channel["to_lamina"] == "lamina_respiratory"
     assert channel["to_member"] == "CO_ref"
-    assert channel["extract"] == "CO"
+    assert channel["carry"] == "state"
     assert channel["direction"] == "up", (
         "a diagram lays the stack out vertically and should not have to "
         "recompute which way the wire climbs"
@@ -127,7 +127,7 @@ def test_an_organism_that_breaks_a_rule_is_refused_here_not_at_first_tick(
     """
     from tests.test_organism import _organism
 
-    path = _organism(tmp_path, 'from="lamina_circulatory:pump_state"',
+    path = _organism(tmp_path, 'from="lamina_circulatory:output_state"',
                      'from="lamina_circulatory:not_a_composite"')
     response = client.get("/api/organism", params={"organism": str(path)})
     assert response.status_code == 400
@@ -149,7 +149,7 @@ def test_a_shut_gate_reports_itself_shut_with_nothing_to_show_for_it(body):
     assert channel["provenance"] == {}
     assert channel["offered"] is None, "a shut sender has offered nothing"
     # The declaration is still there, because a shut valve is still a valve.
-    assert channel["from"] == "lamina_circulatory:pump_state"
+    assert channel["from"] == "lamina_circulatory:output_state"
     assert channel["to"] == "lamina_respiratory:CO_ref"
     assert channel["transmit"][0]["trigger"] == "threshold"
 

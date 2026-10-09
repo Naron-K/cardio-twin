@@ -23,16 +23,20 @@ interface Props {
 }
 
 // ── Fixed topology (from the XML schema) ────────────────────────────────
+// flow_state and Q are still drawn with no outcome and no tag above
+// them.  target_flow and Q_DEVIATION were removed 2026-09-08: they
+// asked a segmental flow to be a cardiac output, and the tag was
+// adding +1.91 L/min of correction to a computed 2.23.  A composite
+// nothing writes to is a real state, so the row keeps its box and
+// loses its incoming arrow rather than disappearing.
 const OUTCOMES = [
   { id: 'target_map',    label: 'MAP', attr: 'MAP',    y: 34  },
-  { id: 'target_flow',   label: 'Q',   attr: 'Q',      y: 78  },
   { id: 'target_co',     label: 'CO',  attr: 'CO',     y: 150 },
   { id: 'target_sv',     label: 'SV',  attr: 'SV',     y: 200 },
   { id: 'target_lambda', label: 'λ',   attr: 'lambda', y: 250 },
 ]
 const TAGS = [
   { id: 'MAP_DEVIATION',    composite: 'pressure_state',   y: 34  },
-  { id: 'Q_DEVIATION',      composite: 'flow_state',       y: 78  },
   { id: 'CO_DEVIATION',     composite: 'pump_state',       y: 150 },
   { id: 'SV_DEVIATION',     composite: 'pump_state',       y: 200 },
   { id: 'LAMBDA_DEVIATION', composite: 'conduction_state', y: 250 },

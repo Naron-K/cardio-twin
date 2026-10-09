@@ -301,8 +301,8 @@ export function OrganismMap({
             const tone = STATE_TONE[d.state]
             const faded = hover !== null && hover !== d.spec.id
             const label = d.channel
-              ? `${d.spec.extract} ${fmtValue(d.channel.last_value ?? undefined)}`
-              : d.spec.extract
+              ? `${d.spec.from_member} ${fmtValue(d.channel.last_value ?? undefined)}`
+              : d.spec.from_member
             return (
               <g
                 key={d.spec.id}

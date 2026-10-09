@@ -253,6 +253,7 @@ def _run_simulation(sensor_data: Dict[str, float]) -> Dict[str, Any]:
         "computed":   computed_out,
         "vectors":    vectors,
         "absorption": twin.get_all_absorbed_vectors(),
+        "states":     twin.get_all_composite_states(),
         "outcomes":   twin.evaluate_all_outcomes(),
         "warnings":   warnings,
         "log":        twin.get_log(),
@@ -497,7 +498,7 @@ def get_organism(organism: Optional[str] = Query(
                 "from_member": channel.source.member,
                 "to_lamina":   channel.dest.lamina,
                 "to_member":   channel.dest.member,
-                "extract":     channel.extract,
+                "carry":       channel.carry,
                 "time_delay":  channel.time_delay,
                 "description": channel.description,
                 # Which way this wire climbs, so a diagram can lay the

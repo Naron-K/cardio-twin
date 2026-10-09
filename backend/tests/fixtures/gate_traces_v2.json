@@ -10,6 +10,7 @@
           "cycle": 1,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -18,6 +19,7 @@
           "cycle": 2,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -26,6 +28,7 @@
           "cycle": 3,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -34,6 +37,7 @@
           "cycle": 4,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -42,6 +46,7 @@
           "cycle": 5,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -50,6 +55,7 @@
           "cycle": 6,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -58,6 +64,7 @@
           "cycle": 7,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -66,6 +73,7 @@
           "cycle": 8,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -74,6 +82,7 @@
           "cycle": 9,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -82,6 +91,7 @@
           "cycle": 10,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -90,6 +100,7 @@
           "cycle": 11,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -98,6 +109,7 @@
           "cycle": 12,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -106,6 +118,7 @@
           "cycle": 13,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -114,6 +127,7 @@
           "cycle": 14,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -122,6 +136,7 @@
           "cycle": 15,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -130,6 +145,7 @@
           "cycle": 16,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -138,6 +154,7 @@
           "cycle": 17,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -146,6 +163,7 @@
           "cycle": 18,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -154,6 +172,7 @@
           "cycle": 19,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -162,6 +181,7 @@
           "cycle": 20,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -170,6 +190,7 @@
           "cycle": 21,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -178,6 +199,7 @@
           "cycle": 22,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -186,6 +208,7 @@
           "cycle": 23,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -194,6 +217,7 @@
           "cycle": 24,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -202,6 +226,7 @@
           "cycle": 25,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -210,6 +235,7 @@
           "cycle": 26,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -218,6 +244,7 @@
           "cycle": 27,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -226,6 +253,7 @@
           "cycle": 28,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -234,6 +262,7 @@
           "cycle": 29,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -242,6 +271,7 @@
           "cycle": 30,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -250,6 +280,7 @@
           "cycle": 31,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -258,6 +289,7 @@
           "cycle": 32,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -266,6 +298,7 @@
           "cycle": 33,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -274,6 +307,7 @@
           "cycle": 34,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -282,6 +316,7 @@
           "cycle": 35,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -290,6 +325,7 @@
           "cycle": 36,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -298,6 +334,7 @@
           "cycle": 37,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -306,6 +343,7 @@
           "cycle": 38,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -314,6 +352,7 @@
           "cycle": 39,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -322,6 +361,7 @@
           "cycle": 40,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         }
       ],
@@ -344,6 +384,7 @@
           "cycle": 1,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -352,6 +393,7 @@
           "cycle": 2,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -360,6 +402,7 @@
           "cycle": 3,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -368,6 +411,7 @@
           "cycle": 4,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -376,6 +420,7 @@
           "cycle": 5,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -384,6 +429,7 @@
           "cycle": 6,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -392,6 +438,7 @@
           "cycle": 7,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -400,6 +447,7 @@
           "cycle": 8,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -408,6 +456,7 @@
           "cycle": 9,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -416,6 +465,7 @@
           "cycle": 10,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -424,6 +474,7 @@
           "cycle": 11,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -432,6 +483,7 @@
           "cycle": 12,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -440,6 +492,7 @@
           "cycle": 13,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -448,6 +501,7 @@
           "cycle": 14,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -456,6 +510,7 @@
           "cycle": 15,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -464,6 +519,7 @@
           "cycle": 16,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -472,6 +528,7 @@
           "cycle": 17,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -480,6 +537,7 @@
           "cycle": 18,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -488,6 +546,7 @@
           "cycle": 19,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -496,6 +555,7 @@
           "cycle": 20,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -504,6 +564,7 @@
           "cycle": 21,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -512,6 +573,7 @@
           "cycle": 22,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -520,6 +582,7 @@
           "cycle": 23,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -528,6 +591,7 @@
           "cycle": 24,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -536,6 +600,7 @@
           "cycle": 25,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -544,6 +609,7 @@
           "cycle": 26,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -552,6 +618,7 @@
           "cycle": 27,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -560,6 +627,7 @@
           "cycle": 28,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -568,6 +636,7 @@
           "cycle": 29,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -576,6 +645,7 @@
           "cycle": 30,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -584,6 +654,7 @@
           "cycle": 31,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -592,6 +663,7 @@
           "cycle": 32,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -600,6 +672,7 @@
           "cycle": 33,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -608,6 +681,7 @@
           "cycle": 34,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -616,6 +690,7 @@
           "cycle": 35,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -624,6 +699,7 @@
           "cycle": 36,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -632,6 +708,7 @@
           "cycle": 37,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -640,6 +717,7 @@
           "cycle": 38,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -648,6 +726,7 @@
           "cycle": 39,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -656,6 +735,7 @@
           "cycle": 40,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         }
       ],
@@ -680,6 +760,7 @@
           "cycle": 1,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -688,6 +769,7 @@
           "cycle": 2,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -696,6 +778,7 @@
           "cycle": 3,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 5.452
         },
         {
@@ -704,6 +787,7 @@
           "cycle": 4,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 5.204364879747
         },
         {
@@ -712,6 +796,7 @@
           "cycle": 5,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 5.173307767737
         },
         {
@@ -720,6 +805,7 @@
           "cycle": 6,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 5.222513289497
         },
         {
@@ -728,6 +814,7 @@
           "cycle": 7,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 5.307696235986
         },
         {
@@ -736,6 +823,7 @@
           "cycle": 8,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 5.396324916525
         },
         {
@@ -744,6 +832,7 @@
           "cycle": 9,
           "open_fraction": 0.0,
           "provenance_state": "held",
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -752,6 +841,7 @@
           "cycle": 10,
           "open_fraction": 0.0,
           "provenance_state": "held",
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -760,6 +850,7 @@
           "cycle": 11,
           "open_fraction": 0.0,
           "provenance_state": "held",
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -768,6 +859,7 @@
           "cycle": 12,
           "open_fraction": 0.0,
           "provenance_state": "held",
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -776,6 +868,7 @@
           "cycle": 13,
           "open_fraction": 0.0,
           "provenance_state": "held",
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -784,6 +877,7 @@
           "cycle": 14,
           "open_fraction": 0.0,
           "provenance_state": "held",
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -792,6 +886,7 @@
           "cycle": 15,
           "open_fraction": 0.0,
           "provenance_state": "held",
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -800,6 +895,7 @@
           "cycle": 16,
           "open_fraction": 0.0,
           "provenance_state": "held",
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -808,6 +904,7 @@
           "cycle": 17,
           "open_fraction": 0.0,
           "provenance_state": "held",
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -816,6 +913,7 @@
           "cycle": 18,
           "open_fraction": 0.0,
           "provenance_state": "held",
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -824,6 +922,7 @@
           "cycle": 19,
           "open_fraction": 0.0,
           "provenance_state": "held",
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -832,6 +931,7 @@
           "cycle": 20,
           "open_fraction": 0.0,
           "provenance_state": "held",
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -840,6 +940,7 @@
           "cycle": 21,
           "open_fraction": 0.0,
           "provenance_state": "held",
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -848,6 +949,7 @@
           "cycle": 22,
           "open_fraction": 0.0,
           "provenance_state": "held",
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -856,6 +958,7 @@
           "cycle": 23,
           "open_fraction": 0.0,
           "provenance_state": "held",
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -864,6 +967,7 @@
           "cycle": 24,
           "open_fraction": 0.0,
           "provenance_state": "held",
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -872,6 +976,7 @@
           "cycle": 25,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 5.569125611164
         },
         {
@@ -880,6 +985,7 @@
           "cycle": 26,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 5.71630108406
         },
         {
@@ -888,6 +994,7 @@
           "cycle": 27,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 5.839992779764
         },
         {
@@ -896,6 +1003,7 @@
           "cycle": 28,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 5.942869606012
         },
         {
@@ -904,6 +1012,7 @@
           "cycle": 29,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.027748878786
         },
         {
@@ -912,6 +1021,7 @@
           "cycle": 30,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.097346530048
         },
         {
@@ -920,6 +1030,7 @@
           "cycle": 31,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.154147543277
         },
         {
@@ -928,6 +1039,7 @@
           "cycle": 32,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.200334200608
         },
         {
@@ -936,6 +1048,7 @@
           "cycle": 33,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.237790007891
         },
         {
@@ -944,6 +1057,7 @@
           "cycle": 34,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.268105714058
         },
         {
@@ -952,6 +1066,7 @@
           "cycle": 35,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.292604391735
         },
         {
@@ -960,6 +1075,7 @@
           "cycle": 36,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.312383534438
         },
         {
@@ -968,6 +1084,7 @@
           "cycle": 37,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.328341653368
         },
         {
@@ -976,6 +1093,7 @@
           "cycle": 38,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.341210919116
         },
         {
@@ -984,6 +1102,7 @@
           "cycle": 39,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.351588650126
         },
         {
@@ -992,6 +1111,7 @@
           "cycle": 40,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.35995839644
         }
       ],
@@ -1016,6 +1136,7 @@
           "cycle": 1,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1024,311 +1145,354 @@
           "cycle": 2,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
-          "CO_ref": 6.64,
-          "DO2": 1312.624813499681,
+          "CO_ref": 6.4,
+          "DO2": 1265.180543132222,
           "cycle": 3,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 6.64
+          "saturated": [
+            "CO"
+          ],
+          "transmitted": 6.4
         },
         {
-          "CO_ref": 6.737926299983,
-          "DO2": 818.89496943997,
+          "CO_ref": 6.545926299983,
+          "DO2": 817.473128895317,
           "cycle": 4,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 6.737926299983
+          "saturated": [],
+          "transmitted": 6.545926299983
         },
         {
-          "CO_ref": 8.372601297751,
-          "DO2": 2059.508870256999,
+          "CO_ref": 7.636741039986,
+          "DO2": 1904.276491020873,
           "cycle": 5,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 8.372601297751
+          "saturated": [
+            "CO"
+          ],
+          "transmitted": 7.636741039986
         },
         {
-          "CO_ref": 8.821751969262,
-          "DO2": 829.257957816201,
+          "CO_ref": 8.233063763049,
+          "DO2": 805.399464550654,
           "cycle": 6,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 8.821751969262
+          "saturated": [],
+          "transmitted": 8.233063763049
         },
         {
-          "CO_ref": 9.441683106949,
-          "DO2": 2008.779285851408,
+          "CO_ref": 8.970732541979,
+          "DO2": 2100.178212681433,
           "cycle": 7,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 9.441683106949
+          "saturated": [],
+          "transmitted": 8.970732541979
         },
         {
-          "CO_ref": 9.87129931092,
-          "DO2": 840.676143744561,
+          "CO_ref": 9.494538858944,
+          "DO2": 799.902908632911,
           "cycle": 8,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 9.87129931092
+          "saturated": [],
+          "transmitted": 9.494538858944
         },
         {
-          "CO_ref": 10.276501714323,
-          "DO2": 1966.422381905524,
+          "CO_ref": 9.975093352742,
+          "DO2": 2241.436232977962,
           "cycle": 9,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 10.276501714323
+          "saturated": [],
+          "transmitted": 9.975093352742
         },
         {
-          "CO_ref": 9.967254534582,
-          "DO2": 815.468174703168,
+          "CO_ref": 9.726127845318,
+          "DO2": 750.557876320647,
           "cycle": 10,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 9.967254534582
+          "saturated": [],
+          "transmitted": 9.726127845318
         },
         {
-          "CO_ref": 9.843743427764,
-          "DO2": 2116.452525609025,
+          "CO_ref": 9.650842076353,
+          "DO2": 2118.693423997937,
           "cycle": 11,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 9.843743427764
+          "saturated": [],
+          "transmitted": 9.650842076353
         },
         {
-          "CO_ref": 9.674043656607,
-          "DO2": 746.883138121004,
+          "CO_ref": 9.519722575477,
+          "DO2": 724.348173032588,
           "cycle": 12,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 9.674043656607
+          "saturated": [],
+          "transmitted": 9.519722575477
         },
         {
-          "CO_ref": 9.557125364498,
-          "DO2": 2097.478443587869,
+          "CO_ref": 9.433668499594,
+          "DO2": 2071.571833575121,
           "cycle": 13,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 9.557125364498
+          "saturated": [],
+          "transmitted": 9.433668499594
         },
         {
-          "CO_ref": 9.451010220244,
-          "DO2": 719.354872735773,
+          "CO_ref": 9.352244728321,
+          "DO2": 712.372273725131,
           "cycle": 14,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 9.451010220244
+          "saturated": [],
+          "transmitted": 9.352244728321
         },
         {
-          "CO_ref": 9.370470916976,
-          "DO2": 2059.512436417795,
+          "CO_ref": 9.291458523438,
+          "DO2": 2045.411967539712,
           "cycle": 15,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 9.370470916976
+          "saturated": [],
+          "transmitted": 9.291458523438
         },
         {
-          "CO_ref": 9.302982262314,
-          "DO2": 709.369347412066,
+          "CO_ref": 9.239772347484,
+          "DO2": 705.757135545186,
           "cycle": 16,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 9.302982262314
+          "saturated": [],
+          "transmitted": 9.239772347484
         },
         {
-          "CO_ref": 9.250087911803,
-          "DO2": 2038.047678716578,
+          "CO_ref": 9.199519979938,
+          "DO2": 2029.360862419036,
           "cycle": 17,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 9.250087911803
+          "saturated": [],
+          "transmitted": 9.199519979938
         },
         {
-          "CO_ref": 9.206987746619,
-          "DO2": 703.951337286982,
+          "CO_ref": 9.166533401128,
+          "DO2": 701.822627342236,
           "cycle": 18,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 9.206987746619
+          "saturated": [],
+          "transmitted": 9.166533401128
         },
         {
-          "CO_ref": 9.172791047508,
-          "DO2": 2024.761730940492,
+          "CO_ref": 9.140427571115,
+          "DO2": 2019.292120267092,
           "cycle": 19,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 9.172791047508
+          "saturated": [],
+          "transmitted": 9.140427571115
         },
         {
-          "CO_ref": 9.145229938823,
-          "DO2": 700.723241348046,
+          "CO_ref": 9.119339157708,
+          "DO2": 699.424974285291,
           "cycle": 20,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 9.145229938823
+          "saturated": [],
+          "transmitted": 9.119339157708
         },
         {
-          "CO_ref": 9.123255209883,
-          "DO2": 2016.39146243852,
+          "CO_ref": 9.102542584991,
+          "DO2": 2012.924610897557,
           "cycle": 21,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 9.123255209883
+          "saturated": [],
+          "transmitted": 9.102542584991
         },
         {
-          "CO_ref": 9.291052806314,
-          "DO2": 723.165098910226,
+          "CO_ref": 9.274482706401,
+          "DO2": 722.360195734535,
           "cycle": 22,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 9.291052806314
+          "saturated": [],
+          "transmitted": 9.274482706401
         },
         {
-          "CO_ref": 9.481213141731,
-          "DO2": 2103.158962157549,
+          "CO_ref": 9.467957061801,
+          "DO2": 2100.922636415612,
           "cycle": 23,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 9.481213141731
+          "saturated": [],
+          "transmitted": 9.467957061801
         },
         {
-          "CO_ref": 9.651181706979,
-          "DO2": 755.349164626387,
+          "CO_ref": 9.640576843034,
+          "DO2": 754.773011583736,
           "cycle": 24,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 9.651181706979
+          "saturated": [],
+          "transmitted": 9.640576843034
         },
         {
-          "CO_ref": 9.791511305745,
-          "DO2": 2163.009658545675,
+          "CO_ref": 9.78302741459,
+          "DO2": 2161.502755690768,
           "cycle": 25,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 9.791511305745
+          "saturated": [],
+          "transmitted": 9.78302741459
         },
         {
-          "CO_ref": 9.90287485036,
-          "DO2": 904.804342154056,
+          "CO_ref": 9.896087737435,
+          "DO2": 904.433390926595,
           "cycle": 26,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 9.90287485036
+          "saturated": [],
+          "transmitted": 9.896087737435
         },
         {
-          "CO_ref": 9.98888717337,
-          "DO2": 1207.729727364898,
+          "CO_ref": 9.983457483031,
+          "DO2": 1207.628038883036,
           "cycle": 27,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 9.98888717337
+          "saturated": [],
+          "transmitted": 9.983457483031
         },
         {
-          "CO_ref": 10.053719494406,
-          "DO2": 1091.184884457853,
+          "CO_ref": 10.049375742134,
+          "DO2": 1091.0888427921,
           "cycle": 28,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 10.053719494406
+          "saturated": [],
+          "transmitted": 10.049375742134
         },
         {
-          "CO_ref": 10.101302317987,
-          "DO2": 1265.156723333779,
+          "CO_ref": 10.097827316169,
+          "DO2": 1265.028548028201,
           "cycle": 29,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 10.101302317987
+          "saturated": [],
+          "transmitted": 10.097827316169
         },
         {
-          "CO_ref": 10.13508316689,
-          "DO2": 1112.049839489036,
+          "CO_ref": 10.132303165436,
+          "DO2": 1111.917924251903,
           "cycle": 30,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 10.13508316689
+          "saturated": [],
+          "transmitted": 10.132303165436
         },
         {
-          "CO_ref": 10.157984908031,
-          "DO2": 1283.57112824306,
+          "CO_ref": 10.155760906868,
+          "DO2": 1283.553405639494,
           "cycle": 31,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 10.157984908031
+          "saturated": [],
+          "transmitted": 10.155760906868
         },
         {
-          "CO_ref": 10.172436250685,
-          "DO2": 1149.476969744641,
+          "CO_ref": 10.170657049754,
+          "DO2": 1149.388775880372,
           "cycle": 32,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 10.172436250685
+          "saturated": [],
+          "transmitted": 10.170657049754
         },
         {
-          "CO_ref": 10.180426949774,
-          "DO2": 1271.055763105592,
+          "CO_ref": 10.17900358903,
+          "DO2": 1271.097526245238,
           "cycle": 33,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 10.180426949774
+          "saturated": [],
+          "transmitted": 10.17900358903
         },
         {
-          "CO_ref": 10.183563523349,
-          "DO2": 1178.280971647367,
+          "CO_ref": 10.182424834754,
+          "DO2": 1178.226065968741,
           "cycle": 34,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 10.183563523349
+          "saturated": [],
+          "transmitted": 10.182424834754
         },
         {
-          "CO_ref": 10.183134207719,
-          "DO2": 1253.497094756314,
+          "CO_ref": 10.182223256842,
+          "DO2": 1253.532422652616,
           "cycle": 35,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 10.183134207719
+          "saturated": [],
+          "transmitted": 10.182223256842
         },
         {
-          "CO_ref": 10.180157469426,
-          "DO2": 1201.250223647344,
+          "CO_ref": 10.179428708725,
+          "DO2": 1201.217955762135,
           "cycle": 36,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 10.180157469426
+          "saturated": [],
+          "transmitted": 10.179428708725
         },
         {
-          "CO_ref": 10.175429019714,
-          "DO2": 1241.353840396262,
+          "CO_ref": 10.174846011154,
+          "DO2": 1241.373170521529,
           "cycle": 37,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 10.175429019714
+          "saturated": [],
+          "transmitted": 10.174846011154
         },
         {
-          "CO_ref": 10.169567601533,
-          "DO2": 1218.512812366167,
+          "CO_ref": 10.169101194684,
+          "DO2": 1218.498882103451,
           "cycle": 38,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 10.169567601533
+          "saturated": [],
+          "transmitted": 10.169101194684
         },
         {
-          "CO_ref": 10.163042678717,
-          "DO2": 1236.190265648533,
+          "CO_ref": 10.162669553238,
+          "DO2": 1236.199562406786,
           "cycle": 39,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 10.163042678717
+          "saturated": [],
+          "transmitted": 10.162669553238
         },
         {
-          "CO_ref": 10.156207138522,
-          "DO2": 1229.128062097499,
+          "CO_ref": 10.155908638139,
+          "DO2": 1229.126476635562,
           "cycle": 40,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 10.156207138522
+          "saturated": [],
+          "transmitted": 10.155908638139
         }
       ],
       "dest": "lamina_respiratory:CO_ref",
@@ -1352,6 +1516,7 @@
           "cycle": 1,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1360,6 +1525,7 @@
           "cycle": 2,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1368,6 +1534,7 @@
           "cycle": 3,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 4.462
         },
         {
@@ -1376,6 +1543,7 @@
           "cycle": 4,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 4.630310645459
         },
         {
@@ -1384,6 +1552,7 @@
           "cycle": 5,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 4.608497250871
         },
         {
@@ -1392,6 +1561,7 @@
           "cycle": 6,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 4.51478081173
         },
         {
@@ -1400,6 +1570,7 @@
           "cycle": 7,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 4.421147742567
         },
         {
@@ -1408,6 +1579,7 @@
           "cycle": 8,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 4.348304974653
         },
         {
@@ -1416,6 +1588,7 @@
           "cycle": 9,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 4.289503441557
         },
         {
@@ -1424,6 +1597,7 @@
           "cycle": 10,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 4.242459240339
         },
         {
@@ -1432,6 +1606,7 @@
           "cycle": 11,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 4.204734314177
         },
         {
@@ -1440,6 +1615,7 @@
           "cycle": 12,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 4.174503486453
         },
         {
@@ -1448,6 +1624,7 @@
           "cycle": 13,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 4.150251369601
         },
         {
@@ -1456,6 +1633,7 @@
           "cycle": 14,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 4.130813356787
         },
         {
@@ -1464,6 +1642,7 @@
           "cycle": 15,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 4.115203105514
         },
         {
@@ -1472,6 +1651,7 @@
           "cycle": 16,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 4.102679930688
         },
         {
@@ -1480,6 +1660,7 @@
           "cycle": 17,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 4.092631115113
         },
         {
@@ -1488,6 +1669,7 @@
           "cycle": 18,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 4.084569722147
         },
         {
@@ -1496,6 +1678,7 @@
           "cycle": 19,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 4.078090772693
         },
         {
@@ -1504,6 +1687,7 @@
           "cycle": 20,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 4.072876716397
         },
         {
@@ -1512,6 +1696,7 @@
           "cycle": 21,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 4.068694186126
         },
         {
@@ -1520,6 +1705,7 @@
           "cycle": 22,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 4.014083948988
         },
         {
@@ -1528,6 +1714,7 @@
           "cycle": 23,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 3.937758028038
         },
         {
@@ -1536,6 +1723,7 @@
           "cycle": 24,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 3.856705071924
         },
         {
@@ -1544,6 +1732,7 @@
           "cycle": 25,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 3.779964307656
         },
         {
@@ -1552,6 +1741,7 @@
           "cycle": 26,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 3.711581388209
         },
         {
@@ -1560,6 +1750,7 @@
           "cycle": 27,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 3.652779663569
         },
         {
@@ -1568,6 +1759,7 @@
           "cycle": 28,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 3.603321706085
         },
         {
@@ -1576,6 +1768,7 @@
           "cycle": 29,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 3.562315186648
         },
         {
@@ -1584,6 +1777,7 @@
           "cycle": 30,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 3.528634358854
         },
         {
@@ -1592,6 +1786,7 @@
           "cycle": 31,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 3.501143204995
         },
         {
@@ -1600,6 +1795,7 @@
           "cycle": 32,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 3.478793987128
         },
         {
@@ -1608,6 +1804,7 @@
           "cycle": 33,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 3.460673526379
         },
         {
@@ -1616,6 +1813,7 @@
           "cycle": 34,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 3.446004575592
         },
         {
@@ -1624,6 +1822,7 @@
           "cycle": 35,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 3.434141400028
         },
         {
@@ -1632,6 +1831,7 @@
           "cycle": 36,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 3.424547861616
         },
         {
@@ -1640,6 +1840,7 @@
           "cycle": 37,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 3.416788340768
         },
         {
@@ -1648,6 +1849,7 @@
           "cycle": 38,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 3.410508671657
         },
         {
@@ -1656,6 +1858,7 @@
           "cycle": 39,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 3.405425355882
         },
         {
@@ -1664,6 +1867,7 @@
           "cycle": 40,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 3.401306579061
         }
       ],
@@ -1690,6 +1894,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1700,6 +1905,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1710,6 +1916,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1720,6 +1927,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1730,6 +1938,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1740,6 +1949,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1750,6 +1960,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1760,6 +1971,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1770,6 +1982,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1780,6 +1993,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1790,6 +2004,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1800,6 +2015,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1810,6 +2026,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1820,6 +2037,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1830,6 +2048,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1840,6 +2059,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1850,6 +2070,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1860,6 +2081,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1870,6 +2092,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1880,6 +2103,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1890,6 +2114,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1900,6 +2125,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1910,6 +2136,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1920,6 +2147,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1930,6 +2158,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1940,6 +2169,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1950,6 +2180,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1960,6 +2191,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1970,6 +2202,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1980,6 +2213,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -1990,6 +2224,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2000,6 +2235,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2010,6 +2246,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2020,6 +2257,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2030,6 +2268,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2040,6 +2279,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2050,6 +2290,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2060,6 +2301,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2070,6 +2312,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2080,6 +2323,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         }
       ],
@@ -2104,6 +2348,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2114,6 +2359,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2124,6 +2370,7 @@
           "match": 0.793724137931,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2134,6 +2381,7 @@
           "match": 0.804560494296,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2144,6 +2392,7 @@
           "match": 0.811889338089,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2154,6 +2403,7 @@
           "match": 0.812777392087,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2164,6 +2414,7 @@
           "match": 0.811714955358,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2174,6 +2425,7 @@
           "match": 0.812081201082,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2184,6 +2436,7 @@
           "match": 0.811501353097,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2194,6 +2447,7 @@
           "match": 0.81165784915,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2204,6 +2458,7 @@
           "match": 0.811334373763,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2214,6 +2469,7 @@
           "match": 0.811398425246,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2224,6 +2480,7 @@
           "match": 0.811215300485,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2234,6 +2491,7 @@
           "match": 0.811239231733,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2244,6 +2502,7 @@
           "match": 0.811133591892,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2254,6 +2513,7 @@
           "match": 0.811139403209,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2264,6 +2524,7 @@
           "match": 0.811079411991,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2274,6 +2535,7 @@
           "match": 0.811077588165,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2284,6 +2546,7 @@
           "match": 0.811042652745,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2294,6 +2557,7 @@
           "match": 0.811038989373,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2304,6 +2568,7 @@
           "match": 0.811018315726,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2314,6 +2579,7 @@
           "match": 0.814163458601,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2324,6 +2590,7 @@
           "match": 0.815304873527,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2334,6 +2601,7 @@
           "match": 0.815521833892,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2344,6 +2612,7 @@
           "match": 0.815367301297,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2354,6 +2623,7 @@
           "match": 0.815075975771,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2364,6 +2634,7 @@
           "match": 0.814748697602,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2374,6 +2645,7 @@
           "match": 0.814428891356,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2384,6 +2656,7 @@
           "match": 0.814133993375,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2394,6 +2667,7 @@
           "match": 0.813869380992,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2404,6 +2678,7 @@
           "match": 0.813635103635,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2414,6 +2689,7 @@
           "match": 0.813429367123,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2424,6 +2700,7 @@
           "match": 0.813249278035,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2434,6 +2711,7 @@
           "match": 0.813091946459,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2444,6 +2722,7 @@
           "match": 0.812954580152,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2454,6 +2733,7 @@
           "match": 0.812834686527,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2464,6 +2744,7 @@
           "match": 0.812729892547,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2474,6 +2755,7 @@
           "match": 0.812638414655,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2484,6 +2766,7 @@
           "match": 0.812558455142,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2494,6 +2777,7 @@
           "match": 0.812488553704,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         }
       ],
@@ -2520,6 +2804,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2530,6 +2815,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2540,377 +2826,417 @@
           "match": 0.924727011494,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 4.9075
         },
         {
-          "CO_ref": 6.487577195385,
-          "DO2": 1282.493193698425,
+          "CO_ref": 6.326,
+          "DO2": 1250.551893102256,
           "cycle": 4,
           "drift": -0.021156006248,
           "match": 0.888488774388,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 6.487577195385
+          "saturated": [
+            "CO"
+          ],
+          "transmitted": 6.326
         },
         {
-          "CO_ref": 6.302873017997,
-          "DO2": 776.943627620955,
+          "CO_ref": 6.173611261689,
+          "DO2": 775.264752999528,
           "cycle": 5,
           "drift": -0.033983423502,
           "match": 0.966862972017,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 6.302873017997
+          "saturated": [],
+          "transmitted": 6.173611261689
         },
         {
-          "CO_ref": 6.783388956403,
-          "DO2": 1742.30167251569,
+          "CO_ref": 6.679979551357,
+          "DO2": 1729.841593301276,
           "cycle": 6,
           "drift": -0.045786858298,
           "match": 0.959210740117,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 6.783388956403
+          "saturated": [],
+          "transmitted": 6.679979551357
         },
         {
-          "CO_ref": 6.796473850863,
-          "DO2": 662.203092268747,
+          "CO_ref": 6.713746326825,
+          "DO2": 666.337829563926,
           "cycle": 7,
           "drift": -0.057989979595,
           "match": 0.97900790492,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 6.796473850863
+          "saturated": [],
+          "transmitted": 6.713746326825
         },
         {
-          "CO_ref": 6.919627484845,
-          "DO2": 1672.356458757309,
+          "CO_ref": 6.853445465615,
+          "DO2": 1666.271216966987,
           "cycle": 8,
           "drift": -0.069482328831,
           "match": 0.976995585007,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 6.919627484845
+          "saturated": [],
+          "transmitted": 6.853445465615
         },
         {
-          "CO_ref": 6.952244405115,
-          "DO2": 619.466791541425,
+          "CO_ref": 6.899298789731,
+          "DO2": 622.329569644281,
           "cycle": 9,
           "drift": -0.080440489718,
           "match": 0.977804167254,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 6.952244405115
+          "saturated": [],
+          "transmitted": 6.899298789731
         },
         {
-          "CO_ref": 6.998310299007,
-          "DO2": 1657.646559626272,
+          "CO_ref": 6.9559538067,
+          "DO2": 1653.821186668898,
           "cycle": 10,
           "drift": -0.090850297556,
           "match": 0.977795267179,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 6.998310299007
+          "saturated": [],
+          "transmitted": 6.9559538067
         },
         {
-          "CO_ref": 7.023987175746,
-          "DO2": 606.892332965716,
+          "CO_ref": 6.9901019819,
+          "DO2": 608.538949449198,
           "cycle": 11,
           "drift": -0.100747993406,
           "match": 0.977962835245,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.023987175746
+          "saturated": [],
+          "transmitted": 6.9901019819
         },
         {
-          "CO_ref": 7.047772507191,
-          "DO2": 1657.014253455605,
+          "CO_ref": 7.020664352115,
+          "DO2": 1654.465417351838,
           "cycle": 12,
           "drift": -0.110152742354,
           "match": 0.978001593049,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.047772507191
+          "saturated": [],
+          "transmitted": 7.020664352115
         },
         {
-          "CO_ref": 7.064825521415,
-          "DO2": 602.824755936823,
+          "CO_ref": 7.043138997354,
+          "DO2": 603.764743881252,
           "cycle": 13,
           "drift": -0.119089086411,
           "match": 0.978038244193,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.064825521415
+          "saturated": [],
+          "transmitted": 7.043138997354
         },
         {
-          "CO_ref": 7.078956008996,
-          "DO2": 1658.793720448928,
+          "CO_ref": 7.061606789747,
+          "DO2": 1657.101836230412,
           "cycle": 14,
           "drift": -0.127579234056,
           "match": 0.978050659998,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.078956008996
+          "saturated": [],
+          "transmitted": 7.061606789747
         },
         {
-          "CO_ref": 7.089893733817,
-          "DO2": 601.255204875445,
+          "CO_ref": 7.076014358418,
+          "DO2": 601.805710642417,
           "cycle": 15,
           "drift": -0.13564530838,
           "match": 0.978059341218,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.089893733817
+          "saturated": [],
+          "transmitted": 7.076014358418
         },
         {
-          "CO_ref": 7.09871918764,
-          "DO2": 1660.465830981572,
+          "CO_ref": 7.087615687321,
+          "DO2": 1659.355893610476,
           "cycle": 16,
           "drift": -0.143308247546,
           "match": 0.978062712386,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.09871918764
+          "saturated": [],
+          "transmitted": 7.087615687321
         },
         {
-          "CO_ref": 7.105706490697,
-          "DO2": 600.522644514659,
+          "CO_ref": 7.096823690441,
+          "DO2": 600.853822645051,
           "cycle": 17,
           "drift": -0.1505881443,
           "match": 0.97806480333,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.105706490697
+          "saturated": [],
+          "transmitted": 7.096823690441
         },
         {
-          "CO_ref": 7.111298840398,
-          "DO2": 1661.667913463472,
+          "CO_ref": 7.104192600193,
+          "DO2": 1660.946308241344,
           "cycle": 18,
           "drift": -0.157504093733,
           "match": 0.978065753632,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.111298840398
+          "saturated": [],
+          "transmitted": 7.104192600193
         },
         {
-          "CO_ref": 7.115761526639,
-          "DO2": 600.125589968181,
+          "CO_ref": 7.110076534476,
+          "DO2": 600.328990161178,
           "cycle": 19,
           "drift": -0.164074273283,
           "match": 0.978066305429,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.115761526639
+          "saturated": [],
+          "transmitted": 7.110076534476
         },
         {
-          "CO_ref": 7.11933564282,
-          "DO2": 1662.474078165939,
+          "CO_ref": 7.114787649089,
+          "DO2": 1662.007697982715,
           "cycle": 20,
           "drift": -0.170315954005,
           "match": 0.978066508416,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.11933564282
+          "saturated": [],
+          "transmitted": 7.114787649089
         },
         {
-          "CO_ref": 7.122193593831,
-          "DO2": 599.893272691897,
+          "CO_ref": 7.118555198847,
+          "DO2": 600.020004253563,
           "cycle": 21,
           "drift": -0.176245554691,
           "match": 0.978066588417,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.122193593831
+          "saturated": [],
+          "transmitted": 7.118555198847
         },
         {
-          "CO_ref": 7.073132917249,
-          "DO2": 1649.650637693258,
+          "CO_ref": 7.070222201261,
+          "DO2": 1649.35032438287,
           "cycle": 22,
           "drift": -0.182044237222,
           "match": 0.981377825999,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.073132917249
+          "saturated": [],
+          "transmitted": 7.070222201261
         },
         {
-          "CO_ref": 7.082006618286,
-          "DO2": 597.049781065902,
+          "CO_ref": 7.079678045496,
+          "DO2": 597.131815125554,
           "cycle": 23,
           "drift": -0.187523056071,
           "match": 0.980779234887,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.082006618286
+          "saturated": [],
+          "transmitted": 7.079678045496
         },
         {
-          "CO_ref": 7.122393173237,
-          "DO2": 1665.614088550067,
+          "CO_ref": 7.120530315005,
+          "DO2": 1665.423301326732,
           "cycle": 24,
           "drift": -0.192813152165,
           "match": 0.982483598646,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.122393173237
+          "saturated": [],
+          "transmitted": 7.120530315005
         },
         {
-          "CO_ref": 7.178505628195,
-          "DO2": 608.200118355215,
+          "CO_ref": 7.177015341609,
+          "DO2": 608.252425236918,
           "cycle": 25,
           "drift": -0.197947168182,
           "match": 0.984652093194,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.178505628195
+          "saturated": [],
+          "transmitted": 7.177015341609
         },
         {
-          "CO_ref": 7.240417083368,
-          "DO2": 1624.660796298731,
+          "CO_ref": 7.239224854099,
+          "DO2": 1624.538550747298,
           "cycle": 26,
           "drift": -0.202927788041,
           "match": 0.98671818606,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.240417083368
+          "saturated": [],
+          "transmitted": 7.239224854099
         },
         {
-          "CO_ref": 7.302333001393,
-          "DO2": 686.914359291058,
+          "CO_ref": 7.301379217978,
+          "DO2": 686.941941440999,
           "cycle": 27,
           "drift": -0.207750279566,
           "match": 0.988536239222,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.302333001393
+          "saturated": [],
+          "transmitted": 7.301379217978
         },
         {
-          "CO_ref": 7.3611616191,
-          "DO2": 1695.445705334738,
+          "CO_ref": 7.360398592368,
+          "DO2": 1695.36798879639,
           "cycle": 28,
           "drift": -0.212409610071,
           "match": 0.990095510366,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.3611616191
+          "saturated": [],
+          "transmitted": 7.360398592368
         },
         {
-          "CO_ref": 7.415449107406,
-          "DO2": 726.598371197641,
+          "CO_ref": 7.414838686021,
+          "DO2": 726.619321101161,
           "cycle": 29,
           "drift": -0.216902382885,
           "match": 0.991423687023,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.415449107406
+          "saturated": [],
+          "transmitted": 7.414838686021
         },
         {
-          "CO_ref": 7.464682373323,
-          "DO2": 1706.106380883113,
+          "CO_ref": 7.464194036214,
+          "DO2": 1706.008743499289,
           "cycle": 30,
           "drift": -0.221227105618,
           "match": 0.992555458249,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.464682373323
+          "saturated": [],
+          "transmitted": 7.464194036214
         },
         {
-          "CO_ref": 7.508855400558,
-          "DO2": 749.57536618993,
+          "CO_ref": 7.508464730871,
+          "DO2": 749.596239602617,
           "cycle": 31,
           "drift": -0.225383941658,
           "match": 0.993522447092,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.508855400558
+          "saturated": [],
+          "transmitted": 7.508464730871
         },
         {
-          "CO_ref": 7.548219483044,
-          "DO2": 1643.527587991407,
+          "CO_ref": 7.547906947295,
+          "DO2": 1643.397103769405,
           "cycle": 32,
           "drift": -0.229374380653,
           "match": 0.994351342254,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.548219483044
+          "saturated": [],
+          "transmitted": 7.547906947295
         },
         {
-          "CO_ref": 7.583137832309,
-          "DO2": 769.172743277348,
+          "CO_ref": 7.582887803709,
+          "DO2": 769.196941268589,
           "cycle": 33,
           "drift": -0.233183659817,
           "match": 0.994718584623,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.583137832309
+          "saturated": [],
+          "transmitted": 7.582887803709
         },
         {
-          "CO_ref": 7.614019495146,
-          "DO2": 1536.562108639439,
+          "CO_ref": 7.613819472267,
+          "DO2": 1536.379344587492,
           "cycle": 34,
           "drift": -0.236787012723,
           "match": 0.994409338639,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.614019495146
+          "saturated": [],
+          "transmitted": 7.613819472267
         },
         {
-          "CO_ref": 7.641273834728,
-          "DO2": 790.816999530489,
+          "CO_ref": 7.641113816424,
+          "DO2": 790.849087757985,
           "cycle": 35,
           "drift": -0.240196847494,
           "match": 0.994142328823,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.641273834728
+          "saturated": [],
+          "transmitted": 7.641113816424
         },
         {
-          "CO_ref": 7.665286349192,
-          "DO2": 1387.270630305718,
+          "CO_ref": 7.665158334549,
+          "DO2": 1387.038211826386,
           "cycle": 36,
           "drift": -0.243424653968,
           "match": 0.993911597672,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.665286349192
+          "saturated": [],
+          "transmitted": 7.665158334549
         },
         {
-          "CO_ref": 7.686419060001,
-          "DO2": 820.16829710097,
+          "CO_ref": 7.686316648286,
+          "DO2": 820.219212831888,
           "cycle": 37,
           "drift": -0.246481098023,
           "match": 0.993712155742,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.686419060001
+          "saturated": [],
+          "transmitted": 7.686316648286
         },
         {
-          "CO_ref": 7.705000446253,
-          "DO2": 1219.820515105386,
+          "CO_ref": 7.704918516882,
+          "DO2": 1219.594075081477,
           "cycle": 38,
           "drift": -0.249376085635,
           "match": 0.993539470965,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.705000446253
+          "saturated": [],
+          "transmitted": 7.704918516882
         },
         {
-          "CO_ref": 7.721325863204,
-          "DO2": 918.125083614061,
+          "CO_ref": 7.721260319707,
+          "DO2": 918.542316920763,
           "cycle": 39,
           "drift": -0.252118835063,
           "match": 0.99338969487,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.721325863204
+          "saturated": [],
+          "transmitted": 7.721260319707
         },
         {
-          "CO_ref": 7.735661054919,
-          "DO2": 1074.97465308534,
+          "CO_ref": 7.735608620121,
+          "DO2": 1074.958803716056,
           "cycle": 40,
           "drift": -0.254717944685,
           "match": 0.993259648199,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
-          "transmitted": 7.735661054919
+          "saturated": [],
+          "transmitted": 7.735608620121
         }
       ],
       "dest": "lamina_respiratory:CO_ref",
@@ -2937,6 +3263,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2947,6 +3274,7 @@
           "match": 0.68915862069,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2957,6 +3285,7 @@
           "match": 0.882689655172,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2967,6 +3296,7 @@
           "match": 0.846418619686,
           "open_fraction": 0.0,
           "provenance_state": null,
+          "saturated": [],
           "transmitted": null
         },
         {
@@ -2977,6 +3307,7 @@
           "match": 0.911147284482,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 4.959274471272
         },
         {
@@ -2987,6 +3318,7 @@
           "match": 0.911319431254,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 5.502497435893
         },
         {
@@ -2997,6 +3329,7 @@
           "match": 0.91649932246,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 5.577371693986
         },
         {
@@ -3007,6 +3340,7 @@
           "match": 0.91352511216,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 5.924629740844
         },
         {
@@ -3017,6 +3351,7 @@
           "match": 0.915137551733,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 5.950248785929
         },
         {
@@ -3027,6 +3362,7 @@
           "match": 0.914200089517,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.187707194594
         },
         {
@@ -3037,6 +3373,7 @@
           "match": 0.91449203943,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.182457758232
         },
         {
@@ -3047,6 +3384,7 @@
           "match": 0.914206612903,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.353299176261
         },
         {
@@ -3057,6 +3395,7 @@
           "match": 0.914132086291,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.329257127651
         },
         {
@@ -3067,6 +3406,7 @@
           "match": 0.914031336495,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.458405720264
         },
         {
@@ -3077,6 +3417,7 @@
           "match": 0.913897371459,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.423113233179
         },
         {
@@ -3087,6 +3428,7 @@
           "match": 0.913843104728,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.525423853677
         },
         {
@@ -3097,6 +3439,7 @@
           "match": 0.913732476683,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.483614087734
         },
         {
@@ -3107,6 +3450,7 @@
           "match": 0.913686828421,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.568195548831
         },
         {
@@ -3117,6 +3461,7 @@
           "match": 0.913613037,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.522885545738
         },
         {
@@ -3127,6 +3472,7 @@
           "match": 0.913567513496,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.595485720907
         },
         {
@@ -3137,6 +3483,7 @@
           "match": 0.913524750355,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.548526954498
         },
         {
@@ -3147,6 +3494,7 @@
           "match": 0.926749223129,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.479297372059
         },
         {
@@ -3157,6 +3505,7 @@
           "match": 0.934198699947,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.491419540268
         },
         {
@@ -3167,6 +3516,7 @@
           "match": 0.937041432929,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.538792024405
         },
         {
@@ -3177,6 +3527,7 @@
           "match": 0.938011580814,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.599350563945
         },
         {
@@ -3187,6 +3538,7 @@
           "match": 0.938149743249,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.662078330715
         },
         {
@@ -3197,6 +3549,7 @@
           "match": 0.937907652881,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.721447942055
         },
         {
@@ -3207,6 +3560,7 @@
           "match": 0.937505128119,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.775015440118
         },
         {
@@ -3217,6 +3571,7 @@
           "match": 0.937052006739,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.82203215568
         },
         {
@@ -3227,6 +3582,7 @@
           "match": 0.936602585221,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.862634569386
         },
         {
@@ -3237,6 +3593,7 @@
           "match": 0.936181883154,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.897371327493
         },
         {
@@ -3247,6 +3604,7 @@
           "match": 0.935799549946,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.92693537199
         },
         {
@@ -3257,6 +3615,7 @@
           "match": 0.935457749191,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.952036686835
         },
         {
@@ -3267,6 +3626,7 @@
           "match": 0.935155052266,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.973337947581
         },
         {
@@ -3277,6 +3637,7 @@
           "match": 0.934888144113,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 6.991423656925
         },
         {
@@ -3287,6 +3648,7 @@
           "match": 0.934653194341,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 7.006794623066
         },
         {
@@ -3297,6 +3659,7 @@
           "match": 0.934446728111,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 7.019882693665
         },
         {
@@ -3307,6 +3670,7 @@
           "match": 0.93426532626,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 7.031051715254
         },
         {
@@ -3317,6 +3681,7 @@
           "match": 0.934105729262,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 7.040601951954
         },
         {
@@ -3327,6 +3692,7 @@
           "match": 0.933965201191,
           "open_fraction": 1.0,
           "provenance_state": "coupled",
+          "saturated": [],
           "transmitted": 7.048784471824
         }
       ],

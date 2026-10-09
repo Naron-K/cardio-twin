@@ -31,7 +31,7 @@ from organism import (
 
 AUTO_GATE = (
     '<auto_gate id="ta1" refractory_cycles="5">'
-    '<threshold watch="CO" aggregate="deviation" reference="0.30"'
+    '<threshold aggregate="deviation" reference="0.30"'
     ' open_above="0.125" close_below="0.09"/>'
     '</auto_gate>'
 )
@@ -39,9 +39,9 @@ KEY_GATE = (
     '<key_gate id="rk1" weight="1.0" rate="0.2" on_close="hold"'
     ' confidence="0.8"><key metric="identity"/></key_gate>'
 )
-EXTRACT = '<extract attribute="CO"/>'
+EXTRACT = '<extract mode="state"/>'
 
-CIRC = "lamina_circulatory:pump_state"
+CIRC = "lamina_circulatory:output_state"
 RESP = "lamina_respiratory:CO_ref"
 
 TWO_LAMINAE = (
@@ -110,10 +110,10 @@ def test_the_channel_carries_its_two_ends_and_one_extracted_attribute(tmp_path):
     channel = _parse(tmp_path, _body()).channels[0]
     assert isinstance(channel, Channel)
     assert (channel.source.lamina, channel.source.member) == \
-        ("lamina_circulatory", "pump_state")
+        ("lamina_circulatory", "output_state")
     assert (channel.dest.lamina, channel.dest.member) == \
         ("lamina_respiratory", "CO_ref")
-    assert channel.extract == "CO"
+    assert channel.carry == "state"
 
 
 def test_each_side_owns_its_own_gates(tmp_path):

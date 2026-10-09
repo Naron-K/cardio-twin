@@ -242,10 +242,10 @@ def test_the_shipped_organism_loads_and_passes_every_rule():
     channel = spec.channels[0]
     assert channel.id == "ch_co_to_resp"
     assert (channel.source.lamina, channel.source.member) == \
-        ("lamina_circulatory", "pump_state")
+        ("lamina_circulatory", "output_state")
     assert (channel.dest.lamina, channel.dest.member) == \
         ("lamina_respiratory", "CO_ref")
-    assert channel.extract == "CO"
+    assert channel.carry == "state"
     # The sender decides whether to offer; the receiver decides whether
     # to take, and holds the terms it absorbs on.
     assert channel.transmit[0].id == "ta_pump_deviation"
@@ -267,7 +267,12 @@ def test_the_two_halves_of_the_seam_agree():
     dest = twins[channel.dest.lamina].attributes[channel.dest.member]
     assert dest.source == INTER_LAMINA
     source_comp = twins[channel.source.lamina].composites[channel.source.member]
-    assert channel.extract in source_comp.attribute_ids
+    # No attribute name is asserted, because there is no longer one to
+    # assert: what crosses is the composite's own state value. What the
+    # two files have to agree about is that the source composite has
+    # something to summarise and the destination has room to land it.
+    assert source_comp.attribute_ids
+    assert dest.physio_max > dest.physio_min
 
 
 def test_channels_are_indexable_by_which_lamina_they_touch():
@@ -322,7 +327,7 @@ def _twins_for(spec):
 
 
 #: The one line of the shipped gate the learnable tests hang things off.
-_EXTRACT = '<extract attribute="CO"/>'
+_EXTRACT = '<extract mode="state"/>'
 
 
 def test_rule_1_a_gate_cannot_be_declared_open():
@@ -342,7 +347,7 @@ def test_rule_1_a_gate_cannot_be_declared_open():
 
 def test_rule_2_the_source_must_be_a_composite(tmp_path):
     path = _organism(tmp_path,
-                     'from="lamina_circulatory:pump_state"',
+                     'from="lamina_circulatory:output_state"',
                      'from="lamina_circulatory:CO"')
     spec = parse_organism(path)
     twins = _twins_for(spec)
@@ -353,7 +358,7 @@ def test_rule_2_the_source_must_be_a_composite(tmp_path):
 def test_rule_2_names_the_composite_when_you_named_an_attribute(tmp_path):
     """A wrong declaration should say what the right one looks like."""
     path = _organism(tmp_path,
-                     'from="lamina_circulatory:pump_state"',
+                     'from="lamina_circulatory:output_state"',
                      'from="lamina_circulatory:CO"')
     spec = parse_organism(path)
     twins = _twins_for(spec)
@@ -462,7 +467,7 @@ def test_a_channel_from_a_lamina_to_itself_does_not_parse(tmp_path):
 
 def test_an_endpoint_without_a_lamina_does_not_parse(tmp_path):
     path = _organism(tmp_path,
-                     'from="lamina_circulatory:pump_state"',
+                     'from="lamina_circulatory:output_state"',
                      'from="pump_state"')
     with pytest.raises(OrganismError, match="<lamina_id>"):
         parse_organism(path)
@@ -484,14 +489,18 @@ def test_an_absorption_rate_outside_zero_to_one_does_not_parse(tmp_path):
         parse_organism(path)
 
 
-def test_extracting_something_the_composite_does_not_hold(tmp_path):
-    path = _organism(tmp_path,
-                     _EXTRACT,
-                     '<extract attribute="PaO2"/>')
-    spec = parse_organism(path)
-    twins = _twins_for(spec)
-    with pytest.raises(OrganismError, match="not in composite"):
-        validate_against_laminae(spec, twins)
+def test_a_channel_may_not_pick_an_attribute_out_of_the_composite(tmp_path):
+    """
+    The payload rule, refused at parse rather than quietly reinterpreted.
+
+    A body written against the old schema names the attribute it wants on
+    the wire. Reading that as "carry the composite instead" would run and
+    mean something other than it says, so it is an error, and the message
+    says what to write in its place.
+    """
+    with pytest.raises(OrganismError, match="no longer carries an attribute"):
+        parse_organism(_organism(tmp_path, _EXTRACT,
+                                 '<extract attribute="CO"/>'))
 
 
 # A lamina small enough to read at a glance, for the source-parsing tests.

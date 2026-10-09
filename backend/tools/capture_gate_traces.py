@@ -280,6 +280,13 @@ def capture_run(organism, scenario: str, forcing: dict | None = None,
             "transmitted": clean_value_or_none(
                 gate_report["transmitted"], "transmitted", where),
             "provenance_state": (dst_attr.provenance or {}).get("state"),
+            # Which source attributes have left the range they declared.
+            # The wire carries a normalised state value, so a value past
+            # a declared maximum cannot be carried past it either — the
+            # trace has to record where that happened, or a reader
+            # comparing this against the one-valve photograph would see
+            # a number move with no explanation attached.
+            "saturated": list(gate_report.get("saturated") or []),
         }
         for watch_name in watch_names:
             record[watch_name] = clean_value_or_none(

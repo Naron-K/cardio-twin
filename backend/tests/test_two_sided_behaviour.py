@@ -349,8 +349,8 @@ def test_the_band_the_new_triggers_declare_does_not_chatter():
                   "match_threshold": 0.95, "release_below": release_below,
                   "refractory_cycles": 0}
         for _ in range(400):
-            reading = {k: v + rng.gauss(0, 0.01) for k, v in parked.items()}
-            state = key_gate_controller(state, reading, params)
+            vector = {k: v + rng.gauss(0, 0.01) for k, v in parked.items()}
+            state = key_gate_controller(state, {"vector": vector}, params)
         return state["transitions"]
 
     assert transitions(0.9499) > 100, "one boundary should chatter badly"

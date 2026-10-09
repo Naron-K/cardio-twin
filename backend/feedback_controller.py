@@ -25,6 +25,8 @@ included here (a copy lands in the API layer in Phase D).
 
 from __future__ import annotations
 
+import math
+
 from typing import Any, Optional
 
 from universal_twin import (
@@ -34,6 +36,7 @@ from universal_twin import (
     Metrix,
     Tag,
     TagTarget,
+    normalised_error,
 )
 
 
@@ -751,9 +754,16 @@ class FeedbackController:
             )
             self.twin.compute_all()
         else:
-            solver_fn(self.twin, {})
+            solver_fn(self.twin, self.twin.behaviour_solver_params)
 
         norm_post = self.twin.feedback_norm()
+
+        # ─── Step 8: the absorption weights learn ──────────────────
+        # Last, and deliberately: the weights adapt on the state this
+        # cycle actually produced, so no gate reading a composite sees
+        # its meaning change halfway through the cycle it is deciding
+        # in.  Empty for every composite that has not declared it.
+        absorption = self._adapt_absorption(outcome_evaluations, warnings)
 
         report = {
             "cycle":           self.cycle,
@@ -770,6 +780,11 @@ class FeedbackController:
             # Phase 3: slow-loop telemetry — only populated on a slow-loop
             # tick (cycle % cadence == 0), empty otherwise.
             "adaptation":      slow_report,
+            # The absorption weights that moved this cycle, keyed by
+            # composite. Empty when no composite declares learning,
+            # which is every composite until a domain expert says
+            # otherwise.
+            "absorption":      absorption,
         }
         for w in warnings:
             self.twin._log(f"FB WARN: {w}")
@@ -778,6 +793,92 @@ class FeedbackController:
             f"emitted={len(tags_emitted)}  snapped={len(snapped)}"
         )
         return report
+
+    def _adapt_absorption(self, outcome_evaluations: dict,
+                          warnings: list) -> dict:
+        """
+        One learning step per composite that declared one.
+
+        This is the loop the architecture has always described and never
+        actually ran: the absorption vector is meant to be a DYNAMIC
+        weight matrix, tuned by the feedback loop so the model's own
+        summary of a composite lines up with what the sensors say the
+        outcome is doing.  Until now it was parsed from XML and never
+        touched again, which made "dynamic" a word in a document.
+
+        The error signal is `universal_twin.normalised_error` — the
+        outcome's deviation in TOLERANCES, in excess of the band — and
+        it is that shared function rather than a local copy because the
+        channel's backward pass now computes the same quantity, and an
+        error meaning one thing locally and another across a seam is a
+        loop nobody can reason about.  The reasons for both halves of
+        it, dead-zone included, are argued at the definition.
+
+        Measured on the shipped body held at HR 110, where oxygen
+        delivery settles at 1083 against a target of 1000 ± 250 —
+        comfortably in range: without the dead-zone, over 200 cycles the
+        weights walked from equal quarters to SpO2 0.497 with DO2 pinned
+        on its floor, and they were still moving.  That is not learning,
+        it is a loop with nothing to converge on grinding against its
+        own clamps.
+
+        Runs per LAMINA, not per body, and that is why it lives here
+        rather than on Organism: a lamina has to keep working when it is
+        run on its own, and its composites' weights are its own
+        business.
+
+        D17 froze this loop while X = X' + X'' was being stabilised, on
+        the grounds that the learning loop and the gate kernel would
+        couple through the two vectors.  They do not: D2 split them for
+        exactly this, the kernel reads `distribution_vector` and this
+        writes `absorption_vector`, and nothing here touches the other.
+        The coupling that IS real is the new one — absorption moves the
+        composite's state value, which moves what crosses a seam, which
+        moves the outcome, which moves absorption — and it is bounded by
+        the clamp every learning declaration is required to carry.
+        """
+        by_id: dict = {}
+        for outcomes in outcome_evaluations.values():
+            for feedback in outcomes:
+                by_id[feedback["outcome_id"]] = feedback
+
+        moved: dict = {}
+        for comp_id, comp in self.twin.composites.items():
+            rule = comp.absorption_learning
+            if rule is None:
+                continue
+            feedback = by_id.get(rule["outcome"])
+            if feedback is None:
+                warnings.append(
+                    f"Composite '{comp_id}' learns from outcome "
+                    f"'{rule['outcome']}', which this lamina did not "
+                    f"evaluate this cycle — weights left alone."
+                )
+                continue
+            tolerance = Identifier._tolerance_for_outcome(
+                self.twin, rule["outcome"]
+            )
+            if tolerance <= 0:
+                warnings.append(
+                    f"Composite '{comp_id}' learns from a zero-tolerance "
+                    f"outcome '{rule['outcome']}' — no scale to normalise "
+                    f"the error against, so nothing was adjusted."
+                )
+                continue
+            values = [self.twin.get(a).normalised for a in comp.attribute_ids]
+            if any(v is None for v in values):
+                continue        # nothing readable to take a gradient on
+            signal = normalised_error(feedback["deviation"], tolerance)
+            if signal == 0.0:
+                continue        # inside the declared band: nothing to learn
+            try:
+                moved[comp_id] = comp.adapt_absorption(values, signal)
+            except ValueError as exc:
+                warnings.append(
+                    f"Composite '{comp_id}' could not adapt its absorption "
+                    f"weights: {exc}"
+                )
+        return moved
 
     # ── Convenience ──────────────────────────────────────────────────
 

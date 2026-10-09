@@ -27,6 +27,7 @@ class CirculatoryLamina(UniversalTwin):
       Step 3b: Cardiac Pump         (CO = HR × SV)
       Step 4:  Hemodynamic Flow     (Q = ΔP / R)
       Step 5:  Electrical Conduction (λ = √(rₘ / (rᵢ + rₑ)))
+      Step 6:  Systemic Resistance  (SVR = (MAP − CVP) / CO)
 
     Usage:
         twin = CirculatoryLamina("circulatory_lamina.xml")
@@ -49,13 +50,6 @@ class CirculatoryLamina(UniversalTwin):
     STARLING_K = 0.55
     STARLING_LIMIT_EDV = 200  # mL, beyond this SV plateaus
 
-    # Central venous (right-atrial) pressure — the downstream end of the
-    # systemic pressure gradient.  Hemodynamic flow is driven by the
-    # arterio-venous gradient (MAP − CVP), not MAP alone, so Q = ΔP/R uses
-    # ΔP = MAP − CVP.  Held constant in v1 (normal resting CVP ≈ 2–6 mmHg);
-    # a future revision can promote it to a sensor / per-patient input.
-    CENTRAL_VENOUS_PRESSURE = 5.0  # mmHg
-
     def _register_functions(self):
         """Register all function implementations mapped to XML function ids."""
         self._function_registry = {
@@ -67,6 +61,7 @@ class CirculatoryLamina(UniversalTwin):
             "cardiac_rhythm":       self._calc_cycle_length,
             "systolic_interval":    self._calc_systolic_interval,
             "electrical_conduction": self._calc_lambda,
+            "systemic_resistance":  self._calc_svr,
         }
 
     # ── Step 1: Pressure Regulation ──────────────────────────────────
@@ -210,20 +205,25 @@ class CirculatoryLamina(UniversalTwin):
         arterio-venous gradient (MAP minus central venous pressure), not
         MAP alone — flow stops when arterial pressure falls to venous
         pressure, not to zero. MAP comes from Step 1, R from Step 2, and
-        CVP is the constant CENTRAL_VENOUS_PRESSURE.
+        CVP from the declared CVP sensor (declared in the XML so a domain
+        expert can change it; it replaces what used to be the
+        CENTRAL_VENOUS_PRESSURE class constant).
 
         This is the central formula of the lamina.
         Q is the primary Behaviour Outcome.
-        inputs: [MAP, R]  — order defined in XML <inputs>
+        inputs: [MAP, R, CVP]  — order defined in XML <inputs>
         """
-        mean_arterial, resistance = inputs[0], inputs[1]
+        mean_arterial, resistance, cvp = inputs[0], inputs[1], inputs[2]
 
-        if mean_arterial is None or resistance is None:
-            raise ValueError("inputs[0] (MAP) and inputs[1] (R) must be computed before computing Q")
+        if mean_arterial is None or resistance is None or cvp is None:
+            raise ValueError(
+                "inputs[0] (MAP), inputs[1] (R) and inputs[2] (CVP) must be "
+                "computed before computing Q"
+            )
         if resistance <= 0:
             raise ValueError("Resistance must be positive to compute flow")
 
-        delta_p = mean_arterial - self.CENTRAL_VENOUS_PRESSURE
+        delta_p = mean_arterial - cvp
         return delta_p / resistance
 
     # ── Step 5: Electrical Conduction ────────────────────────────────
@@ -248,6 +248,56 @@ class CirculatoryLamina(UniversalTwin):
             raise ValueError("Sum of intracellular and extracellular resistance must be positive")
 
         return math.sqrt(rm / (ri + re))
+
+    # ── Step 6: Systemic Vascular Resistance ─────────────────────────
+
+    def _calc_svr(self, inputs: list) -> float:
+        """
+        SVR = (MAP − CVP) / CO
+
+        Whole-body systemic vascular resistance, derived from what the
+        twin already measures: MAP from the SBP/DBP cuff (Step 1), CO
+        from the HR/EDV sensors (Step 3b), CVP from the declared CVP
+        sensor.  Unlike R (Step 2), a single-segment Poiseuille estimate
+        that cannot move with the pump, SVR falls as cardiac output
+        rises — high resistance at low output is compensated shock, low
+        resistance at high output is exercise.
+
+        Inputs are caller-supplied attribute values, so this refuses a
+        wrong input loudly rather than reporting a confident-looking
+        resistance: a missing value, a non-finite number, or a cardiac
+        output of zero or less all raise ValueError.  Dividing by a
+        non-positive CO would report an infinite or a NEGATIVE resistance
+        as though it were a measurement.
+        inputs: [MAP, CO, CVP]  — order defined in XML <inputs>
+        """
+        if len(inputs) < 3:
+            raise ValueError(
+                "inputs must be [MAP, CO, CVP]; got a list of "
+                f"length {len(inputs)} — refusing to divide by a missing "
+                "cardiac output"
+            )
+
+        mean_arterial, cardiac_output, cvp = inputs[0], inputs[1], inputs[2]
+
+        if any(v is None for v in [mean_arterial, cardiac_output, cvp]):
+            raise ValueError(
+                "inputs[0] (MAP), inputs[1] (CO) and inputs[2] (CVP) must "
+                "be set before computing SVR"
+            )
+        if any(not math.isfinite(v) for v in [mean_arterial, cardiac_output, cvp]):
+            raise ValueError(
+                "inputs (MAP, CO, CVP) must all be finite numbers to compute "
+                f"SVR, got {inputs} — NaN or infinity is not a resistance"
+            )
+        if cardiac_output <= 0:
+            raise ValueError(
+                "Cardiac output must be positive to compute SVR; "
+                f"got CO = {cardiac_output}, which would report a "
+                "resistance that is not a measurement"
+            )
+
+        return (mean_arterial - cvp) / cardiac_output
 
     # ── Convenience Methods ──────────────────────────────────────────
 

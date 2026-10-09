@@ -504,11 +504,34 @@
       </distribution_vector>
     </composite>
 
+    <!--
+      The one composite in this project whose absorption weights MOVE.
+
+      Everywhere else the absorption vector is a number the domain
+      expert wrote and nothing since has touched, which made "dynamic
+      weight matrix" a phrase in a design document rather than a thing
+      the code does. Here the feedback loop tunes it every cycle against
+      target_do2: the weights say how much each of the four attributes
+      counts toward "is transport in trouble", and the loop moves them
+      in the direction that lines the composite's own summary up with
+      what oxygen delivery is actually doing.
+
+      learning_rate and the clamp are BOTH required, and the clamp is
+      the important half. This loop sits inside another one — absorption
+      moves the state value, the state value opens a gate, the gate
+      moves CO_ref, CO_ref moves DO2, DO2 is the outcome that moves
+      absorption — and an unbounded weight inside a closed loop walks
+      away from the physiology while every single step looks reasonable.
+      0.05 is a floor rather than 0: a weight that reaches exactly zero
+      can never come back, because the gradient it would need is
+      multiplied by itself.
+    -->
     <composite id="transport_state">
       <name>Transport State</name>
       <attributes>Hb, SpO2, CaO2, DO2</attributes>
       <description>Whether the oxygen that crossed is reaching tissue</description>
-      <absorption_vector>
+      <absorption_vector learns_from="target_do2" learning_rate="0.02"
+                         clamp_min="0.05" clamp_max="1.0">
         <weight attribute="Hb">0.25</weight>
         <weight attribute="SpO2">0.25</weight>
         <weight attribute="CaO2">0.25</weight>

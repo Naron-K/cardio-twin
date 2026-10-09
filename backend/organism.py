@@ -47,7 +47,13 @@ from feedback_controller import (
 )
 from laminae import load_twin, resolve_lamina
 from snapshot import _simulation_snapshot
-from universal_twin import INTER_LAMINA, UniversalTwin
+from universal_twin import (
+    INTER_LAMINA,
+    UniversalTwin,
+    Identifier,
+    normalised_error,
+    resolve_polarity,
+)
 
 #: Where `<organism>` lives when nobody names a file.
 DEFAULT_ORGANISM = Path(__file__).parent / "organism.xml"
@@ -73,7 +79,13 @@ KNOWN_ON_CLOSE = frozenset({"hold", "decay_to_baseline"})
 #: watch.  `deviation` compares against a declared reference point in the
 #: same [0,1] space, so departure in EITHER direction reads as one
 #: number and one pair of thresholds covers both.
-KNOWN_AGGREGATES = frozenset({"attr", "mean", "max", "deviation"})
+KNOWN_AGGREGATES = frozenset({"state", "delta", "deviation"})
+
+#: What a channel may carry.  Both are the composite's OWN number: its
+#: state value, or the change in that value since the previous cycle.
+#: There is deliberately no third option naming an attribute — that is
+#: the whole content of "the gate is blind to what is in the composite".
+KNOWN_CARRIES = frozenset({"state", "state_delta"})
 
 #: What the transfer stage does with the value once the gate is open.
 #: `proportional` carries it, smoothed; `band` carries it only while it
@@ -430,11 +442,12 @@ def validate_against_laminae(spec: OrganismSpec,
                 f"Known composites: {sorted(src_twin.composites)}."
             )
         composite = src_twin.composites[channel.source.member]
-        if channel.extract not in composite.attribute_ids:
+        if not composite.attribute_ids:
             raise OrganismError(
-                f"Channel '{channel.id}' extracts '{channel.extract}', which "
-                f"is not in composite '{channel.source.member}'. It holds: "
-                f"{composite.attribute_ids}."
+                f"Channel '{channel.id}' reads composite "
+                f"'{channel.source.member}', which holds no attributes. A "
+                f"composite with nothing in it has no state value, so a "
+                f"channel leaving it could only ever carry None."
             )
 
         # ── Rule 3 ───────────────────────────────────────────────────
@@ -444,6 +457,66 @@ def validate_against_laminae(spec: OrganismSpec,
                 f"Channel '{channel.id}' writes to '{channel.dest}', which "
                 f"lamina '{channel.dest.lamina}' does not declare."
             )
+        span = dest_attr.physio_max - dest_attr.physio_min
+        if span <= 0:
+            raise OrganismError(
+                f"Channel '{channel.id}' lands on '{channel.dest}', whose "
+                f"physiological range is [{dest_attr.physio_min}, "
+                f"{dest_attr.physio_max}]. The wire carries a normalised "
+                f"[0,1] quantity and the receiver maps it into its own "
+                f"units, which needs a range with width."
+            )
+        if channel.carry == "state_delta" and dest_attr.baseline is None:
+            raise OrganismError(
+                f"Channel '{channel.id}' carries a state_delta onto "
+                f"'{channel.dest}', which declares no baseline. A delta is "
+                f"a displacement, and a displacement needs the point it is "
+                f"measured from; without one the receiver would have to "
+                f"invent an origin."
+            )
+
+        # ── Rule 14 — the return path, if there is one ───────────────
+        # Both halves are checked here rather than at parse because both
+        # cross the file boundary: the outcome lives in the receiving
+        # lamina and the learning rule in the sending one, and a channel
+        # cannot see either from inside organism.xml.
+        if channel.backprop is not None:
+            outcome_ids = {o.id for seg in dst_twin.segments.values()
+                           for o in seg.behavioural_outcomes}
+            if channel.backprop.outcome not in outcome_ids:
+                raise OrganismError(
+                    f"Channel '{channel.id}' routes the error of outcome "
+                    f"'{channel.backprop.outcome}' backwards, but lamina "
+                    f"'{channel.dest.lamina}' declares no such outcome. "
+                    f"Known there: {sorted(outcome_ids)}. A return path "
+                    f"keyed to an outcome nobody evaluates can never carry "
+                    f"anything, so it is refused rather than left silent."
+                )
+            if len(composite.attribute_ids) < 2:
+                raise OrganismError(
+                    f"Channel '{channel.id}' routes error back into "
+                    f"composite '{channel.source.member}', which holds one "
+                    f"attribute ({composite.attribute_ids}). A composite's "
+                    f"state value is the weighted MEAN of its attributes, so "
+                    f"with one attribute the state IS that attribute whatever "
+                    f"its weight — there is nothing for a learning step to "
+                    f"reweigh, and every step would be exactly zero. Route "
+                    f"the error into a face that holds more than one "
+                    f"attribute, or drop the <backprop>: a return path that "
+                    f"provably cannot move anything is worse than none, "
+                    f"because it looks like one that works."
+                )
+            if composite.absorption_learning is None:
+                raise OrganismError(
+                    f"Channel '{channel.id}' routes error back into "
+                    f"composite '{channel.source.member}' on lamina "
+                    f"'{channel.source.lamina}', which declares no learning "
+                    f"rule on its <absorption_vector>. Rule 5: anything that "
+                    f"may learn declares its clamp first. Add learns_from, "
+                    f"learning_rate, clamp_min and clamp_max there — or drop "
+                    f"the <backprop>, because a return path into weights "
+                    f"that may not move is a wire to nowhere."
+                )
         if dest_attr.source != INTER_LAMINA:
             raise OrganismError(
                 f"Channel '{channel.id}' writes to '{channel.dest}', declared "
@@ -465,7 +538,22 @@ def validate_against_laminae(spec: OrganismSpec,
              channel.dest.lamina, channel.source.lamina),
         ):
             for gate in gates:
-                if isinstance(gate, AutoGate):
+                if isinstance(gate, AutoGate) and gate.trigger.get("from"):
+                    # An auto gate that names a composite reads that one,
+                    # and it must be one of its own: auto means internal,
+                    # and a trigger reaching across the seam would be
+                    # deciding on a lamina it does not sit on.
+                    endpoint = gate.trigger["from"]
+                    if endpoint.lamina != own_lamina:
+                        raise OrganismError(
+                            f"Gate '{gate.id}' is an auto gate on lamina "
+                            f"'{own_lamina}' but its trigger reads "
+                            f"'{endpoint}'. An auto gate answers to the "
+                            f"lamina it sits on; reading another one is "
+                            f"what a key gate is for."
+                        )
+                    read_lamina, member = endpoint.lamina, endpoint.member
+                elif isinstance(gate, AutoGate):
                     # An auto gate reads its OWN lamina's face.
                     read_lamina, member = own_lamina, _lamina_face(
                         spec, own_lamina)
@@ -532,9 +620,6 @@ def _validate_gate_coordinates(gate, channel, composite,
     """
     named: list = []
     if isinstance(gate, AutoGate):
-        watch = gate.trigger.get("watch")
-        if watch:
-            named.append(watch)
         named.extend(gate.trigger.get("weights") or {})
     else:
         named.extend(gate.key.get("weights") or {})
@@ -621,53 +706,62 @@ def _sigmoid(x: float) -> float:
     return 1.0 / (1.0 + math.exp(exponent))
 
 
-def _aggregate(source_vec: dict, params: dict) -> Optional[float]:
+def _aggregate(reading: dict, params: dict) -> Optional[float]:
     """
-    Reduce the source composite's normalised vector to one number.
+    The one number a trigger compares against its two boundaries.
 
-    `attr` reads the single attribute named by `watch`; `mean` and `max`
-    take the whole vector; `deviation` reads `watch` and returns its
-    DISTANCE from a declared `reference`.  All four work in [0,1] because
-    that is the space the vector already lives in, which is what lets one
-    set of thresholds mean the same thing whether the attribute is in
-    L/min or mmHg.
+    Every mode here reads the composite's STATE VALUE — the single
+    scalar the absorption vector produces out of the whole composite —
+    and none of them can name an attribute.  That is the point.  A gate
+    that could watch `CO` inside `pump_state` is a gate reading past the
+    composite into the machinery behind it, and the whole reason a
+    lamina presents one composite at its face is so that the far side,
+    and the valve on the membrane, never have to know what is in there.
+    Isolating the complexity is worth nothing if the valve peeks.
 
-    The reason `deviation` exists: the other three are one-sided.  A gate
-    watching a raw normalised value can only open when that value is
-    HIGH, so a seam declared to open "while the pump is remarkable" opens
-    for a racing heart and stays shut for a failing one.  Measured on the
-    shipped circulation, holding HR at 35: cardiac output settles at 3.39
-    L/min and the seam never opens, so the respiratory lamina keeps
+      state      the composite's value right now.
+      delta      how much that value moved since the previous cycle —
+                 the "lượng thay đổi" half of the same reading.  None on
+                 the first cycle, when there is no previous value to
+                 subtract, and a gate holds rather than guessing.
+      deviation  the DISTANCE of the state from a declared `reference`.
+
+    `deviation` exists because the other two are one-sided.  A gate
+    watching the state itself can only open when the state is HIGH, so a
+    seam declared to open "while the pump is remarkable" opens for a
+    racing heart and stays shut for a failing one.  Measured on the
+    shipped circulation, holding HR at 35: cardiac output settles at
+    3.39 L/min and the seam never opens, so the respiratory lamina keeps
     computing oxygen delivery from its uncoupled baseline of 5.0 — a 32%
-    error, silently, in the direction that matters most.  Distance from a
-    reference makes both directions the same number.
+    error, silently, in the direction that matters most.  Distance from
+    a reference makes both directions the same number.
 
-    Returns None when there is nothing to read — an attribute that has
-    not computed yet, or an empty composite.  A gate cannot decide
-    anything from that, and guessing a number would be worse than
-    saying so.
+    Returns None when there is nothing to read — a composite none of
+    whose attributes have computed yet, or a delta on the first cycle.
+    A gate cannot decide anything from that, and guessing a number would
+    be worse than saying so.
     """
-    values = [v for v in source_vec.values() if v is not None]
-    mode = params.get("aggregate", "attr")
-    if mode == "mean":
-        return sum(values) / len(values) if values else None
-    if mode == "max":
-        return max(values) if values else None
-    watched = params.get("watch")
-    if not watched:
+    mode = params.get("aggregate", "state")
+    if mode == "delta":
+        return reading.get("delta")
+    state = reading.get("state")
+    if state is None:
         return None
-    value = source_vec.get(watched)
     if mode == "deviation":
-        if value is None:
-            return None
-        return abs(value - float(params.get("reference", 0.0)))
-    return value
+        return abs(state - float(params.get("reference", 0.0)))
+    return state
 
 
-def threshold_gate_controller(state: dict, source_vec: dict,
+def threshold_gate_controller(state: dict, reading: dict,
                               params: dict) -> dict:
     """
     Two thresholds, a deadband between them, and a refractory hold.
+
+    `reading` is what one composite presents — `state`, `delta`,
+    `vector` and `label`.  This controller touches only the first two:
+    a threshold gate decides on the composite's value and is blind to
+    the attributes underneath it, which is the contract the aggregate
+    modes enforce.
 
     Closed → open when the watched value reaches `open_above`.
     Open → closed when it falls to `close_below`.  Between the two
@@ -694,7 +788,7 @@ def threshold_gate_controller(state: dict, source_vec: dict,
                     the deadband says is closed passes nothing, whatever
                     the sigmoid would have said.
     """
-    watch_value = _aggregate(source_vec, params)
+    watch_value = _aggregate(reading, params)
     is_open = bool(state.get("open", False))          # G6: born closed
     refractory = int(state.get("refractory", 0))
     transitioned = False
@@ -741,7 +835,7 @@ def threshold_gate_controller(state: dict, source_vec: dict,
     }
 
 
-def key_gate_controller(state: dict, source_vec: dict, params: dict) -> dict:
+def key_gate_controller(state: dict, reading: dict, params: dict) -> dict:
     """
     Open when the composite looks enough like the state being waited for.
 
@@ -786,6 +880,7 @@ def key_gate_controller(state: dict, source_vec: dict, params: dict) -> dict:
     """
     weights = params.get("key_weights") or {}
     metric = params.get("metric", "weighted_distance")
+    source_vec = reading.get("vector") or {}
 
     pairs = [
         (float(w), float(ref), float(source_vec[attr]))
@@ -947,6 +1042,17 @@ class Organism:
         # a controller.
         self._channel_state: dict = {ch.id: {} for ch in self.channels}
 
+        # Last cycle's state value per composite, and this cycle's
+        # readings.  A delta is the difference between two cycles, so
+        # somebody has to remember the earlier one, and the container is
+        # the only thing that knows when a cycle ends.  The cache exists
+        # because several channels may read one face and a delta
+        # computed twice in a cycle would be a delta of zero the second
+        # time — the same class of bug as the delay line a controller
+        # could wipe.
+        self._state_prev: dict = {}
+        self._reading_cache: dict = {}
+
         # Pluggable gate controllers, mirroring the five registries on
         # UniversalTwin.  The two v1 controllers are registered here;
         # a gate naming one that is not in this dict cannot open, which
@@ -956,8 +1062,13 @@ class Organism:
         #
         # Contract (frozen):
         #     controller(state: dict,
-        #                source_vec: dict[str, float],
+        #                reading: dict,
         #                params: dict) -> dict
+        # where `reading` is what ONE composite presents:
+        #     {"label": composite id,
+        #      "state": its state value in [0,1] or None,
+        #      "delta": how far that moved since last cycle, or None,
+        #      "vector": its normalised coordinates or None}
         # The returned dict IS the new state and must carry
         # "open_fraction" in [0, 1].
         self._gate_controller_registry: dict = {}
@@ -975,6 +1086,8 @@ class Organism:
             controller.reset_kernel_state()
         self._gate_state = {gate.id: {} for gate in self.gates}
         self._channel_state = {ch.id: {} for ch in self.channels}
+        self._state_prev = {}
+        self._reading_cache = {}
         self.cycle = 0
         self.gates_locked = False
 
@@ -1029,6 +1142,19 @@ class Organism:
                            gate controller, transfer what crosses, write
                            it into the receiver's X'
             4. controller.step() on every lamina
+            5. Back pass — carry each receiver's outcome error back
+                           through the gate it came in by, and let the
+                           sending composite reweigh itself
+
+        Step 5 sits AFTER step 4, and that placement is the whole reason
+        it is a separate step rather than a tail on the gate pass.  An
+        outcome is not evaluated until its lamina's feedback cycle runs,
+        so a back pass folded into step 3 would carry LAST cycle's error
+        — the sender would be corrected for a mistake it has already
+        been corrected for, once per cycle, forever.  Running it last
+        means the error travelling back is the one this cycle actually
+        produced, and the sender acts on it at step 3 of the next cycle.
+        One cycle of lag, in the open, rather than a hidden one.
 
         Why this order and not another, argued once here so nobody has to
         re-derive it from the code:
@@ -1097,6 +1223,9 @@ class Organism:
         for lamina_id, controller in self.controllers.items():
             cycle_reports[lamina_id] = controller.step()
 
+        # ── Step 5: the backward pass ────────────────────────────────
+        backprop_report = self._back_pass(warnings)
+
         # ── Body-level breaker ───────────────────────────────────────
         total_norm = self.total_feedback_norm()
         if total_norm > self.max_total_norm and not self.gates_locked:
@@ -1114,6 +1243,9 @@ class Organism:
             "gates_locked":        self.gates_locked,
             "channels":            channel_report,
             "cycle_reports":       cycle_reports,
+            # Empty for every channel that declared no <backprop>, which
+            # is every channel until a body says otherwise.
+            "backprop":            backprop_report,
             "warnings":            warnings,
         }
         for w in warnings:
@@ -1144,16 +1276,87 @@ class Organism:
         `time_delay=1` delivered nothing, ever, because the line was
         emptied between being filled and being read.
         """
+        self._reading_cache = {}
         report: dict = {}
         for channel in self.channels:
             report[channel.id] = self._run_channel(channel, warnings)
+        # Committed AFTER every channel has run, so each one sees the
+        # same "previous" and a delta means the same thing on every wire
+        # in the body.  Committing per channel would make the second
+        # reader of a shared face see a delta of zero.
+        for key, reading in self._reading_cache.items():
+            if reading["state"] is not None:
+                self._state_prev[key] = reading["state"]
         return report
 
     # ── Step 3, in detail ────────────────────────────────────────────
 
-    def _face_vector(self, lamina_id: str):
+    def _composite_reading(self, lamina_id: str, composite_id: str) -> dict:
         """
-        The normalised vector of a lamina's interface composite.
+        What one composite presents this cycle: its value, how far that
+        value moved, its coordinates, and its name.
+
+        This is the ONLY thing any gate is handed, and after this method
+        there is no path by which a gate could reach past it: the
+        container reads the composite, the gate reads the container's
+        answer.  That is what "isolate the complexity" has to mean in
+        code rather than in a diagram — a valve that can name an
+        attribute inside the composite is a valve that has to be
+        rewritten every time the lamina behind it grows a new one.
+
+        `state` is the absorption-weighted scalar the absorption vector
+        exists to produce (universal_twin.get_composite_state): the
+        attribute values are absorbed into one number FIRST, and only
+        then is there anything for a gate to look at.  `delta` is how
+        far that number moved since the previous cycle — None on the
+        first cycle, because a change needs two cycles before it is a
+        measurement rather than a guess.
+
+        `saturated` names any attribute whose raw value has left the
+        range it declared.  A state value lives in [0,1] BY
+        CONSTRUCTION — that is what makes it mean the same thing whether
+        the attribute behind it is in L/min or mmHg — so a value past
+        the declared maximum normalises to 1.0 and the wire cannot carry
+        the excess.  Measured on the shipped seam at HR 200: cardiac
+        output reaches 13.2 L/min against a declared maximum of 12, and
+        what lands on the far side is 12.  That is not a rounding error
+        to hide; it is the model being driven outside the range its own
+        file says it covers, and the far side is owed the news.  Silent
+        clamping is the failure this project has already measured once —
+        a MAP of 120 displayed as 110 — so the number is clamped (there
+        is nowhere else for it to go) and labelled.
+
+        Cached for the length of one gate pass, so two channels leaving
+        one face agree with each other and a delta is computed once.
+        """
+        key = f"{lamina_id}:{composite_id}"
+        cached = self._reading_cache.get(key)
+        if cached is not None:
+            return cached
+        twin = self.twins[lamina_id]
+        state = twin.get_composite_state(composite_id)
+        previous = self._state_prev.get(key)
+        saturated = []
+        for attr_id in twin.composites[composite_id].attribute_ids:
+            attr = twin.attributes.get(attr_id)
+            if attr is None or attr.value is None:
+                continue
+            if not attr.physio_min <= attr.value <= attr.physio_max:
+                saturated.append(attr_id)
+        reading = {
+            "label":  composite_id,
+            "state":  state,
+            "delta":  (None if state is None or previous is None
+                       else state - previous),
+            "vector": twin.get_composite_vector(composite_id),
+            "saturated": saturated,
+        }
+        self._reading_cache[key] = reading
+        return reading
+
+    def _face_reading(self, lamina_id: str):
+        """
+        The reading of a lamina's interface composite.
 
         Rule 9 says a lamina presents ONE composite in every direction,
         so the face is whatever composite its channels leave on — which
@@ -1167,14 +1370,14 @@ class Organism:
         """
         declared = self.spec.faces.get(lamina_id)
         if declared is not None:
-            return self.twins[lamina_id].get_composite_vector(declared)
+            return self._composite_reading(lamina_id, declared)
         for channel in self.channels:
             if channel.source.lamina == lamina_id:
-                return self.twins[lamina_id].get_composite_vector(
-                    channel.source.member)
+                return self._composite_reading(lamina_id,
+                                               channel.source.member)
         return None
 
-    def _named_vector(self, gate, endpoint):
+    def _named_reading(self, gate, endpoint):
         """
         The composite a key names explicitly with `from`.
 
@@ -1191,17 +1394,22 @@ class Organism:
                 f"that is not there can never open, so it is refused "
                 f"rather than left permanently shut."
             )
-        return twin.get_composite_vector(endpoint.member)
+        return self._composite_reading(endpoint.lamina, endpoint.member)
 
-    def _gate_opening(self, gate, own_vec, presented, warnings) -> dict:
+
+    def _gate_opening(self, gate, own, presented, warnings) -> dict:
         """
         One gate's decision this cycle: how open, and on what grounds.
 
         The two kinds read different things, and that difference IS the
-        distinction between them.  An auto gate is handed `own_vec`, the
-        composite of the lamina it sits on — it never sees the other
-        side.  A key gate is handed `presented`, what the channel is
-        carrying — it never sees its own lamina's internals.
+        distinction between them.  An auto gate is handed `own`, the
+        reading of the composite on the lamina it sits on — it never
+        sees the other side.  A key gate is handed `presented`, what the
+        channel is carrying — it never sees its own lamina's internals.
+
+        Both are READINGS, never attribute bags: a gate sees a
+        composite's state value, its movement and its coordinates, and
+        has no way to ask for anything else.
 
         The arithmetic underneath is shared on purpose: a threshold and
         a shape-match are the same hysteresis machinery pointed at
@@ -1210,7 +1418,7 @@ class Organism:
         """
         state = self._gate_state.setdefault(gate.id, {})
         if isinstance(gate, AutoGate):
-            if own_vec is None:
+            if own is None and gate.trigger.get("from") is None:
                 raise OrganismError(
                     f"Gate '{gate.id}' reads its own lamina's interface "
                     f"composite, but that lamina declares none because no "
@@ -1226,7 +1434,9 @@ class Organism:
                 params["key_weights"] = params.pop("weights", {})
                 params.setdefault("metric", "weighted_distance")
                 fn = self._gate_controller_registry.get("key")
-            vector = own_vec
+            named = gate.trigger.get("from")
+            reading = (self._named_reading(gate, named) if named is not None
+                       else own)
         else:
             metric = gate.key.get("metric", "identity")
             if metric == "identity":
@@ -1246,10 +1456,10 @@ class Organism:
             # quietly override it.
             named = gate.key.get("from")
             if named is not None:
-                vector = self._named_vector(gate, named)
+                reading = self._named_reading(gate, named)
             else:
-                vector = (presented or {}).get("vector")
-            if vector is None:
+                reading = presented
+            if reading is None or reading.get("vector") is None:
                 state.clear()
                 state.update({
                     "open_fraction": 0.0,
@@ -1263,7 +1473,7 @@ class Organism:
             state["reason"] = "no controller registered"
             return {"fraction": 0.0, "flood": False, "state": state}
 
-        new_state = dict(fn(state, vector, params))
+        new_state = dict(fn(state, reading, params))
         state.clear()
         state.update(new_state)
         fraction = float(new_state.get("open_fraction", 0.0))
@@ -1307,7 +1517,7 @@ class Organism:
         })
         return {"fraction": fraction, "flood": False, "state": state}
 
-    def _side(self, gates, own_vec, presented, warnings) -> dict:
+    def _side(self, gates, own, presented, warnings) -> dict:
         """
         One membrane's decision, from the gates on it.
 
@@ -1335,7 +1545,7 @@ class Organism:
                    "gate": None, "gates": []}
         for kind in (AutoGate, KeyGate):
             for gate in [g for g in gates if isinstance(g, kind)]:
-                result = self._gate_opening(gate, own_vec, presented, warnings)
+                result = self._gate_opening(gate, own, presented, warnings)
                 opening["gates"].append({
                     "id":            gate.id,
                     "kind":          ("auto" if isinstance(gate, AutoGate)
@@ -1413,20 +1623,22 @@ class Organism:
         dst_twin = self.twins[channel.dest.lamina]
         dst_attr = dst_twin.attributes.get(channel.dest.member)
 
-        src_attr = src_twin.attributes.get(channel.extract)
-        reading = src_attr.value if src_attr else None
-        src_vec = src_twin.get_composite_vector(channel.source.member)
+        src_reading = self._composite_reading(channel.source.lamina,
+                                              channel.source.member)
+        # What the composite hands over.  Stage 1 has already happened —
+        # the absorption vector has weighed the attributes into one
+        # state value — so there is exactly one number here, in the
+        # normalised space, and no attribute name anywhere on the path.
+        reading = (src_reading["delta"] if channel.carry == "state_delta"
+                   else src_reading["state"])
 
         if self.gates_locked:
             tx = self._breaker_shut(channel.transmit)
         else:
             # What the RECEIVER is presenting to the sender: its own
             # face, which is how a transmit-side key reads demand.
-            demand = {
-                "label":  channel.dest.lamina,
-                "vector": self._face_vector(channel.dest.lamina),
-            }
-            tx = self._side(channel.transmit, src_vec, demand, warnings)
+            tx = self._side(channel.transmit, src_reading,
+                            self._face_reading(channel.dest.lamina), warnings)
 
         # ── The sender offers, or the offer ages where it lies ───────
         if tx["fraction"] > 0.0 and reading is not None:
@@ -1436,21 +1648,31 @@ class Organism:
         elif cstate.get("offered") is not None:
             cstate["offered_age"] = int(cstate.get("offered_age", 0)) + 1
 
+        offering = tx["fraction"] > 0.0
         presented = {
             "label":  cstate.get("label"),
             "value":  cstate.get("offered"),
-            "vector": src_vec if tx["fraction"] > 0.0 else None,
+            "state":  src_reading["state"] if offering else None,
+            "delta":  src_reading["delta"] if offering else None,
+            "vector": src_reading["vector"] if offering else None,
         }
         if self.gates_locked:
             rx = self._breaker_shut(channel.receive)
         else:
-            rx = self._side(channel.receive, self._face_vector(
+            rx = self._side(channel.receive, self._face_reading(
                 channel.dest.lamina), presented, warnings)
 
         open_fraction = tx["fraction"] * rx["fraction"]
+        # Kept because the BACKWARD pass needs the same number the
+        # forward one used.  An error that came back through a wider
+        # gate than the value went out through would be a return path
+        # the forward path never had — the sender would learn from a
+        # crossing that did not happen at that strength.
+        cstate["lambda"] = open_fraction * tx["weight"] * rx["weight"]
         cstate.pop("close_reason", None)
         transmitted = self._absorb(channel, cstate, dst_attr, dst_twin,
-                                   tx, rx, open_fraction)
+                                   tx, rx, open_fraction,
+                                   src_reading["saturated"])
         # Decided here and remembered, so the snapshot and the tick report
         # give a reader the same word.  Only the container knows a band
         # refused a value while both gates were open, and two places
@@ -1465,6 +1687,11 @@ class Organism:
             "transmitted":   transmitted,
             "offered":       cstate.get("offered"),
             "offered_age":   int(cstate.get("offered_age", 0)),
+            # Named rather than counted: a reader who sees the far side
+            # pinned at a range edge needs to know WHICH attribute ran
+            # out of declared room, because that is the one whose
+            # physio_max the body has outgrown.
+            "saturated":     list(src_reading["saturated"]),
             "state":         state_word,
             "transmit":      tx["gates"],
             "receive":       rx["gates"],
@@ -1511,7 +1738,7 @@ class Organism:
         return "shut"
 
     def _absorb(self, channel, cstate, dst_attr, dst_twin, tx, rx,
-                open_fraction: float):
+                open_fraction: float, saturated=()):
         """
         What the receiver takes, and the write into its state.
 
@@ -1559,6 +1786,21 @@ class Organism:
             return self._on_close(channel, cstate, dst_attr, rx_gate,
                                   "waiting for the delay line")
 
+        # ── The wire carries [0,1]; the receiver keeps its own units ──
+        # A composite state value is a position in the normalised space,
+        # so the receiver maps it onto its own declared range; a delta
+        # is a DISPLACEMENT, so it is measured from the point the
+        # receiver was already assuming.  Doing this here and not at the
+        # sending end is the same argument as `rate`: what a number
+        # means in the receiver's units is the receiver's business, and
+        # a sender that converted would have to know the far side's
+        # range — exactly the coupling the channel exists to avoid.
+        span = dst_attr.physio_max - dst_attr.physio_min
+        if channel.carry == "state_delta":
+            delayed = dst_attr.baseline + delayed * span
+        else:
+            delayed = dst_attr.physio_min + delayed * span
+
         # A receptor with a declared band carries the value only while it
         # lies inside it, and REFUSES outside rather than clamping.
         # Clamping is what the old soft_range gate did, and it silently
@@ -1604,6 +1846,7 @@ class Organism:
                 "weight":        round(weight, 6),
                 "flood":         bool(tx["flood"] or rx["flood"]),
                 "delay":         channel.time_delay,
+                "saturated":     list(saturated),
             },
         )
         cstate["transmitted"] = transmitted
@@ -1725,6 +1968,157 @@ class Organism:
 
     # ── Reporting ────────────────────────────────────────────────────
 
+    # ── Step 5, in detail ────────────────────────────────────────────
+
+    def _back_pass(self, warnings: list) -> dict:
+        """
+        Every channel that declared a return path, in declaration order.
+
+        The forward pass asks "may this number cross?".  This asks the
+        only question that can follow it: the number crossed, the far
+        side's outcome came out wrong, so should the sender have sent a
+        different one?
+
+        What makes it universal is what it does NOT do.  There is no
+        transposed weight matrix, no chain rule, and nothing here knows
+        the shape of either lamina.  The receiver's error is one scalar,
+        the gate it came through is one scalar, and their product is one
+        scalar the sending composite learns on — the same
+        composite-and-absorption-vector interface the forward direction
+        already uses, run the other way.  A body of ten laminae routes
+        error the same way a body of two does, and this method does not
+        change.
+        """
+        report: dict = {}
+        for channel in self.channels:
+            if channel.backprop is None:
+                continue
+            report[channel.id] = self._route_error(channel, warnings)
+        return report
+
+    def _route_error(self, channel, warnings: list) -> dict:
+        """
+        One channel's error, travelling back:  δ = polarity · λ · E.
+
+        E is the receiving lamina's outcome deviation normalised into
+        tolerances (`universal_twin.normalised_error`) — the same
+        quantity a lamina's own learning loop uses, so an error means
+        the same thing whether it was raised at home or a wire away.
+
+        λ is the product of the two gates' openness and their weights,
+        recorded by the forward pass THIS cycle.  It is the plan's
+        λ_gate, and using the forward number rather than recomputing is
+        the point: a shut gate returns nothing, a half-open gate returns
+        half, and the return path can never be wider than the path the
+        value took.  That single line is what keeps the backward
+        direction inside the architecture instead of beside it — error
+        is payload, and payload obeys gates.
+
+        The polarity is the sign of the coupling from the sending
+        composite's state to the receiving outcome, declared per channel
+        because the answer differs down every wire.  Without it the
+        loop is a coin toss: raising cardiac output raises oxygen
+        delivery, so an outcome sitting BELOW its target needs the
+        sender's state to go UP, and a signal handed over with its raw
+        sign would drive it down and diverge.
+
+        Returns what happened rather than only whether it did, because
+        a return path that is silently doing nothing — shut gate, error
+        inside tolerance, unreadable attribute — looks exactly like one
+        that is working until somebody reads the numbers.
+        """
+        bp = channel.backprop
+        src_twin = self.twins[channel.source.lamina]
+        dst_twin = self.twins[channel.dest.lamina]
+        composite = src_twin.composites[channel.source.member]
+        entry = {
+            "outcome":  bp.outcome,
+            "polarity": bp.polarity,
+            "error":    None,
+            "lambda":   0.0,
+            "delta":    None,
+            "weights":  None,
+            "state":    "idle",
+        }
+
+        if self.gates_locked:
+            entry["state"] = "breaker"
+            return entry
+
+        feedback = self._outcome_feedback(dst_twin, bp.outcome)
+        if feedback is None:
+            warnings.append(
+                f"Channel '{channel.id}' carries the error of outcome "
+                f"'{bp.outcome}' back, which lamina '{channel.dest.lamina}' "
+                f"did not evaluate this cycle — nothing was returned."
+            )
+            entry["state"] = "unevaluated"
+            return entry
+
+        tolerance = Identifier._tolerance_for_outcome(dst_twin, bp.outcome)
+        if tolerance <= 0:
+            warnings.append(
+                f"Channel '{channel.id}' carries the error of a "
+                f"zero-tolerance outcome '{bp.outcome}' back — no scale to "
+                f"normalise against, so nothing was returned."
+            )
+            entry["state"] = "no scale"
+            return entry
+
+        error = normalised_error(feedback["deviation"], tolerance)
+        entry["error"] = round(error, 6)
+        if error == 0.0:
+            # Inside the band the far side declared acceptable. There is
+            # no news, and a sender reweighed for a receiver that is fine
+            # is the loop grinding on its own clamps.
+            entry["state"] = "in tolerance"
+            return entry
+
+        lam = float(self._channel_state.get(channel.id, {}).get("lambda", 0.0))
+        entry["lambda"] = round(lam, 6)
+        if lam <= 0.0:
+            # Nothing crossed, so nothing the sender did reached this
+            # outcome, so the sender has nothing to answer for. A gate
+            # that stops values has to stop the blame too.
+            entry["state"] = "shut"
+            return entry
+
+        values = [src_twin.get(a).normalised for a in composite.attribute_ids]
+        if any(v is None for v in values):
+            entry["state"] = "unreadable"
+            return entry
+
+        delta = bp.polarity * lam * error
+        entry["delta"] = round(delta, 6)
+        try:
+            entry["weights"] = composite.adapt_absorption(values, delta)
+            entry["state"] = "learned"
+        except ValueError as exc:
+            warnings.append(
+                f"Channel '{channel.id}' could not teach composite "
+                f"'{channel.source.member}' from the error it carried: {exc}"
+            )
+            entry["state"] = "refused"
+        return entry
+
+    @staticmethod
+    def _outcome_feedback(twin, outcome_id: str):
+        """
+        One outcome's evaluation on one lamina, or None if it did not
+        produce one this cycle.
+
+        Evaluated here rather than read off the controller's report
+        because step 4 recomputes the chain after applying feedback, so
+        the report's number is pre-recompute and this one is what the
+        lamina actually ended the cycle holding — which is the state the
+        sender is being asked to answer for.
+        """
+        for outcomes in twin.evaluate_all_outcomes().values():
+            for feedback in outcomes:
+                if feedback["outcome_id"] == outcome_id:
+                    return feedback
+        return None
+
     def snapshot(self) -> dict:
         """
         One payload describing the whole body.
@@ -1775,7 +2169,7 @@ class Organism:
             "to":          str(channel.dest),
             "from_lamina": channel.source.lamina,
             "to_lamina":   channel.dest.lamina,
-            "extract":     channel.extract,
+            "carry":       channel.carry,
             "time_delay":  channel.time_delay,
             "description": channel.description,
             "transmit":    [self._gate_entry(g) for g in channel.transmit],
@@ -1876,13 +2270,68 @@ class Channel:
     id: str
     source: GateEndpoint
     dest: GateEndpoint
-    extract: str
+    #: What the source composite hands to the gates: "state" (its value)
+    #: or "state_delta" (how far that value moved this cycle).  Never an
+    #: attribute — the composite absorbs its attributes into one number
+    #: first, and that number is the whole of what a channel carries.
+    carry: str
     time_delay: int = 0
     transmit: list = field(default_factory=list)    # list[AutoGate | KeyGate]
     receive: list = field(default_factory=list)     # list[AutoGate | KeyGate]
+    #: The return path, when the body declares one.  None means this
+    #: wire is one-way in the full sense: the sender never learns what
+    #: its number did to the far side.
+    backprop: Optional["BackPass"] = None
 
     def __str__(self) -> str:                       # pragma: no cover — display
         return f"{self.source} → {self.dest}"
+    description: str = ""
+
+
+@dataclass(frozen=True)
+class BackPass:
+    """
+    What travels back up a channel, and how far it gets (C14).
+
+    The forward half of a channel is settled: a composite absorbs its
+    attributes into one state value, and that value crosses when both
+    membranes open.  The backward half asks the other question — the
+    far side got a number and its own outcome came out wrong, so who
+    should have sent a different number?
+
+    The answer is routed as ORDINARY PAYLOAD back through the same
+    gates, not as a gradient through a transposed weight matrix.  There
+    is no chain rule here and no matrix anywhere: the receiver's error
+    is one scalar, the gate it came through is one scalar, and the
+    product is one scalar the sending composite learns on.  That is the
+    whole mechanism, and it is why a third lamina can be added without
+    anything in this file changing shape.
+
+      `outcome`   an outcome id on the DEST lamina.  Its deviation,
+                  normalised into tolerances, is the raw error E.
+      `polarity`  read exactly as the gate kernel and TagTarget read
+                  theirs: it MULTIPLIES the deviation, so the default
+                  -1.0 ("negative", corrective) is the right sign when
+                  raising the source composite RAISES the far outcome.
+                  Cardiac output raises oxygen delivery, so a DO2
+                  sitting below target has to push the sender's state
+                  up, and -1 is what turns a negative deviation into an
+                  upward step.  +1 is for a seam where the coupling
+                  runs the other way.  It is per-channel for the same
+                  reason TagTarget carries one per target: the question
+                  has a different answer down every wire, and a sign
+                  declared once for the outcome could only answer it
+                  once.
+
+    There is deliberately no learning_rate here.  How fast a composite
+    may reweight itself is a property of that composite, declared on
+    its own `<absorption_vector>` with the clamp rule 5 requires — so a
+    channel can only teach a composite that has already said it may be
+    taught, and the bound on the learning stays with the thing being
+    bounded.
+    """
+    outcome: str
+    polarity: float = -1.0
     description: str = ""
 
 
@@ -2078,21 +2527,31 @@ def _parse_threshold_trigger(trigger_el, gate_id: str) -> dict:
     """
     The `<threshold>` child of an auto gate — rule 4 kept verbatim.
 
-    A threshold trigger watches its own lamina's vector and reduces it
-    to one number with `aggregate`; the two boundaries (G3) are
-    mandatory and must be the right way round.
+    A threshold trigger reads its own composite's STATE VALUE and
+    reduces nothing else; `aggregate` chooses between the value, its
+    movement and its distance from a reference.  The two boundaries (G3)
+    are mandatory and must be the right way round.
+
+    There is no `watch`, and rule 13 refuses one by name rather than
+    ignoring it.  A gate that could name an attribute inside the
+    composite would be reading past the face the lamina presents — and a
+    body carrying a `watch` nobody reads would run while quietly
+    thresholding on something else entirely.
     """
-    aggregate = (trigger_el.get("aggregate") or "attr").strip()
+    aggregate = (trigger_el.get("aggregate") or "state").strip()
     if aggregate not in KNOWN_AGGREGATES:
         raise OrganismError(
             f"Gate '{gate_id}' has aggregate='{aggregate}'. Known: "
             f"{sorted(KNOWN_AGGREGATES)}."
         )
     watch = (trigger_el.get("watch") or "").strip()
-    if aggregate in ("attr", "deviation") and not watch:
+    if watch:
         raise OrganismError(
-            f"Gate '{gate_id}' aggregates on a single attribute but names "
-            f"none — add watch=\"<attribute id>\"."
+            f"Gate '{gate_id}' declares watch=\"{watch}\". A gate reads the "
+            f"composite's state value — the one number the absorption "
+            f"vector produces out of the whole composite — and cannot name "
+            f"an attribute inside it (rule 13). Drop the watch; use "
+            f"aggregate=\"state\", \"delta\" or \"deviation\"."
         )
     open_above = _finite_attr(trigger_el, "open_above", f"Gate '{gate_id}'")
     close_below = _finite_attr(trigger_el, "close_below", f"Gate '{gate_id}'")
@@ -2114,8 +2573,6 @@ def _parse_threshold_trigger(trigger_el, gate_id: str) -> dict:
         "open_above": open_above,
         "close_below": close_below,
     }
-    if watch:
-        trigger["watch"] = watch
     if aggregate == "deviation":
         reference = _finite_attr(trigger_el, "reference", f"Gate '{gate_id}'")
         if reference is None:
@@ -2130,7 +2587,7 @@ def _parse_threshold_trigger(trigger_el, gate_id: str) -> dict:
             raise OrganismError(
                 f"Gate '{gate_id}' has reference={reference}, outside "
                 f"[0,1]. The reference is a point in the normalised space "
-                f"the vector already lives in (G2)."
+                f"the composite's state value already lives in (G2)."
             )
         trigger["reference"] = reference
     return trigger
@@ -2145,6 +2602,16 @@ def _parse_pattern_trigger(trigger_el, gate_id: str) -> dict:
     match against the lamina's OWN composite vector; it still needs the
     two boundaries of rule 4, for the same measured reason every other
     trigger does.
+
+    `from` is optional and names WHICH of its own lamina's composites the
+    shape is matched against; without it the trigger reads the face the
+    lamina presents.  It exists because the face is what a lamina shows
+    the OUTSIDE — one number the neighbours can use — while recognising
+    its own trouble may need a richer composite that the neighbours have
+    no business seeing.  Restricted to the gate's own lamina at load
+    time: an auto gate that could read across the seam would be a key
+    gate wearing the wrong name, and would bypass the channel it is
+    supposed to be standing on.
     """
     match_threshold = _finite_attr(trigger_el, "match_threshold",
                                    f"Gate '{gate_id}'")
@@ -2162,11 +2629,16 @@ def _parse_pattern_trigger(trigger_el, gate_id: str) -> dict:
             f"not below match_threshold={match_threshold}. Without a gap "
             f"there is no deadband."
         )
-    return {
+    trigger = {
         "match_threshold": match_threshold,
         "release_below": release_below,
         "weights": _parse_match_weights(trigger_el, gate_id),
     }
+    raw_from = (trigger_el.get("from") or "").strip()
+    if raw_from:
+        trigger["from"] = _endpoint(raw_from, gate_id, "from",
+                                    owner_kind="Gate")
+    return trigger
 
 
 def _parse_key_block(key_el, gate_id: str) -> dict:
@@ -2365,6 +2837,54 @@ def _parse_key_gate(gate_el, channel_id: str, side: str) -> KeyGate:
     )
 
 
+def _parse_backprop(channel_el, channel_id: str) -> Optional["BackPass"]:
+    """
+    The optional `<backprop>` on a channel.
+
+    Absent means the wire is one-way in the full sense and the sender
+    never hears what its number did.  Present, it must name an outcome:
+    a return path with nothing to carry is a declaration that is
+    quietly untrue, which is the failure rule 10 exists to prevent.
+    """
+    el = channel_el.find("backprop")
+    if el is None:
+        return None
+    outcome = (el.get("from") or "").strip()
+    if not outcome:
+        raise OrganismError(
+            f"Channel '{channel_id}' declares a <backprop> with no "
+            f"from=\"...\". A return path has to name the outcome whose "
+            f"error it carries, or it carries nothing and the declaration "
+            f"is untrue."
+        )
+    if (el.get("attribute") or "").strip():
+        raise OrganismError(
+            f"Channel '{channel_id}' declares "
+            f"<backprop attribute=\"...\">. The return path is subject to "
+            f"rule 13 exactly as the forward one is: an error travels back "
+            f"as one scalar to one composite, and a return path that could "
+            f"name an attribute would let the far side reach past the face "
+            f"into the machinery behind it."
+        )
+    try:
+        polarity = resolve_polarity(el.get("polarity"))
+    except ValueError as exc:
+        raise OrganismError(
+            f"Channel '{channel_id}' has an unreadable backprop polarity: "
+            f"{exc}"
+        ) from exc
+    if not math.isfinite(polarity):
+        raise OrganismError(
+            f"Channel '{channel_id}' has backprop polarity={polarity}. The "
+            f"sign of a coupling has to be a finite number."
+        )
+    return BackPass(
+        outcome=outcome,
+        polarity=polarity,
+        description=(el.findtext("description", "") or "").strip(),
+    )
+
+
 def _no_gate_on_side(channel_id: str, side: str) -> OrganismError:
     """Rule 12 — the message a side that cannot gate anything earns."""
     return OrganismError(
@@ -2426,14 +2946,30 @@ def _parse_channel_v2(channel_el) -> Channel:
                      owner_kind="Channel")
 
     extract_el = channel_el.find("extract")
-    if extract_el is None or not (extract_el.get("attribute") or "").strip():
+    if extract_el is None:
         raise OrganismError(
-            f"Channel '{channel_id}' declares no "
-            f"<extract attribute=\"...\"/>. The source is a composite "
-            f"(rule 2), so the channel has to say which of its attributes "
-            f"goes on the wire."
+            f"Channel '{channel_id}' declares no <extract mode=\"...\"/>. "
+            f"A channel has to say what the composite hands over: "
+            f"mode=\"state\" for its value, mode=\"state_delta\" for how "
+            f"far that value moved."
         )
-    extract = extract_el.get("attribute").strip()
+    if (extract_el.get("attribute") or "").strip():
+        raise OrganismError(
+            f"Channel '{channel_id}' declares "
+            f"<extract attribute=\"{extract_el.get('attribute').strip()}\"/>. "
+            f"A channel no longer carries an attribute out of the composite. "
+            f"The absorption vector weighs the attributes into ONE state "
+            f"value and that value is what crosses, so the gates on both "
+            f"membranes never have to know what is inside. Use "
+            f"<extract mode=\"state\"/> — or mode=\"state_delta\" to carry "
+            f"the change in it."
+        )
+    carry = (extract_el.get("mode") or "").strip()
+    if carry not in KNOWN_CARRIES:
+        raise OrganismError(
+            f"Channel '{channel_id}' has <extract mode=\"{carry}\"/>. "
+            f"Known: {sorted(KNOWN_CARRIES)}."
+        )
 
     time_delay = _int_attr(channel_el, "time_delay",
                            f"Channel '{channel_id}'", 0)
@@ -2449,7 +2985,8 @@ def _parse_channel_v2(channel_el) -> Channel:
     # a file that says a parameter may adapt while nothing ever adapts
     # it — a declaration that is quietly untrue, which is worse than one
     # that fails.
-    known = {"description", "extract", "transmit", "receive", "transform"}
+    known = {"description", "extract", "transmit", "receive", "transform",
+             "backprop"}
     for child in channel_el:
         if child.tag not in known:
             raise OrganismError(
@@ -2477,10 +3014,11 @@ def _parse_channel_v2(channel_el) -> Channel:
         id=channel_id,
         source=source,
         dest=dest,
-        extract=extract,
+        carry=carry,
         time_delay=time_delay,
         transmit=transmit,
         receive=receive,
+        backprop=_parse_backprop(channel_el, channel_id),
         description=(channel_el.findtext("description", "") or "").strip(),
     )
 

@@ -23,7 +23,7 @@ const ROWS = [
   { id: 'target_co',     label: 'CO'  },
   { id: 'target_sv',     label: 'SV'  },
   { id: 'target_map',    label: 'MAP' },
-  { id: 'target_flow',   label: 'Q'   },
+  { id: 'target_svr',    label: 'SVR' },
   { id: 'target_lambda', label: 'λ'   },
 ]
 

@@ -160,14 +160,21 @@ def test_the_gate_reads_the_senders_value_after_its_chain_has_run(body):
     body.register_gate_controller("threshold", always_open)
     circ = body.twins["lamina_circulatory"]
 
+    face = body.spec.channels[0].source.member
     seen: dict = {}
     original = body._gate_pass
     body._gate_pass = lambda w: (
-        seen.__setitem__("co", circ.attributes["CO"].value), original(w))[1]
+        seen.__setitem__("state", circ.get_composite_state(face)),
+        seen.__setitem__("co", circ.attributes["CO"].value),
+        original(w))[-1]
 
     report = body.tick({"lamina_circulatory": {"HR": 100.0}})
+    # The composite's STATE VALUE, because that is what is on the wire
+    # now. Reading it before the chain ran would give last cycle's
+    # number under this cycle's label just as surely as reading a raw
+    # attribute would.
     assert report["channels"]["ch_co_to_resp"]["reading"] == pytest.approx(
-        seen["co"], rel=1e-12
+        seen["state"], rel=1e-12
     )
     # HR 100 with the declared EDV gives CO = 100 * 66 / 1000 — this cycle's
     # number, not the 72 bpm one the twin was seeded with.

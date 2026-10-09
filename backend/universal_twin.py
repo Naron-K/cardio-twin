@@ -319,6 +319,53 @@ class FunctionDef:
 
 
 # ──────────────────────────────────────────────────────────────────────
+# The error signal, in one place
+# ──────────────────────────────────────────────────────────────────────
+def normalised_error(deviation: float, tolerance: float) -> float:
+    """
+    An outcome's error expressed in TOLERANCES, in excess of the band:
+
+        E = sign(dev) · max(0, |dev| − tol) / tol
+
+    Two decisions in one line, and they are here rather than inlined at
+    each caller because there are now two of them — the lamina's own
+    learning loop and the channel's backward pass — and an error signal
+    that means one thing locally and another across a seam is a loop
+    whose convergence nobody can reason about.
+
+    Dividing by the tolerance is what keeps it universal: it is the one
+    form of the error that means the same thing for an outcome in mL/min
+    and one in mmHg, so nothing downstream carries a unit.
+
+    The dead-zone is there because measuring said so.  Without it the
+    raw dev/tol is non-zero whenever the outcome is anywhere but exactly
+    on target, so the weights keep moving while the model is already
+    inside the band the domain expert declared acceptable — a loop with
+    nothing to converge on, grinding against its own clamps.
+
+    Raises rather than guessing: a non-finite deviation is not an error
+    measurement, and a tolerance of zero or less gives the division no
+    scale, so returning 0.0 would report "on target" for an outcome
+    nobody can be on target for.
+    """
+    if not math.isfinite(deviation):
+        raise ValueError(
+            f"normalised_error was handed a non-finite deviation "
+            f"({deviation}); that is not a measurement of anything."
+        )
+    if not math.isfinite(tolerance) or tolerance <= 0.0:
+        raise ValueError(
+            f"normalised_error was handed tolerance={tolerance}. There is "
+            f"no scale to normalise an error against, and answering 0.0 "
+            f"would claim an outcome is on target when nothing can be."
+        )
+    excess = abs(deviation) - tolerance
+    if excess <= 0.0:
+        return 0.0
+    return math.copysign(excess, deviation) / tolerance
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Composite Definition
 # ──────────────────────────────────────────────────────────────────────
 @dataclass
@@ -353,6 +400,15 @@ class Composite:
     description: str = ""
     absorption_vector: Optional[np.ndarray] = field(default=None, repr=False)
     distribution_vector: Optional[np.ndarray] = field(default=None, repr=False)
+    #: How this composite's absorption weights LEARN, when the domain
+    #: expert has declared that they may:
+    #:     {"outcome": id, "rate": float, "min": float, "max": float}
+    #: None means the weights are what the file says and stay there.
+    #: The clamp is not optional — a weight that may move must declare
+    #: how far, or the loop that moves it is unbounded, and an unbounded
+    #: loop inside a closed one is how a model walks away from its own
+    #: physiology while every individual step looks reasonable.
+    absorption_learning: Optional[dict] = field(default=None, repr=False)
 
     def update_weights(self, new_values):
         """Set/replace the absorption vector. Called by the Auto Controller after each feedback cycle."""
@@ -379,6 +435,190 @@ class Composite:
             return vals
         return vals * self.absorption_vector
 
+    def state_value(self, attribute_values: list, weights=None) -> float:
+        """
+        Collapse the composite's attribute values into a single state value:
+        the weighted mean  Σ(v_i·w_i) / Σw_i,  with the absorption vector
+        acting as the weight matrix.  Where get_absorbed_vector still returns
+        one number per channel, this is the one scalar that stands for the
+        whole composite — e.g. a single "how is pressure_state doing right
+        now" read for the summary probes downstream.
+
+        The absorption vector is an all-or-nothing contract, exactly as in
+        apply_absorption: when it is None or its length does not match the
+        values, the weights degrade to equal 1/N and the result is a plain
+        arithmetic mean, so an uninitialised composite can always summarise
+        itself.  get_composite_state passes an explicit `weights` list when
+        it has dropped unreadable (None) attributes, so the surviving values
+        are always weighed by the weights that still have a value to weigh.
+
+        A wrong input must fail loudly rather than produce a confident
+        answer.  This raises ValueError when the value list is empty (there
+        is no mean of nothing), when any value or weight is NaN or infinite
+        (they would silently poison the ratio), when a value falls outside
+        the [0, 1] normalised range the composite lives in, or when the
+        weights sum to zero or less — a zero-sum weight matrix makes the
+        division meaningless, and guessing 0.0 would lie.
+        """
+        vals = np.asarray(attribute_values, dtype=float)
+        if vals.ndim != 1:
+            raise ValueError(
+                f"Composite '{self.id}' state_value expects a flat list of "
+                f"numbers, got a {vals.ndim}-dimensional input instead"
+            )
+        if vals.size == 0:
+            raise ValueError(
+                f"Composite '{self.id}' state_value has no attribute values "
+                "to summarise; refusing to average nothing"
+            )
+        if not np.all(np.isfinite(vals)):
+            raise ValueError(
+                f"Composite '{self.id}' state_value received NaN or infinite "
+                "attribute values; refusing to build a state value from them"
+            )
+        if np.any(vals < 0.0) or np.any(vals > 1.0):
+            raise ValueError(
+                f"Composite '{self.id}' state_value expects normalised values "
+                f"in [0, 1] but got range [{vals.min():g}, {vals.max():g}]; "
+                "a summary outside the vector space would be meaningless"
+            )
+        if weights is None:
+            source = self.absorption_vector
+        else:
+            source = np.asarray(weights, dtype=float)
+        if source is None:
+            w = np.ones(vals.size)
+        else:
+            w = np.asarray(source, dtype=float)
+            if w.ndim != 1:
+                raise ValueError(
+                    f"Composite '{self.id}' absorption weights must be a "
+                    f"1D vector, got {w.ndim} dimensions"
+                )
+            if w.size != vals.size:
+                w = np.ones(vals.size)
+            elif not np.all(np.isfinite(w)):
+                raise ValueError(
+                    f"Composite '{self.id}' state_value received NaN or "
+                    "infinite weights; refusing to build a state value with them"
+                )
+        total = float(w.sum())
+        if total <= 0.0:
+            raise ValueError(
+                f"Composite '{self.id}' state_value weights sum to {total:g}; "
+                "a zero-or-negative weight sum makes the weighted mean "
+                "undefined, so no state value is returned"
+            )
+        return float(np.dot(vals, w) / total)
+
+    def adapt_absorption(self, values: list, deviation: float) -> list:
+        """
+        One learning step on the absorption weights, and the gradient it
+        follows.
+
+        The state value is  s = Σ vᵢwᵢ / Σw,  so
+
+            ∂s/∂wᵢ = (vᵢ − s) / Σw
+
+        and the step is that gradient PROJECTED onto the surface where
+        Σw does not change:
+
+            Δwᵢ = rate · deviation · (vᵢ − v̄)
+
+        which is (vᵢ − s) minus its own mean, and so sums to zero by
+        construction.  An attribute sitting on the composite's average
+        gets no weight change, which is right: it carries no
+        information about which way to move.
+
+        WHY THE PROJECTION, and it is not tidiness.  The unprojected
+        step Δwᵢ = rate·deviation·(vᵢ − s) sums to
+        rate·deviation·(Σv − n·s), which is zero only while the weights
+        are equal.  The moment they are not, Σw drifts — and Σw is
+        exactly the invariant that makes this composite's state value
+        the inner product AᵀX the architecture says it is.  Measured on
+        a three-attribute probe at v = [0.9, 0.5, 0.1] starting from
+        w = [0.7, 0.2, 0.1], four steps at rate 0.1 and deviation +1:
+
+            step   Σw       AᵀX       state value
+            0      1.000    0.7400    0.7400
+            1      0.928    0.7360    0.7931
+            2      0.873    0.7274    0.8328
+            3      0.847    0.7168    0.8464
+
+        AᵀX falls while the state value rises.  Those are the same
+        quantity when Σw = 1, and after three learning steps they
+        disagree about which WAY the composite is moving — a sign flip
+        in the one number that crosses a channel.  The projected step
+        holds Σw at whatever the file declared, so the two never part.
+
+        Note it preserves the DECLARED sum, not the number 1: a domain
+        expert who writes weights summing to 2 keeps a sum of 2, and
+        whatever relationship held between AᵀX and the state value at
+        load time holds for the rest of the run.
+
+        Δs is still positive for a positive error — substituting the
+        projected step into ∂s/∂wᵢ gives
+        Δs = rate·deviation·n·Var(v)/Σw — so the loop still moves the
+        state the way the outcome says it is missing, and it stops only
+        when the attributes agree with each other, which is the one
+        case where no reweighting can move the summary at all.
+
+        Every weight is then clamped into the declared band, and the
+        residual the clamp pinned is handed back to the weights that
+        are still free, so the sum survives a clamp too.
+
+        One honest note on the projection, since it is easy to overstate
+        what it buys.  When no clamp binds, writing the step projected
+        and writing it unprojected-then-corrected give the SAME numbers
+        — the correction −rate·deviation·(v̄ − s) is exactly the
+        difference between the two forms.  The projection is therefore
+        the direct statement of what the pair computes anyway, and it
+        earns its place by needing no correction: the sum is right
+        before anything is redistributed, so a clamp that binds is
+        redistributing only what the clamp took, never what the step
+        left over.
+
+        Returns the new weights; raises rather than guessing when the
+        inputs cannot support a step.
+        """
+        rule = self.absorption_learning
+        if rule is None:
+            raise ValueError(
+                f"Composite '{self.id}' was asked to adapt its absorption "
+                f"weights but declares no learning rule. Declare "
+                f"learns_from, learning_rate, clamp_min and clamp_max on "
+                f"its <absorption_vector>, or do not call this."
+            )
+        if self.absorption_vector is None:
+            raise ValueError(
+                f"Composite '{self.id}' declares absorption learning but has "
+                f"no absorption vector to learn on."
+            )
+        if not math.isfinite(deviation):
+            raise ValueError(
+                f"Composite '{self.id}' was handed a non-finite deviation "
+                f"({deviation}); a step of that size is not a step."
+            )
+        vals = np.asarray(values, dtype=float)
+        if vals.size != len(self.absorption_vector):
+            raise ValueError(
+                f"Composite '{self.id}' has {len(self.absorption_vector)} "
+                f"weights but was handed {vals.size} values. Learning on a "
+                f"mismatched pair would move the wrong weights."
+            )
+        if not np.all(np.isfinite(vals)):
+            raise ValueError(
+                f"Composite '{self.id}' was handed NaN or infinite attribute "
+                f"values to learn from."
+            )
+        step = float(rule["rate"]) * float(deviation) * (vals - vals.mean())
+        declared_sum = float(np.sum(self.absorption_vector))
+        new = _clamp_preserving_sum(self.absorption_vector + step,
+                                    declared_sum,
+                                    float(rule["min"]), float(rule["max"]))
+        self.update_weights(new)
+        return [float(w) for w in new]
+
     def get_distribution_weight(self, attr_id: str) -> float:
         """
         Look up the gate-fanout weight w_i for a specific attribute in
@@ -396,6 +636,89 @@ class Composite:
         if idx >= len(self.distribution_vector):
             return 1.0
         return float(self.distribution_vector[idx])
+
+
+def _clamp_preserving_sum(vec, target_sum: float,
+                          low: float, high: float):
+    """
+    Clamp into [low, high] and give the clamped-off residual back to the
+    weights that are still free, so Σw survives the clamp.
+
+    The clamp is the hard bound — a weight that may move has to say how
+    far, and that promise outranks the sum — so a residual that cannot
+    be placed is LEFT UNPLACED rather than pushed past an edge.  That
+    happens only when every weight is pinned, which is a saturated
+    composite: a real state, and one a caller can see by summing the
+    vector it gets back.
+
+    Four passes at most.  Each one hands the residual equally to the
+    weights that have room in the direction it needs to go, and either
+    it lands or another weight pins and the next pass has fewer to
+    share it between.
+    """
+    v = np.clip(np.asarray(vec, dtype=float), low, high)
+    for _ in range(4):
+        residual = target_sum - float(v.sum())
+        if abs(residual) < 1e-12:
+            break
+        free = (v < high - 1e-12) if residual > 0 else (v > low + 1e-12)
+        count = int(np.count_nonzero(free))
+        if count == 0:
+            break
+        v = np.clip(np.where(free, v + residual / count, v), low, high)
+    return v
+
+
+def _parse_absorption_learning(av_el, comp_id: str) -> Optional[dict]:
+    """
+    The optional learning rule on an `<absorption_vector>`.
+
+    All four attributes or none.  A learning_rate without a clamp is
+    refused rather than defaulted, because a default clamp is a bound
+    nobody chose sitting inside a closed loop — and the whole reason the
+    absorption vector may move at all is that somebody decided how far.
+    """
+    declared = {k: av_el.get(k) for k in
+                ("learns_from", "learning_rate", "clamp_min", "clamp_max")}
+    present = {k: v for k, v in declared.items() if v not in (None, "")}
+    if not present:
+        return None
+    missing = sorted(set(declared) - set(present))
+    if missing:
+        raise ValueError(
+            f"Composite '{comp_id}' declares absorption learning but is "
+            f"missing {missing}. A weight that may move has to say what it "
+            f"learns from, how fast, and how far it may go — a default "
+            f"bound inside a closed loop is a bound nobody chose."
+        )
+    try:
+        rate = float(present["learning_rate"])
+        low = float(present["clamp_min"])
+        high = float(present["clamp_max"])
+    except ValueError as exc:
+        raise ValueError(
+            f"Composite '{comp_id}' has a non-numeric absorption learning "
+            f"parameter: {exc}"
+        ) from exc
+    if not math.isfinite(rate) or rate <= 0.0:
+        raise ValueError(
+            f"Composite '{comp_id}' has learning_rate={rate}. A rate of "
+            f"zero or less is a loop that reports learning and does none."
+        )
+    if not (math.isfinite(low) and math.isfinite(high)) or not low < high:
+        raise ValueError(
+            f"Composite '{comp_id}' has clamp_min={low} and clamp_max="
+            f"{high}. The band has to have width, or the weights are "
+            f"pinned and the declaration is untrue."
+        )
+    if low < 0.0:
+        raise ValueError(
+            f"Composite '{comp_id}' has clamp_min={low}. A negative "
+            f"absorption weight would flip an attribute's contribution to "
+            f"the state value, which is what polarity is for."
+        )
+    return {"outcome": present["learns_from"], "rate": rate,
+            "min": low, "max": high}
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -710,6 +1033,10 @@ class UniversalTwin:
         self.behaviour_solver_type: str = "algebraic_chain"
         self.behaviour_solver_dt: float = 1.0
         self.behaviour_solver_unit: str = "second"
+        # Loose solver params carried verbatim from the <behaviour_solver>
+        # XML attributes other than type/dt/unit.  Values arrive as strings
+        # from XML; each registered solver coerces the ones it understands.
+        self.behaviour_solver_params: dict[str, str] = {}
 
         # Slow-loop config (numbers live in XML, algorithm in parent).
         # Defaults keep the slow loop INERT until a lamina opts in:
@@ -901,6 +1228,140 @@ class UniversalTwin:
         def algebraic_chain(twin, params):
             twin.compute_all()
         self._solver_registry["algebraic_chain"] = algebraic_chain
+
+        def fixed_point(twin, params):
+            """
+            Iterate the function chain to a fixed point.
+
+            Runs compute_all() repeatedly until the largest absolute change
+            across every PRELIMINARY attribute that holds a number drops
+            below `tol`, or `max_iter` passes have run.  A lamina whose
+            chain is already consistent converges after two passes (the
+            second pass just confirms the first); one with a dependency
+            cycle relaxes toward its fixed point pass by pass.
+
+            Params arrive as STRINGS (they come from XML attributes), so
+            both are coerced here and validated loudly: a wrong knob must
+            fail rather than run a loop with an unreadable budget.
+
+            A loop that hits max_iter without converging does NOT raise —
+            but it never looks like one that did.  Every PRELIMINARY
+            attribute still moving by more than `tol` on the final pass is
+            recorded in twin.failed_attributes with its residual, so a
+            value present after this solver returns is a value marked
+            untrustworthy wherever it was still changing.
+            """
+            max_iter = 25
+            tol = 1e-6
+            raw_max_iter = params.get("max_iter")
+            if raw_max_iter is not None:
+                try:
+                    max_iter = int(str(raw_max_iter).strip())
+                except ValueError:
+                    raise ValueError(
+                        f"fixed_point solver was handed max_iter="
+                        f"'{raw_max_iter}', which is not an integer. Say how "
+                        "many passes the loop may run, or leave it out for "
+                        "the default of 25."
+                    )
+            if max_iter < 2:
+                raise ValueError(
+                    f"fixed_point solver was handed max_iter={max_iter}. "
+                    "Convergence is a comparison between two passes, so one "
+                    "pass cannot measure it: max_iter=1 returned the very "
+                    "first estimate with an empty failed_attributes, which "
+                    "is a wrong answer wearing a clean bill of health. Ask "
+                    "for at least 2 — or name algebraic_chain, which is "
+                    "what a single pass actually is."
+                )
+            raw_tol = params.get("tol")
+            if raw_tol is not None:
+                try:
+                    tol = float(str(raw_tol).strip())
+                except ValueError:
+                    raise ValueError(
+                        f"fixed_point solver was handed tol='{raw_tol}', "
+                        "which is not a number. Give a positive finite "
+                        "tolerance, or leave it out for the default of 1e-6."
+                    )
+            if not math.isfinite(tol):
+                raise ValueError(
+                    f"fixed_point solver was handed tol={tol}. A tolerance "
+                    "that is not finite gives the convergence test no scale, "
+                    "so the loop is refused."
+                )
+            if tol <= 0.0:
+                raise ValueError(
+                    f"fixed_point solver was handed tol={tol}. A tolerance "
+                    "of zero or less makes 'converged' mean something no "
+                    "floating-point chain can ever reach."
+                )
+
+            previous: Optional[dict[str, float]] = None
+            current: dict[str, float] = {}
+            for iteration in range(max_iter):
+                twin.compute_all()
+                current = {
+                    attr_id: attr.value
+                    for attr_id, attr in twin.attributes.items()
+                    if attr.source == PRELIMINARY and attr.value is not None
+                }
+                if previous is not None:
+                    largest = 0.0
+                    for attr_id, value in current.items():
+                        if attr_id in previous:
+                            largest = max(
+                                largest, abs(value - previous[attr_id])
+                            )
+                        else:
+                            largest = float("inf")
+                            break
+                    if largest < tol:
+                        return
+                if iteration < max_iter - 1:
+                    previous = current
+
+            # max_iter reached without converging.  `previous` holds the
+            # pass before the last — it stays None when max_iter == 1, in
+            # which case no movement was ever measured and there is nothing
+            # honest to report.  compute_all() cleared failed_attributes on
+            # the final pass, so the entries written here survive: name
+            # every attribute still moving and how far.
+            if previous is not None:
+                for attr_id, value in current.items():
+                    residual = (
+                        abs(value - previous[attr_id])
+                        if attr_id in previous else float("inf")
+                    )
+                    if residual > tol:
+                        twin.failed_attributes[attr_id] = (
+                            f"fixed_point solver did not converge in "
+                            f"{max_iter} passes; '{attr_id}' residual "
+                            f"{residual:.6g} exceeds tol {tol:g}"
+                        )
+
+        self._solver_registry["fixed_point"] = fixed_point
+
+    def register_solver(self, name: str, fn) -> None:
+        """
+        Add or replace a behaviour solver.
+
+        The extension point a solver arrives through, and the one XML
+        selects when <behaviour_solver type="..."/> names it.  Signature
+        contract (frozen):
+            solver(twin: UniversalTwin, params: dict) -> None
+        """
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError(
+                f"register_solver needs a non-empty name, got {name!r}."
+            )
+        if not callable(fn):
+            raise ValueError(
+                f"register_solver was handed a {type(fn).__name__} for "
+                f"solver '{name}'; a solver must be callable as "
+                "solver(twin, params)."
+            )
+        self._solver_registry[name] = fn
 
     def _register_default_adaptation_kernel(self):
         """
@@ -1097,6 +1558,14 @@ class UniversalTwin:
             self.behaviour_solver_unit = solver_el.get(
                 "unit", self.behaviour_solver_unit
             )
+            # Every attribute other than the three the parser owns goes
+            # straight to the solver, verbatim (strings).  type/dt/unit are
+            # framework concerns; anything else — max_iter, tol, ... — is
+            # that solver's own tuning knob.
+            self.behaviour_solver_params = {
+                key: value for key, value in solver_el.attrib.items()
+                if key not in ("type", "dt", "unit")
+            }
 
         # ── Adaptive feedback loop (slow loop) declaration ───────────
         #
@@ -1224,6 +1693,8 @@ class UniversalTwin:
             # Missing attributes fall back to equal weight 1/N.
             av_el = comp_el.find("absorption_vector")
             if av_el is not None:
+                comp.absorption_learning = _parse_absorption_learning(
+                    av_el, comp_id)
                 seed = 1.0 / len(attrs) if attrs else 1.0
                 weight_map = {
                     w.get("attribute"): float(w.text)
@@ -1836,6 +2307,67 @@ class UniversalTwin:
         """Get absorbed vectors for all composites."""
         return {
             comp_id: self.get_absorbed_vector(comp_id)
+            for comp_id in self.composites
+        }
+
+    def get_composite_state(self, composite_id: str) -> Optional[float]:
+        """
+        Summarise a composite as one scalar in [0, 1] — the weighted mean
+        of its readable attribute values, the absorption vector acting as
+        the weight matrix.  Where get_composite_vector still lists every
+        channel, this is the single number that stands for the composite as
+        a whole (e.g. one "is this pressure state healthy" probe for the
+        feedback loop's summaries).
+
+        An attribute whose normalised value is None cannot be weighed, so it
+        is dropped together with its matching weight — an unmeasured channel
+        must not drag the summary towards 0.0 as if it read "fully
+        unhealthy".  When nothing readable is left there is no summary to
+        give, so the result is None rather than a fabricated number.
+
+        NOT rounded, unlike get_absorbed_vector beside it.  That one is
+        read by the snapshot and a reader wants six decimals; this one is
+        arithmetic — an inter-lamina channel carries it, maps it into the
+        receiving attribute's units and low-passes it — and rounding at
+        six decimals put a 5e-6 L/min error into every value crossing the
+        shipped seam, visible against the frozen baseline at the seventh
+        significant figure.  Round where a number is displayed, never
+        where it is still being computed.
+        """
+        if composite_id not in self.composites:
+            raise KeyError(f"Composite '{composite_id}' not defined in XML")
+
+        comp = self.composites[composite_id]
+        weighted = (
+            comp.absorption_vector is not None
+            and len(comp.absorption_vector) == len(comp.attribute_ids)
+        )
+        values = []
+        kept_weights = []
+        for i, attr_id in enumerate(comp.attribute_ids):
+            normalised = self.get(attr_id).normalised
+            if normalised is None:
+                continue
+            values.append(float(normalised))
+            if weighted:
+                kept_weights.append(float(comp.absorption_vector[i]))
+        if not values:
+            return None
+        if weighted:
+            # Every surviving weight is zero: the composite declares that
+            # the attributes it still has a reading for do not count
+            # towards its state, which is not the same news as a state of
+            # 0.0.  Saying None keeps the gate that reads this shut and
+            # able to say why, instead of opening on a fabricated floor.
+            if sum(kept_weights) <= 0.0:
+                return None
+            return comp.state_value(values, weights=kept_weights)
+        return comp.state_value(values)
+
+    def get_all_composite_states(self) -> dict:
+        """Get the summary state value for every composite."""
+        return {
+            comp_id: self.get_composite_state(comp_id)
             for comp_id in self.composites
         }
 

@@ -99,6 +99,11 @@ def _simulation_snapshot(twin) -> Dict[str, Any]:
         "computed":      computed_out,
         "vectors":       twin.get_all_vectors(),
         "absorption":    twin.get_all_absorbed_vectors(),
+        # The one number per composite that a gate actually decides on
+        # and a channel actually carries. It is derivable from the two
+        # lines above, but a reader looking at a seam should not have to
+        # do the weighted mean in their head to see what crossed.
+        "states":        twin.get_all_composite_states(),
         "outcomes":      twin.evaluate_all_outcomes(),
         "feedback_norm": twin.feedback_norm(),
         "warnings":      warnings,

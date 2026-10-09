@@ -201,6 +201,22 @@
       <description>Axial resistance of the extracellular space, per unit length (cable theory r_e, units ohm/cm)</description>
     </attribute>
 
+    <!--
+      CVP is declared LAST among the sensors on purpose: SimulatedSource
+      draws its noise stream in declaration order, so appending here keeps
+      every pre-existing sensor's draws identical and the frozen feed
+      baselines untouched.
+    -->
+    <attribute id="CVP">
+      <name>Central Venous Pressure</name>
+      <unit>mmHg</unit>
+      <source>SENSOR</source>
+      <physio_min>0</physio_min>
+      <physio_max>12</physio_max>
+      <baseline>5</baseline>
+      <description>Central venous (right-atrial) pressure — the downstream end of the systemic pressure gradient that drives both Q and SVR. Replaces the hard-coded CENTRAL_VENOUS_PRESSURE constant in circulatory_lamina.py so a domain expert can see and change it here instead of editing Python. No noise_sigma declared: this is the resting value the model's pressure gradient is held to, not a jittered measurement — change the baseline to model a different patient.</description>
+    </attribute>
+
     <!-- PRELIMINARY ATTRIBUTES (computed internally) -->
     <attribute id="MAP">
       <name>Mean Arterial Pressure</name>
@@ -246,6 +262,17 @@
       <description>Total blood output per minute</description>
     </attribute>
 
+    <attribute id="SVR">
+      <name>Systemic Vascular Resistance</name>
+      <unit>mmHg.min/L</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>5</physio_min>
+      <physio_max>40</physio_max>
+      <computed_by>systemic_resistance</computed_by>
+      <depends_on>MAP, CO, CVP</depends_on>
+      <description>Whole-body systemic vascular resistance, derived as SVR = (MAP − CVP) / CO from things the twin already measures — nothing is replaced by anything predicted. Unlike R (a single-segment Poiseuille estimate pinned near its own ceiling and blind to the pump), SVR falls as cardiac output rises: high resistance at low output is compensated shock, low resistance at high output is exercise. Derived output for now, deliberately not on any composite.</description>
+    </attribute>
+
     <attribute id="T_cycle">
       <name>Cardiac Cycle Length</name>
       <unit>s</unit>
@@ -275,7 +302,7 @@
       <physio_min>0.5</physio_min>
       <physio_max>15</physio_max>
       <computed_by>hemodynamic_flow</computed_by>
-      <depends_on>MAP, R</depends_on>
+      <depends_on>MAP, R, CVP</depends_on>
       <description>Actual blood flow through circulation (primary output)</description>
     </attribute>
 
@@ -332,10 +359,10 @@
 
     <function id="hemodynamic_flow" step="4">
       <name>Hemodynamic Flow</name>
-      <formula>Q = (MAP - CVP) / R   (CVP held constant at ~5 mmHg)</formula>
-      <inputs>MAP, R</inputs>
+      <formula>Q = (MAP - CVP) / R   (CVP from the declared CVP sensor, baseline ~5 mmHg)</formula>
+      <inputs>MAP, R, CVP</inputs>
       <output>Q</output>
-      <description>Ohm's Law for hemodynamics. Driving pressure is the arterio-venous gradient (MAP - CVP), not MAP alone. NOTE: R here is a single-segment Poiseuille estimate, so Q's ABSOLUTE value is unreliable; trust its trend, not its magnitude (see R).</description>
+      <description>Ohm's Law for hemodynamics. Driving pressure is the arterio-venous gradient (MAP - CVP), not MAP alone; CVP was a Python constant and is now a declared SENSOR attribute (baseline 5 mmHg) a domain expert can edit. NOTE: R here is a single-segment Poiseuille estimate, so Q's ABSOLUTE value is unreliable; trust its trend, not its magnitude (see R).</description>
     </function>
 
     <function id="cardiac_rhythm" step="3c">
@@ -360,6 +387,20 @@
       <inputs>r_m, r_i, r_e</inputs>
       <output>lambda</output>
       <description>Cable Theory length constant lambda = sqrt(r_m / (r_i + r_e)). Relates to passive conduction (a longer lambda spreads charge further); the link to P-wave / arrhythmia risk is indirect and should be treated as illustrative, not diagnostic.</description>
+    </function>
+
+    <!--
+      step "6" is a STRING, and compute_all() sorts steps as strings:
+      "3a","3b","3c","3d" all sort below "4", which sorts below "5", which
+      sorts below "6".  So SVR is guaranteed to run after the CO and MAP
+      it divides by, even though the arithmetic is all steady-state.
+    -->
+    <function id="systemic_resistance" step="6">
+      <name>Systemic Vascular Resistance</name>
+      <formula>SVR = (MAP - CVP) / CO</formula>
+      <inputs>MAP, CO, CVP</inputs>
+      <output>SVR</output>
+      <description>Derived whole-body resistance from what the twin already measures: MAP from the SBP/DBP cuff, CO from the HR and EDV sensors, CVP from the declared CVP sensor. Dividing the arterio-venous gradient by the pump's output gives the resistance the pressure branch was missing — R (step 2) is a single-segment Poiseuille estimate that cannot move with the pump, so it can never reconcile Q with CO; SVR can.</description>
     </function>
 
   </functions>
@@ -420,6 +461,38 @@
         <weight attribute="L">0.25</weight>
         <weight attribute="r">0.25</weight>
         <weight attribute="R">0.25</weight>
+      </distribution_vector>
+    </composite>
+
+    <!--
+      What circulation presents to the REST OF THE BODY.
+
+      Every other composite here is machinery: EDV, SV and HR are how a
+      cardiac output gets made, and nothing outside this lamina has any
+      use for them.  Oxygen delivery needs the output and nothing else.
+      So this is the composite a channel leaves on, and its state value
+      IS cardiac output — the absorption weight says so, and that is
+      what makes the number landing on the far side a cardiac output
+      rather than a summary of one.
+
+      Measured, on the shipped seam, when the face was pump_state with
+      the four attributes weighted equally instead: the value delivered
+      to the respiratory lamina was wrong by 1.84 L/min at HR 200 and
+      0.45 L/min at HR 35, and the gate stopped opening for shock
+      altogether (deviation 0.091 against an open threshold of 0.125).
+      Averaging the machinery dilutes exactly the signal the seam
+      exists to carry.  A face is not a summary of everything inside;
+      it is the one thing the outside is owed.
+    -->
+    <composite id="output_state">
+      <name>Output State</name>
+      <attributes>CO</attributes>
+      <description>What circulation delivers outward, and the composite its channels leave on. Its state value is cardiac output.</description>
+      <absorption_vector>
+        <weight attribute="CO">1.0</weight>
+      </absorption_vector>
+      <distribution_vector>
+        <weight attribute="CO">1.0</weight>
       </distribution_vector>
     </composite>
 
@@ -506,12 +579,22 @@
       <flag>abnormal flow rate</flag>
     </gate>
 
-    <gate attribute="Q_CO_match" type="consistency">
-      <tolerance>0.10</tolerance>
-      <compare>Q, CO</compare>
-      <action_on_fail>recalibrate</action_on_fail>
-      <flag>Q != CO: model inconsistency</flag>
-    </gate>
+    <!--
+      REMOVED 2026-09-08: <gate attribute="Q_CO_match" type="consistency">
+      compared Q against CO within 10% and failed on essentially every
+      cycle, printing "Q != CO: model inconsistency".
+
+      It was right that something was wrong and wrong about what. Q is
+      (MAP - CVP)/R and R declares itself a SINGLE-SEGMENT Poiseuille
+      estimate, so Q is a segmental flow; CO is the whole body's output.
+      Two different quantities have no obligation to agree within 10%,
+      and a gate that fails every cycle is a gate nobody reads.
+
+      What it was pointing at is now answered rather than flagged: the
+      pressure branch computes SVR = (MAP - CVP)/CO instead of a second
+      opinion about flow, so there is one flow, one pressure and one
+      resistance, and nothing left for a consistency gate to referee.
+    -->
 
   </gates>
 
@@ -536,9 +619,29 @@
       <composites>pressure_state, vessel_state, flow_state</composites>
       <functions>pressure_regulation, vascular_resistance, hemodynamic_flow</functions>
       <behavioural_outcomes>
-        <outcome id="target_flow" attribute="Q" target="5.5" tolerance="1.5"
-                 name="Target Flow Rate" unit="L/min">
-          <description>Normal resting cardiac flow 4.0–7.0 L/min</description>
+        <!--
+          REMOVED 2026-09-08: <outcome id="target_flow" attribute="Q"
+          target="5.5" tolerance="1.5">, "Normal resting cardiac flow
+          4.0-7.0 L/min".
+
+          That is a whole-body cardiac output resting on a segmental
+          flow, and the model already says it cannot support a claim
+          about Q's magnitude: hemodynamic_flow's own description reads
+          "Q's ABSOLUTE value is unreliable; trust its trend, not its
+          magnitude". An outcome with a target and a tolerance IS a
+          claim about magnitude, so the two contradicted each other and
+          the outcome lost.
+
+          Measured before removal: Q computes 2.23 L/min at every drive
+          and Q_DEVIATION was adding a saturated +1.91 of X'' to chase
+          5.5 — so the 4.14 this model reported was 46% corrective
+          signal. Nothing replaces it: Q keeps its soft_range
+          plausibility gate, and the quantity that DOES have a defensible
+          healthy band is now SVR, below.
+        -->
+        <outcome id="target_svr" attribute="SVR" target="14.0" tolerance="4.0"
+                 name="Target Systemic Vascular Resistance" unit="mmHg.min/L">
+          <description>Normal systemic vascular resistance is 10-18 mmHg.min/L (800-1440 dyn.s.cm^-5). MONITORED, NOT CORRECTED: no tag targets this outcome, because SVR is derived from MAP and CO and the way to change it is to change one of those — a loop writing X'' onto a derived resistance would be correcting the answer instead of the question. Measured on the shipped feed at rest: SVR lands at 18.59, just above this band. That is a real observation about the seeded baselines (MAP 93.3 with CO 4.75 implies a high-normal resistance), not a reason to widen the band.</description>
         </outcome>
         <outcome id="target_map" attribute="MAP" target="85" tolerance="15"
                  name="Target Mean Arterial Pressure" unit="mmHg">
@@ -620,15 +723,15 @@
               saturation="0.3" epsilon_ratio="0.001" />
     </tag>
 
-    <tag id="Q_DEVIATION" outcome="target_flow"
-         deviation_type="absolute" emitter="binary"
-         gate_kernel="sigmoid_leaky_tanh" polarity="negative">
-      <targets>
-        <target address="flow_state" weight="1.0" />
-      </targets>
-      <params gain="0.6" decay="0.10" threshold_k="4.0"
-              saturation="0.3" epsilon_ratio="0.001" />
-    </tag>
+    <!--
+      REMOVED 2026-09-08 with target_flow, the outcome it read.
+
+      This tag drove flow_state toward a cardiac output Q was never
+      computing, and it had saturated: +1.91 L/min of X'' at every
+      drive, against a computed 2.23. flow_state now has no tag writing
+      to it, which is a supported state and an honest one — nothing in
+      this lamina knows how to correct a segmental flow.
+    -->
 
     <tag id="MAP_DEVIATION" outcome="target_map"
          deviation_type="absolute" emitter="binary"

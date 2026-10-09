@@ -12,10 +12,10 @@
  * composites, the pipeline configuration, the lamina map) sits behind Inspect,
  * so the audience sees the story and a reviewer can still reach the machinery.
  *
- * The rules of the twin screen hold here unchanged, and through the same code:
- * structure from the schema, values from the tick, nothing from a constant in a
- * component; the stage is handed computed values only; a tick from another
- * lamina is never drawn under this one's labels; a dead socket says so.
+ * The rules that keep it honest live in useLaminaTwin: structure from the
+ * schema, values from the tick, nothing from a constant in a component; the
+ * stage is handed computed values only; a tick from another lamina is never
+ * drawn under this one's labels; a dead socket says so.
  */
 import { useState } from 'react'
 import { useLaminaTwin } from '../../hooks/useLaminaTwin'
@@ -33,8 +33,7 @@ import { TrendGrid } from './TrendGrid'
 import { StateTable } from './StateTable'
 import { InspectDrawer } from './InspectDrawer'
 import { TWIN_FORMS } from './forms'
-import type { OtherScreen, TwinForm } from './forms'
-
+import type { TwinForm } from './forms'
 
 interface Props {
   /** Lamina id to open, or null for whatever the backend defaults to. */
@@ -42,10 +41,9 @@ interface Props {
   onLamina: (id: string) => void
   form: TwinForm
   onForm: (form: TwinForm) => void
-  onOpen: (screen: OtherScreen) => void
 }
 
-export function Dashboard({ lamina, onLamina, form, onForm, onOpen }: Props) {
+export function Dashboard({ lamina, onLamina, form, onForm }: Props) {
   const twin = useLaminaTwin({ lamina, onLamina })
   const { index, latest, ticks, status, stale, staleAge, stage, artwork, paused } = twin
   const [inspecting, setInspecting] = useState(false)
@@ -55,10 +53,10 @@ export function Dashboard({ lamina, onLamina, form, onForm, onOpen }: Props) {
       <div className="h-screen flex flex-col items-center justify-center gap-4 bg-surface text-ink">
         <p className="font-mono text-[12px] readout text-crimson-container">{twin.schemaError}</p>
         <button
-          onClick={() => onOpen('analysis')}
+          onClick={() => window.location.reload()}
           className="font-mono text-[11px] readout uppercase text-ink/45 hover:text-ink"
         >
-          Open the analysis screen
+          ↻ Retry
         </button>
       </div>
     )
@@ -279,14 +277,6 @@ export function Dashboard({ lamina, onLamina, form, onForm, onOpen }: Props) {
           {index.sensors.length} inputs · {index.functions.length} functions ·{' '}
           {index.computed.length} computed · {index.outcomes.length} outcomes, all read from{' '}
           {index.schema.lamina_id}
-        </span>
-        <span className="ml-auto flex items-center gap-3 font-mono text-[10px] readout uppercase text-ink/30 shrink-0">
-          Other screens
-          {(['twin', 'body', 'stream', 'analysis'] as OtherScreen[]).map((s) => (
-            <button key={s} onClick={() => onOpen(s)} className="text-ink/45 hover:text-ink">
-              {s}
-            </button>
-          ))}
         </span>
       </footer>
 

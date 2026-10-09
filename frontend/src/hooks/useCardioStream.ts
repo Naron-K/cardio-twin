@@ -83,28 +83,16 @@ export interface StreamTick {
    * coupled value are the same number on screen.
    */
   inboundProvenance: Record<string, InboundProvenance>
-  // ── Named conveniences for the circulatory analysis views ────────
-  // StreamingDashboard and the charts beside it are explicitly a
-  // circulatory read-out and address these directly.  The 2D twin view
-  // uses the maps above and below instead, and names no attribute at all.
-  hr: number            // sensors.HR.value  (bpm)
-  sbp: number           // sensors.SBP.value (mmHg)
-  dbp: number           // sensors.DBP.value (mmHg)
-  co: number            // computed.CO.value  (L/min, X' + X'')
-  sv: number            // computed.SV.value  (mL)
-  map: number           // computed.MAP.value (mmHg)
-  q: number             // computed.Q.value   (L/min)
   /**
-   * Every PRELIMINARY attribute by id — including ones with no named field
-   * above, such as `T_cycle`, `T_sys` and `lambda`.  Consumers that must not
-   * see raw data (the stage) take this and nothing else, so a new model
-   * output reaches them without touching this hook.
+   * Every PRELIMINARY attribute by id.  Consumers that must not see raw data
+   * (the stage) take this and nothing else, so a new model output reaches
+   * them without touching this hook.
    */
   computed: Record<string, number>
   // ── Feedback corrections ──────────────────────────────────────────
   /**
-   * The X = X' + X'' split for every PRELIMINARY attribute, not just the two
-   * that happened to get named fields.  `computed` above is X; these are the
+   * The X = X' + X'' split for every PRELIMINARY attribute.  `computed`
+   * above is X; these are the
    * two halves it was built from, so a panel can show what the loop is
    * holding on any attribute the model computes.
    */
@@ -119,8 +107,6 @@ export interface StreamTick {
    * which, and this is it saying so.
    */
   staleComputed: Record<string, string>
-  co_feedback: number   // computed.CO.value_feedback  (X'')
-  sv_feedback: number   // computed.SV.value_feedback  (X'')
   feedback_norm: number // top-level L2 norm of all value_feedback
   // ── Cycle report (the 7-step cycle's per-tick log, previously dropped) ─
   tagsEmitted: string[]               // tag ids that fired this cycle
@@ -293,19 +279,10 @@ function parseSnapshot(raw: unknown): StreamTick | null {
           a.provenance ?? { state: 'uncoupled' as const },
         ])
       ),
-      hr:            s.sensors.HR?.value              ?? 0,
-      sbp:           s.sensors.SBP?.value             ?? 0,
-      dbp:           s.sensors.DBP?.value             ?? 0,
-      co:            s.computed.CO?.value              ?? 0,
-      sv:            s.computed.SV?.value              ?? 0,
-      map:           s.computed.MAP?.value             ?? 0,
-      q:             s.computed.Q?.value               ?? 0,
       computed:         column(s.computed, 'value'),
       computedExternal: column(s.computed, 'value_external'),
       computedFeedback: column(s.computed, 'value_feedback'),
       staleComputed:    staleOf(s.computed),
-      co_feedback:   s.computed.CO?.value_feedback     ?? 0,
-      sv_feedback:   s.computed.SV?.value_feedback     ?? 0,
       feedback_norm: s.feedback_norm                   ?? 0,
       tagsEmitted:   r.tags_emitted                    ?? [],
       deltasPerAttr: r.deltas_per_attr                 ?? {},

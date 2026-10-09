@@ -1,0 +1,865 @@
+<title>The Lamina Seam</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap">
+
+<style>
+  :root {
+    --ground:  #F2F5F7;
+    --surface: #FFFFFF;
+    --sunken:  #E7EDF1;
+    --ink:     #0F171D;
+    --ink-2:   #4A5865;
+    --ink-3:   #78868F;
+    --rule:    #D2DAE1;
+    --rule-2:  #B9C4CD;
+    --tx:      #A62F26;
+    --tx-wash: #FAEEEC;
+    --rx:      #1B6E86;
+    --rx-wash: #E8F2F6;
+    --warn:    #8A6206;
+    --warn-wash: #FBF3E0;
+
+    --serif: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+    --sans:  "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --mono:  "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+
+    --measure: 68ch;
+    --wide: 60rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:  #0C1317;
+      --surface: #121B21;
+      --sunken:  #0A1216;
+      --ink:     #E3ECF2;
+      --ink-2:   #9AABB6;
+      --ink-3:   #6D7E8A;
+      --rule:    #233039;
+      --rule-2:  #33444F;
+      --tx:      #E5786E;
+      --tx-wash: #2A1614;
+      --rx:      #5EB8D3;
+      --rx-wash: #0F2932;
+      --warn:    #D9A22E;
+      --warn-wash: #2A2110;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:  #0C1317;
+    --surface: #121B21;
+    --sunken:  #0A1216;
+    --ink:     #E3ECF2;
+    --ink-2:   #9AABB6;
+    --ink-3:   #6D7E8A;
+    --rule:    #233039;
+    --rule-2:  #33444F;
+    --tx:      #E5786E;
+    --tx-wash: #2A1614;
+    --rx:      #5EB8D3;
+    --rx-wash: #0F2932;
+    --warn:    #D9A22E;
+    --warn-wash: #2A2110;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: var(--wide);
+    margin: 0 auto;
+    padding: 4rem 1.5rem 6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 3.5rem;
+  }
+
+  .col { max-width: var(--measure); }
+
+  /* ── masthead ─────────────────────────────────────────────── */
+
+  .masthead {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    border-bottom: 2px solid var(--ink);
+    padding-bottom: 2rem;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2.1rem, 5vw, 3.1rem);
+    line-height: 1.08;
+    letter-spacing: -0.02em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    font-family: var(--serif);
+    font-size: 1.12rem;
+    line-height: 1.55;
+    color: var(--ink-2);
+    max-width: var(--measure);
+    margin: 0;
+  }
+
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 2rem;
+    font-family: var(--mono);
+    font-size: 0.76rem;
+    color: var(--ink-3);
+  }
+  .meta b { color: var(--ink-2); font-weight: 500; }
+
+  /* ── sections ─────────────────────────────────────────────── */
+
+  section { display: flex; flex-direction: column; gap: 1.15rem; }
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 1.6rem;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  h3 {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 1.02rem;
+    letter-spacing: 0.005em;
+    margin: 0.6rem 0 0;
+  }
+
+  .stage-head {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+    border-top: 1px solid var(--rule-2);
+    padding-top: 1.4rem;
+  }
+  .stage-num {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: var(--ink-3);
+    flex: none;
+    padding-top: 0.2rem;
+  }
+
+  p { margin: 0; max-width: var(--measure); }
+  p + p { margin-top: 0.9rem; }
+
+  a { color: var(--rx); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--rx); outline-offset: 3px; border-radius: 2px; }
+
+  strong { font-weight: 600; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.87em;
+    background: var(--sunken);
+    padding: 0.1em 0.34em;
+    border-radius: 2px;
+  }
+
+  ul { margin: 0; padding-left: 1.15rem; max-width: var(--measure); }
+  li { margin-bottom: 0.4rem; }
+  li::marker { color: var(--ink-3); }
+
+  /* ── code figures ─────────────────────────────────────────── */
+
+  figure { margin: 0; display: flex; flex-direction: column; gap: 0.55rem; }
+
+  .src {
+    background: var(--sunken);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--rule-2);
+    overflow-x: auto;
+    padding: 1rem 1.15rem;
+    margin: 0;
+  }
+  .src.tx { border-left-color: var(--tx); }
+  .src.rx { border-left-color: var(--rx); }
+
+  .src code {
+    background: none;
+    padding: 0;
+    font-size: 0.83rem;
+    line-height: 1.6;
+    color: var(--ink);
+    white-space: pre;
+    display: block;
+  }
+  .src .c { color: var(--ink-3); font-style: italic; }
+
+  figcaption {
+    font-family: var(--mono);
+    font-size: 0.73rem;
+    color: var(--ink-3);
+    letter-spacing: 0.02em;
+  }
+  figcaption b { color: var(--ink-2); font-weight: 500; }
+
+  .gloss {
+    max-width: var(--measure);
+    font-size: 0.95rem;
+    color: var(--ink-2);
+    border-left: 2px solid var(--rule-2);
+    padding-left: 0.9rem;
+  }
+
+  /* ── tables ───────────────────────────────────────────────── */
+
+  .scroll { overflow-x: auto; }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 0.88rem;
+    min-width: 32rem;
+  }
+  th, td {
+    text-align: left;
+    padding: 0.6rem 0.9rem 0.6rem 0;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  thead th {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 500;
+    border-bottom: 1px solid var(--rule-2);
+  }
+  td.num, th.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  tbody tr:last-child td { border-bottom: none; }
+
+  .membrane-table td:first-child { font-weight: 600; width: 26%; }
+  .membrane-table .tx-cell { color: var(--tx); }
+  .membrane-table .rx-cell { color: var(--rx); }
+
+  /* ── callouts ─────────────────────────────────────────────── */
+
+  .note {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    padding: 1.1rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-width: var(--measure);
+  }
+  .note.warn { background: var(--warn-wash); border-color: var(--warn); }
+  .note h4 {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+  }
+  .note.warn h4 { color: var(--warn); }
+  .note p { font-size: 0.92rem; }
+
+  /* ── the seam diagram ─────────────────────────────────────── */
+
+  .diagram {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    padding: 1.5rem 1rem;
+    overflow-x: auto;
+  }
+  .diagram svg { display: block; min-width: 40rem; width: 100%; height: auto; }
+
+  /* ── trace block ──────────────────────────────────────────── */
+
+  .trace {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    line-height: 1.75;
+    background: var(--sunken);
+    border: 1px solid var(--rule);
+    padding: 1rem 1.15rem;
+    overflow-x: auto;
+    white-space: pre;
+    margin: 0;
+  }
+  .trace .hl-tx { color: var(--tx); font-weight: 600; }
+  .trace .hl-rx { color: var(--rx); font-weight: 600; }
+  .trace .dim { color: var(--ink-3); }
+
+  /* ── index ────────────────────────────────────────────────── */
+
+  .index table { min-width: 38rem; }
+  .index td:first-child { font-family: var(--mono); font-size: 0.82rem; white-space: nowrap; }
+  .index td:nth-child(2) { color: var(--ink-2); }
+
+  footer {
+    border-top: 1px solid var(--rule-2);
+    padding-top: 1.5rem;
+    font-size: 0.85rem;
+    color: var(--ink-3);
+    max-width: var(--measure);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <div class="eyebrow">CardioTwin · architecture note</div>
+    <h1>The Lamina Seam</h1>
+    <p class="standfirst">How one physiological lamina hands a value to the lamina above it: the absorption vector collapses a composite into a single state value, two independent sets of gates — one on each membrane — decide whether it crosses, and the receiver maps it back into its own units. This note pairs each step of the mechanism with the code that performs it, so the argument can be checked without reading the repository.</p>
+    <div class="meta">
+      <span><b>Repository</b> cardio-twin</span>
+      <span><b>Branch</b> universal-visualisation</span>
+      <span><b>Backend</b> Python · <b>Tests</b> 402 passing</span>
+      <span><b>Date</b> 3 September 2026</span>
+    </div>
+  </header>
+
+  <section>
+    <h2>The claim in one paragraph</h2>
+    <p>A lamina is a self-contained model of one physiological system. It computes internally in whatever units its domain uses — millilitres, beats per minute, litres per minute. When it needs to reach the lamina next to it in the stack, none of that internal detail travels. The lamina presents exactly one composite at its interface; the <strong>absorption vector</strong> weighs that composite's attributes into a single number in <code>[0,1]</code>; and that number is the whole of what the gates see and the whole of what crosses. Neither membrane's gates can name an attribute — the parser refuses a declaration that tries. The receiving lamina then maps the number onto the range <em>it</em> declares, at a rate <em>it</em> chooses, taking as much of the deviation as <em>it</em> permits.</p>
+    <p>The consequence that matters architecturally: the two laminae are coupled by a contract about a scalar, not by knowledge of each other's internals. A lamina can grow an attribute, rename one, or change how it computes, and nothing on the far side of the seam has to be rewritten.</p>
+  </section>
+
+  <section>
+    <h2>The seam, end to end</h2>
+    <div class="diagram">
+      <svg viewBox="0 0 900 300" role="img" aria-label="Diagram of a crossing: the circulatory lamina's composite is absorbed into a state value, passes the transmit membrane, waits in the channel, passes the receive membrane, and lands on the respiratory lamina's CO_ref attribute.">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+          </marker>
+        </defs>
+
+        <!-- sender lamina -->
+        <rect x="8" y="70" width="176" height="150" rx="3" fill="var(--tx-wash)" stroke="var(--tx)" stroke-width="1"/>
+        <text x="20" y="94" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--tx)">lamina_circulatory</text>
+        <text x="20" y="112" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="var(--ink-2)">level 1</text>
+        <text x="20" y="140" font-family="IBM Plex Mono, monospace" font-size="11.5" fill="var(--ink)">output_state</text>
+        <text x="20" y="158" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="var(--ink-3)">composite · holds CO</text>
+        <text x="20" y="184" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="var(--ink-2)">absorption vector</text>
+        <text x="20" y="200" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="var(--ink-2)">s = Σ vᵢwᵢ / Σwᵢ</text>
+
+        <!-- state value pill -->
+        <line x1="184" y1="145" x2="222" y2="145" stroke="var(--ink-3)" stroke-width="1" marker-end="url(#arrow)" color="var(--ink-3)"/>
+        <rect x="226" y="128" width="106" height="34" rx="17" fill="var(--surface)" stroke="var(--ink-2)" stroke-width="1"/>
+        <text x="279" y="150" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="12" fill="var(--ink)">s = 0.275</text>
+        <text x="279" y="112" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="var(--ink-3)">state value, [0,1]</text>
+
+        <!-- transmit membrane -->
+        <line x1="378" y1="40" x2="378" y2="258" stroke="var(--tx)" stroke-width="2" stroke-dasharray="7 5"/>
+        <text x="378" y="30" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="var(--tx)">TRANSMIT MEMBRANE</text>
+        <text x="378" y="278" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="var(--ink-3)">≤ 4 gates · auto and/or key</text>
+        <line x1="332" y1="145" x2="370" y2="145" stroke="var(--ink-3)" stroke-width="1" marker-end="url(#arrow)" color="var(--ink-3)"/>
+
+        <!-- channel -->
+        <rect x="404" y="118" width="132" height="54" rx="3" fill="var(--surface)" stroke="var(--rule-2)" stroke-width="1" stroke-dasharray="4 3"/>
+        <text x="470" y="140" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--ink)">channel</text>
+        <text x="470" y="158" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="var(--ink-3)">offered · age</text>
+        <text x="470" y="196" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="var(--ink-2)">holds what is sent</text>
+        <text x="470" y="211" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="var(--ink-2)">and not yet taken</text>
+
+        <!-- receive membrane -->
+        <line x1="562" y1="40" x2="562" y2="258" stroke="var(--rx)" stroke-width="2" stroke-dasharray="7 5"/>
+        <text x="562" y="30" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="var(--rx)">RECEIVE MEMBRANE</text>
+        <text x="562" y="278" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="var(--ink-3)">≤ 4 gates · auto and/or key</text>
+
+        <!-- map back -->
+        <line x1="570" y1="145" x2="614" y2="145" stroke="var(--ink-3)" stroke-width="1" marker-end="url(#arrow)" color="var(--ink-3)"/>
+        <rect x="618" y="128" width="112" height="34" rx="3" fill="var(--surface)" stroke="var(--ink-2)" stroke-width="1"/>
+        <text x="674" y="150" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--ink)">4.75 L/min</text>
+        <text x="674" y="112" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="var(--ink-3)">mapped to receiver's range</text>
+
+        <!-- receiver lamina -->
+        <line x1="730" y1="145" x2="762" y2="145" stroke="var(--ink-3)" stroke-width="1" marker-end="url(#arrow)" color="var(--ink-3)"/>
+        <rect x="766" y="70" width="126" height="150" rx="3" fill="var(--rx-wash)" stroke="var(--rx)" stroke-width="1"/>
+        <text x="778" y="94" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--rx)">lamina_</text>
+        <text x="778" y="108" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--rx)">respiratory</text>
+        <text x="778" y="126" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="var(--ink-2)">level 2</text>
+        <text x="778" y="154" font-family="IBM Plex Mono, monospace" font-size="11.5" fill="var(--ink)">CO_ref</text>
+        <text x="778" y="172" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="var(--ink-3)">INTER_LAMINA</text>
+        <text x="778" y="192" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="var(--ink-3)">[2, 12] L/min</text>
+      </svg>
+    </div>
+    <p class="gloss">A value crosses only when both membranes are open at the same time. When the sender is open and the receiver is not, the value sits in the channel and ages — a state the earlier single-valve design had no way to represent, and which the system now reports as <code>waiting</code> rather than collapsing into "did not cross".</p>
+  </section>
+
+  <!-- ══ STAGE 1 ══════════════════════════════════════════════ -->
+  <section>
+    <div class="stage-head">
+      <span class="stage-num">STAGE 1</span>
+      <h2>Absorption: many attributes become one number</h2>
+    </div>
+    <p>Every attribute in a lamina carries a declared physiological range, and its <code>normalised</code> value is its position in that range, in <code>[0,1]</code>. A composite groups attributes that mean something together. The absorption vector is one weight per attribute in that group, and it is what turns the group into a single figure:</p>
+
+    <figure>
+      <pre class="src"><code>state = self.state_value(list(vals))
+step  = float(rule["rate"]) * float(deviation) * (vals - state)</code></pre>
+      <figcaption><b>universal_twin.py:391</b> · <code>Composite.state_value()</code> computes <code>Σ vᵢwᵢ / Σwᵢ</code></figcaption>
+    </figure>
+
+    <p>The container never reads attributes on a gate's behalf. It asks the twin for the composite's state value, and packages that with three other facts into a <strong>reading</strong> — the only object a gate is ever handed:</p>
+
+    <figure>
+      <pre class="src"><code>state = twin.get_composite_state(composite_id)
+previous = self._state_prev.get(key)
+saturated = []
+for attr_id in twin.composites[composite_id].attribute_ids:
+    attr = twin.attributes.get(attr_id)
+    if attr is None or attr.value is None:
+        continue
+    if not attr.physio_min &lt;= attr.value &lt;= attr.physio_max:
+        saturated.append(attr_id)
+reading = {
+    "label":  composite_id,
+    "state":  state,
+    "delta":  (None if state is None or previous is None
+               else state - previous),
+    "vector": twin.get_composite_vector(composite_id),
+    "saturated": saturated,
+}</code></pre>
+      <figcaption><b>organism.py:1226</b> · <code>Organism._composite_reading()</code></figcaption>
+    </figure>
+
+    <div class="gloss">
+      <p><strong>label</strong> is the composite's identifier — the "kind of molecule" a receptor on the far side can recognise. <strong>state</strong> is the absorbed scalar. <strong>delta</strong> is how far that scalar moved since the previous cycle, and is <code>None</code> on the first cycle, because a change needs two cycles before it is a measurement rather than a guess. <strong>vector</strong> is the composite's coordinates, used only by shape-matching keys. <strong>saturated</strong> names any attribute whose raw value has left its declared range — see the finding in <em>Evidence</em>.</p>
+    </div>
+
+    <p>An attribute with no reading yet is dropped along with its weight, rather than being counted as zero. If nothing weighted survives, the composite presents <code>None</code> and any gate reading it stays shut and says why — it does not open on a fabricated floor:</p>
+
+    <figure>
+      <pre class="src"><code>values = []
+kept_weights = []
+for i, attr_id in enumerate(comp.attribute_ids):
+    normalised = self.get(attr_id).normalised
+    if normalised is None:
+        continue
+    values.append(float(normalised))
+    if weighted:
+        kept_weights.append(float(comp.absorption_vector[i]))
+if not values:
+    return None
+if weighted:
+    <span class="c"># Every surviving weight is zero: the composite declares that</span>
+    <span class="c"># the attributes it still has a reading for do not count</span>
+    <span class="c"># towards its state, which is not the same news as a state of 0.0.</span>
+    if sum(kept_weights) &lt;= 0.0:
+        return None
+    return comp.state_value(values, weights=kept_weights)</code></pre>
+      <figcaption><b>universal_twin.py:2044</b> · <code>UniversalTwin.get_composite_state()</code></figcaption>
+    </figure>
+  </section>
+
+  <!-- ══ STAGE 2 ══════════════════════════════════════════════ -->
+  <section>
+    <div class="stage-head">
+      <span class="stage-num">STAGE 2</span>
+      <h2>Handover: the composite offers its value to the gates</h2>
+    </div>
+    <p>A channel declares which of two quantities the composite hands over. There is deliberately no third option that names an attribute:</p>
+
+    <figure>
+      <pre class="src"><code>src_reading = self._composite_reading(channel.source.lamina,
+                                      channel.source.member)
+reading = (src_reading["delta"] if channel.carry == "state_delta"
+           else src_reading["state"])</code></pre>
+      <figcaption><b>organism.py:1558</b> · <code>Organism._run_channel()</code></figcaption>
+    </figure>
+
+    <p>In XML that is one line, and it is the whole payload contract:</p>
+
+    <figure>
+      <pre class="src"><code>&lt;channel id="ch_co_to_resp"
+         from="lamina_circulatory:output_state"
+         to="lamina_respiratory:CO_ref"
+         time_delay="0"&gt;
+  &lt;extract mode="state"/&gt;</code></pre>
+      <figcaption><b>organism.xml:192</b> · the shipped seam</figcaption>
+    </figure>
+
+    <p>Two properties of that declaration are enforced when the file is parsed. The source of a crossing must be a composite, never a bare attribute. The destination must be an attribute the receiving lamina has itself declared as <code>INTER_LAMINA</code> — a channel cannot write into another lamina's sensor (that would forge a measurement) or into something it computes for itself.</p>
+  </section>
+
+  <!-- ══ STAGE 3 ══════════════════════════════════════════════ -->
+  <section>
+    <div class="stage-head">
+      <span class="stage-num">STAGE 3</span>
+      <h2>Control: two membranes, two independent decisions</h2>
+    </div>
+
+    <p>This is the part most easily misread. The two kinds of gate are <strong>not</strong> "sender's gate" and "receiver's gate". Both membranes may carry both kinds, up to four gates each. What distinguishes them is <strong>what a gate reads</strong>, and the distinction follows the ion-channel analogy exactly: a voltage-gated channel opens on the cell's own membrane potential; a ligand-gated channel opens when the right molecule arrives from outside.</p>
+
+    <div class="scroll">
+      <table class="membrane-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Auto gate — reads its own lamina's composite</th>
+            <th>Key gate — reads what is presented at the channel</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="tx-cell">On the transmit membrane</td>
+            <td>"My own state has left what the far side is assuming." A threshold on the sender's state value.</td>
+            <td>"The far side is asking." Reads the receiving lamina's interface composite as a demand signal.</td>
+          </tr>
+          <tr>
+            <td class="rx-cell">On the receive membrane</td>
+            <td>"I am in trouble and will take whatever is on offer." A threshold on the receiver's own state value.</td>
+            <td>"Is the thing being offered the right kind, or the right shape?" Reads the label, state and vector the sender put on the channel.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>One branch in the code makes that split, and it is the only place either kind is chosen:</p>
+
+    <figure>
+      <pre class="src"><code>state = self._gate_state.setdefault(gate.id, {})
+if isinstance(gate, AutoGate):
+    <span class="c"># handed `own`      — the reading of its own lamina's composite</span>
+    ...
+else:
+    <span class="c"># handed `presented` — what the channel is currently carrying</span>
+    ...</code></pre>
+      <figcaption><b>organism.py:1332</b> · <code>Organism._gate_opening()</code></figcaption>
+    </figure>
+
+    <h3>What a threshold is allowed to look at</h3>
+    <p>Three readings of one number, and none of them can name an attribute. The old schema had an <code>aggregate="attr"</code> mode plus a <code>watch="CO"</code> attribute, which let a gate reach past the composite and threshold on a single coordinate. Both are now refused at parse time.</p>
+
+    <figure>
+      <pre class="src"><code>mode = params.get("aggregate", "state")
+if mode == "delta":
+    return reading.get("delta")
+state = reading.get("state")
+if state is None:
+    return None
+if mode == "deviation":
+    return abs(state - float(params.get("reference", 0.0)))
+return state</code></pre>
+      <figcaption><b>organism.py:660</b> · <code>_aggregate()</code> — the whole of what a trigger may compare against</figcaption>
+    </figure>
+
+    <p class="gloss"><code>deviation</code> exists because the other two are one-sided. A gate watching the state value itself can only open when that value is <em>high</em>, so a seam described as opening "while the pump is remarkable" would open for a racing heart and stay shut for a failing one. Distance from a declared reference makes both directions the same number.</p>
+
+    <h3>The shipped body: a threshold on one side, a receptor on the other</h3>
+    <p>The asymmetry below is a choice expressed in XML, not a rule of the architecture:</p>
+
+    <figure>
+      <pre class="src tx"><code>&lt;transmit&gt;
+  &lt;auto_gate id="ta_pump_deviation" refractory_cycles="5"&gt;
+    &lt;threshold aggregate="deviation" reference="0.30"
+               open_above="0.125" close_below="0.09"/&gt;
+  &lt;/auto_gate&gt;
+&lt;/transmit&gt;</code></pre>
+      <figcaption><b>organism.xml:281</b> · circulation's own membrane</figcaption>
+    </figure>
+
+    <figure>
+      <pre class="src rx"><code>&lt;receive&gt;
+  &lt;key_gate id="rk_co" weight="1.0" rate="0.2"
+            on_close="hold" confidence="0.8"&gt;
+    &lt;key metric="identity"/&gt;
+  &lt;/key_gate&gt;
+&lt;/receive&gt;</code></pre>
+      <figcaption><b>organism.xml:293</b> · respiration's own membrane</figcaption>
+    </figure>
+
+    <p>Not one of those numbers is a matter of taste. <code>reference="0.30"</code> is the receiver's own declared baseline for <code>CO_ref</code> — 5.0 L/min — expressed in the space the wire carries: <code>(5.0 − 2) / (12 − 2)</code>. <code>open_above="0.125"</code> comes from the receiver's declared tolerance on oxygen delivery: with <code>DO₂ = CaO₂ · CO_ref · 10</code> and a measured <code>CaO₂</code> of 19.80, the cardiac-output error that pushes DO₂ out of its ±250 band is <code>250/198.0 = 1.262 L/min</code>, which is 0.126 normalised. The seam opens exactly when staying shut would put the far side's own outcome out of range. <code>close_below="0.09"</code> is 3.4 standard deviations of the measured noise on that signal — the first deadband width at which the gate stops arguing with the feed (177 transitions in 400 cycles with one boundary; 1 with this band).</p>
+
+    <p>The receiving gate uses <code>identity</code>, which matches the <em>label</em> rather than applying a second threshold. The reasoning is a division of labour: recognising that the pump is failing is circulation's judgement about itself, and it has already been made on the transmit membrane. Respiration only needs to know that what arrived is a cardiac output.</p>
+
+    <figure>
+      <pre class="src rx"><code>expected = gate.key.get("expect")
+if offered_label is None:
+    fraction, reason = 0.0, "nothing is presented at the channel"
+elif expected and offered_label != expected:
+    fraction, reason = 0.0, (
+        f"'{offered_label}' is not the '{expected}' this gate takes")
+else:
+    fraction, reason = 1.0, f"'{offered_label}' recognised"</code></pre>
+      <figcaption><b>organism.py:1422</b> · <code>Organism._identity_opening()</code></figcaption>
+    </figure>
+
+    <p class="gloss">Note the first branch. "Nothing is presented" is not the receiver refusing — it is the receiver having nothing to decide about, because the sender never offered. The two are different news and the system keeps them apart.</p>
+
+    <h3>Ordering, and what "open" means jointly</h3>
+    <p>On each membrane, auto gates are evaluated first, and when one opens the key gates on that membrane are not consulted at all: a relief valve does not ask the controller for permission. Gates on one membrane sit in parallel — any one open means the membrane is open. An auto gate that fires may flood <em>its own</em> side (weight and rate forced to 1), and says nothing whatever about the far side's gates; a sender's emergency cannot force a receiver open, because that would be a forced write into another lamina arriving through the door marked "safety".</p>
+
+    <figure>
+      <pre class="src"><code>open_fraction = tx["fraction"] * rx["fraction"]</code></pre>
+      <figcaption><b>organism.py:1597</b> · both membranes, multiplied</figcaption>
+    </figure>
+
+    <h3>A recorded trace</h3>
+    <p>Three cycles at rest, then heart rate forced to 200 bpm. Both gates report their own reasoning every cycle:</p>
+
+    <pre class="trace">cyc  <span class="hl-tx">TRANSMIT — ta_pump_deviation</span>       <span class="hl-rx">RECEIVE — rk_co</span>                  state
+  1   in deadband                       <span class="dim">nothing is presented at the ch…</span>  shut
+  2   in deadband                       <span class="dim">nothing is presented at the ch…</span>  shut
+  3   in deadband                       <span class="dim">nothing is presented at the ch…</span>  shut
+  4   <span class="hl-tx">opened: 0.700 &gt;= 0.125</span>            <span class="hl-rx">'output_state' recognised</span>        crossing
+  5   refractory (4 to go)              <span class="hl-rx">'output_state' recognised</span>        crossing
+  6   refractory (3 to go)              <span class="hl-rx">'output_state' recognised</span>        crossing</pre>
+    <p class="gloss">The refractory hold is what keeps the gate from changing its mind on a fast genuine swing, and gives the downstream lamina a few cycles to respond before the decision is revisited. The deadband handles noise; the refractory handles speed.</p>
+  </section>
+
+  <!-- ══ AFTER ════════════════════════════════════════════════ -->
+  <section>
+    <h2>After both membranes open: what the receiver actually does</h2>
+    <p>Opening is only half of the receiver's authority. Every term on which a value is absorbed belongs to the receiving gate, and the sender can set none of them.</p>
+
+    <figure>
+      <pre class="src rx"><code>span = dst_attr.physio_max - dst_attr.physio_min
+if channel.carry == "state_delta":
+    delayed = dst_attr.baseline + delayed * span
+else:
+    delayed = dst_attr.physio_min + delayed * span
+
+<span class="c"># A receptor with a declared band carries the value only while it</span>
+<span class="c"># lies inside it, and REFUSES outside rather than clamping.</span>
+band_min = getattr(rx_gate, "band_min", None)
+band_max = getattr(rx_gate, "band_max", None)
+if band_min is not None and not band_min &lt;= delayed &lt;= band_max:
+    return self._on_close(channel, cstate, dst_attr, rx_gate, "out of band")
+
+weight = tx["weight"] * rx["weight"]
+baseline = dst_attr.baseline
+if weight != 1.0 and baseline is not None:
+    target = baseline + weight * (delayed - baseline)
+else:
+    target = delayed
+
+rate = 1.0 if rx["flood"] else float(getattr(rx_gate, "rate", 1.0))
+effective_rate = max(0.0, min(1.0, rate * open_fraction))
+transmitted = previous + effective_rate * (target - previous)</code></pre>
+      <figcaption><b>organism.py:1666</b> · <code>Organism._absorb()</code></figcaption>
+    </figure>
+
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Step</th><th>What it does</th><th>Why it belongs to the receiver</th></tr></thead>
+        <tbody>
+          <tr><td>Map to units</td><td><code>physio_min + q · span</code> for a state; <code>baseline + q · span</code> for a delta, which is a displacement and so needs a point to be measured from</td><td>What a number means in the receiver's units is the receiver's business. A sender that converted would have to know the far side's range — exactly the coupling the channel exists to avoid.</td></tr>
+          <tr><td>Band</td><td>Refuses a value outside a declared band rather than clamping it</td><td>Clamping silently pulls out-of-range physiology back toward normal — a mean arterial pressure of 120 displayed as 110, masking the pathology the twin exists to show.</td></tr>
+          <tr><td>Weight</td><td>Multiplies the <em>deviation</em> from the receiver's own assumption, not the value</td><td>A weight on the value would turn a cardiac output of 4.8 L/min at weight 0.5 into 2.4 — not a partial reading but a different and false one. Information is the departure from the assumption.</td></tr>
+          <tr><td>Rate</td><td>An exponentially-weighted filter, coefficient set by the receiving gate</td><td>How fast to believe something is the receiver's business. Measured at 200 bpm: at rate 1.0 <code>CO_ref</code> ran 13.20 → 7.13 → 14.91 → 10.62; at rate 0.2, 6.64 → 6.74 → 8.37 → 8.82. The slower rate walks the receiver up to the sender instead of handing it the sender's argument with itself.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ══ LEARNING ═════════════════════════════════════════════ -->
+  <section>
+    <h2>The absorption vector as a dynamic weight matrix</h2>
+    <p>Until this revision the absorption vector was parsed from XML and never touched again — "dynamic weight matrix" described an intention rather than a behaviour. It now adapts each cycle against a declared behavioural outcome, so that the model's own summary of a composite lines up with what the sensors say that outcome is doing.</p>
+
+    <figure>
+      <pre class="src"><code>&lt;absorption_vector learns_from="target_do2" learning_rate="0.02"
+                   clamp_min="0.05" clamp_max="1.0"&gt;</code></pre>
+      <figcaption><b>respiratory_lamina.xml:533</b> · the only composite in the project that learns</figcaption>
+    </figure>
+
+    <p>All four attributes are required together; a learning rate without a clamp is refused at parse. The clamp is the important half, because this loop now sits inside another one: absorption moves the state value, the state value opens a gate, the gate moves <code>CO_ref</code>, <code>CO_ref</code> moves DO₂, and DO₂ is the outcome that moves absorption.</p>
+
+    <figure>
+      <pre class="src"><code>deviation = feedback["deviation"]
+excess = abs(deviation) - tolerance
+if excess &lt;= 0.0:
+    continue        <span class="c"># inside the declared band: nothing to learn</span>
+signal = math.copysign(excess, deviation) / tolerance
+moved[comp_id] = comp.adapt_absorption(values, signal)</code></pre>
+      <figcaption><b>feedback_controller.py:796</b> · <code>FeedbackController._adapt_absorption()</code></figcaption>
+    </figure>
+
+    <figure>
+      <pre class="src"><code>state = self.state_value(list(vals))
+step  = float(rule["rate"]) * float(deviation) * (vals - state)
+new   = np.clip(self.absorption_vector + step,
+                float(rule["min"]), float(rule["max"]))</code></pre>
+      <figcaption><b>universal_twin.py:467</b> · <code>Composite.adapt_absorption()</code></figcaption>
+    </figure>
+
+    <p class="gloss">The step is the gradient of the state value with respect to each weight: since <code>s = Σvᵢwᵢ / Σw</code>, we have <code>∂s/∂wᵢ = (vᵢ − s)/Σw</code>. An attribute already sitting where the state is earns no change — it carries no information about which way to move. Dividing the error by the tolerance is what keeps the rule universal: it is the one form of the error that means the same thing for an outcome measured in mL/min and one measured in mmHg.</p>
+  </section>
+
+  <!-- ══ EVIDENCE ═════════════════════════════════════════════ -->
+  <section>
+    <h2>Evidence</h2>
+
+    <div class="note warn">
+      <h4>About these figures</h4>
+      <p>Every number below comes from the model driven by a <strong>deterministic synthetic sensor feed</strong> (seeded pseudo-random generator, seed 11) — not from patient data, and not from any clinical dataset. They demonstrate the behaviour of the mechanism, not the physiological accuracy of the model. No clinical validation is claimed or implied.</p>
+    </div>
+
+    <h3>The interface composite must be what the lamina owes the outside</h3>
+    <p>The obvious first choice was to let circulation present <code>pump_state</code> — end-diastolic volume, stroke volume, heart rate and cardiac output, weighted equally. Measured across five weightings, holding the rest of the model fixed, that choice is wrong in a way that only shows up under load:</p>
+
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th>Weight on cardiac output</th><th class="num">Worst delivery error</th><th>Detects circulatory shock at HR 35?</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="num">0.70</td><td class="num">0.735 L/min</td><td>no</td></tr>
+          <tr><td class="num">0.85</td><td class="num">0.368 L/min</td><td>marginal</td></tr>
+          <tr><td class="num">0.90</td><td class="num">0.245 L/min</td><td>marginal</td></tr>
+          <tr><td class="num">0.94</td><td class="num">0.147 L/min</td><td>marginal</td></tr>
+          <tr><td class="num">1.00</td><td class="num">0.000 L/min</td><td>yes</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Averaging the machinery dilutes exactly the signal the seam exists to carry. With equal quarter-weights the deviation at 35 bpm reaches only 0.091 against an opening threshold of 0.125 — the gate never opens for shock, and respiration goes on computing oxygen delivery from its uncoupled baseline of 5.0 L/min, an error of 32% in the direction a clinician would care about most.</p>
+
+    <p>The resolution is not to bend weights until a number is agreeable. An interface composite is <em>what a lamina owes the outside</em>, not a summary of everything inside it. End-diastolic volume, stroke volume and heart rate are how a cardiac output gets made; oxygen delivery needs the output. So circulation now presents a composite that says so, and <code>pump_state</code> remains available for internal recognition:</p>
+
+    <figure>
+      <pre class="src tx"><code>&lt;composite id="output_state"&gt;
+  &lt;attributes&gt;CO&lt;/attributes&gt;
+  &lt;absorption_vector&gt;
+    &lt;weight attribute="CO"&gt;1.0&lt;/weight&gt;
+  &lt;/absorption_vector&gt;
+&lt;/composite&gt;</code></pre>
+      <figcaption><b>circulatory_lamina.xml:446</b></figcaption>
+    </figure>
+
+    <h3>The architecture cost almost nothing in numerical terms</h3>
+    <p>A frozen trace of the previous design — nine scenarios, forty cycles each — is kept in the repository and is never regenerated. Under the composite-only mechanism, <strong>seven of the nine scenarios reproduce it exactly, to twelve decimal places</strong>. That is not luck: the wire carries a normalised quantity, the receiver maps it back through its own declared range, and because <code>CO</code> and <code>CO_ref</code> declare the same range the round trip is the identity.</p>
+
+    <h3>The one real cost, stated at full size</h3>
+    <p>Two scenarios diverge, and both for the same reason: the model is driven past the range its own file declares. Held at 200 bpm the circulation computes a cardiac output of 13.2 L/min against a declared maximum of 12. A state value lives in <code>[0,1]</code> by construction — that is what lets one set of thresholds mean the same thing in L/min and in mmHg — so 13.2 normalises to 1.0 and the most the wire can offer is 12.</p>
+
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Scenario</th><th class="num">Cycles saturated</th><th class="num">Max Δ CO_ref</th><th class="num">Max Δ DO₂</th></tr></thead>
+        <tbody>
+          <tr><td>organism.xml / HR 200</td><td class="num">2 of 40</td><td class="num">0.736 L/min</td><td class="num">275.0 mL/min</td></tr>
+          <tr><td>organism_key.xml / HR 150, EDV 55</td><td class="num">1 of 40</td><td class="num">0.162 L/min</td><td class="num">31.9 mL/min</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note warn">
+      <h4>The finding is not about the seam</h4>
+      <p>275 mL/min is larger than the respiratory lamina's own declared tolerance on oxygen delivery, which is ±250. Both designs are doing the only thing available to them with a number the declaration says is impossible: the previous wire preserved the value and ignored the receiver's declared range; this one honours the range and cannot represent the excess. What the divergence actually measures is that cardiac output's declared maximum of 12 L/min has been outgrown by the model that computes cardiac output. Widening that range is a physiological decision for the domain expert, and was deliberately not taken here. What the seam owes is honesty about it: every trace record and every provenance entry carries <code>saturated</code>, naming the attribute that ran out of declared room.</p>
+    </div>
+
+    <h3>The learning loop responds, then stops</h3>
+    <p>Two properties make it safe to run a learning loop inside a closed one, and both are measured on the shipped body:</p>
+
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Forcing</th><th>Oxygen delivery</th><th>Behaviour of the weights</th></tr></thead>
+        <tbody>
+          <tr><td class="num">HR 110</td><td class="num">≈ 1080, inside the ±250 band</td><td>Moves on exactly 1 cycle in 160, by 2.8 × 10⁻⁵, as the outcome clips the edge of its band on the way to settling. Silent thereafter.</td></tr>
+          <tr><td class="num">HR 35</td><td class="num">≈ 860, inside the band</td><td>Unchanged.</td></tr>
+          <tr><td class="num">HR 200</td><td class="num">2119 → 1212</td><td>Moves until cycle 50, then identical at cycles 50, 150 and 299.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Without the tolerance dead-zone the same 110 bpm run — with the model already comfortably inside its declared band — walked the weights from equal quarters to 0.497 on oxygen saturation with oxygen delivery pinned on its floor, and they were still moving at cycle 200. That is not learning; it is a loop with nothing to converge on, grinding against its own clamps. It is the reason the dead-zone is in the code.</p>
+  </section>
+
+  <!-- ══ ENFORCEMENT ══════════════════════════════════════════ -->
+  <section>
+    <h2>What the parser refuses</h2>
+    <p>The argument above is only worth anything if a body cannot quietly opt out of it. Each of the following is an error at load time, with a message that names what to write instead:</p>
+
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Declaration</th><th>Why it is refused</th><th>Location</th></tr></thead>
+        <tbody>
+          <tr><td><code>&lt;extract attribute="CO"/&gt;</code></td><td>A channel no longer carries an attribute out of a composite.</td><td><code>organism.py:2598</code></td></tr>
+          <tr><td><code>watch="CO"</code> on a threshold</td><td>A gate reads the composite's state value and cannot name an attribute inside it.</td><td><code>organism.py:2250</code></td></tr>
+          <tr><td><code>pattern from=</code> another lamina</td><td>An auto gate answers to the lamina it sits on; reading another one is what a key gate is for.</td><td><code>organism.py:520</code></td></tr>
+          <tr><td>A learning rate with no clamp</td><td>A default bound inside a closed loop is a bound nobody chose.</td><td><code>universal_twin.py:549</code></td></tr>
+          <tr><td>A channel spanning two levels</td><td>Only adjacent laminae couple; a body that wants to skip a level must say what the missing middle is.</td><td><code>organism.py:2839</code></td></tr>
+          <tr><td>A membrane with no gates</td><td>A receive side with no gate is a wire writing straight into the far lamina.</td><td><code>organism.py:2598</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>A transform function on a channel — the deferred "lambda" for deciding how much passes — is recognised and refused with a message saying it is not yet supported, rather than accepted and ignored. A body carrying a transform nobody applies would run, and quietly mean something other than it says.</p>
+  </section>
+
+  <!-- ══ OPEN ═════════════════════════════════════════════════ -->
+  <section>
+    <h2>Deliberately left open</h2>
+    <ul>
+      <li><strong>Shape matching still reads coordinates.</strong> A <code>pattern</code> trigger, and the <code>weighted_distance</code> and <code>cosine</code> key metrics, match the shape of a whole composite rather than its single state value. The line drawn here is that a shape match consumes the composite entire, whereas the old <code>watch="CO"</code> picked one attribute and ignored the rest. The failing-pump recogniser in the second body depends on this, and it is a measured capability with its own frozen trace.</li>
+      <li><strong>Where a pattern belongs.</strong> The architecture note that prompted this work classifies patterns as a property of the <em>key</em> gate, with the auto gate holding only thresholds. The implementation keeps patterns available on auto gates, on the argument that recognising one's own failure is internal recognition. Moving them would mean rewriting the second body.</li>
+      <li><strong>Cardiac output's declared range.</strong> See the saturation finding above. This is a physiological judgement, not an engineering one.</li>
+      <li><strong>Transform functions.</strong> Refused rather than implemented, pending a decision on whether "how much passes" should ever be an arbitrary function rather than a scalar weight.</li>
+    </ul>
+  </section>
+
+  <!-- ══ INDEX ════════════════════════════════════════════════ -->
+  <section class="index">
+    <h2>Where everything is</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Location</th><th>What lives there</th></tr></thead>
+        <tbody>
+          <tr><td>organism.py:1086</td><td><code>Organism.tick()</code> — the four-step cycle; the gate pass is step 3</td></tr>
+          <tr><td>organism.py:1189</td><td><code>_gate_pass()</code> — runs every channel, then commits the per-composite history that deltas are measured against</td></tr>
+          <tr><td>organism.py:1226</td><td><code>_composite_reading()</code> — absorption to state value; builds the reading</td></tr>
+          <tr><td>organism.py:1332</td><td><code>_gate_opening()</code> — the auto/key branch</td></tr>
+          <tr><td>organism.py:1422</td><td><code>_identity_opening()</code> — label matching</td></tr>
+          <tr><td>organism.py:1452</td><td><code>_side()</code> — one membrane; auto first, gates in parallel, flood confined to its own side</td></tr>
+          <tr><td>organism.py:1543</td><td><code>_run_channel()</code> — both membranes and the wire between them</td></tr>
+          <tr><td>organism.py:1666</td><td><code>_absorb()</code> — delay, unit mapping, band, weight, filter, write</td></tr>
+          <tr><td>organism.py:660</td><td><code>_aggregate()</code> — the three readings a trigger may use</td></tr>
+          <tr><td>universal_twin.py:391</td><td><code>Composite.state_value()</code></td></tr>
+          <tr><td>universal_twin.py:467</td><td><code>Composite.adapt_absorption()</code></td></tr>
+          <tr><td>universal_twin.py:2044</td><td><code>UniversalTwin.get_composite_state()</code></td></tr>
+          <tr><td>feedback_controller.py:796</td><td><code>_adapt_absorption()</code> — the dead-zone and the per-cycle step</td></tr>
+          <tr><td>organism.xml</td><td>The shipped body, with all thirteen parse-time rules written out in full at the head of the file</td></tr>
+          <tr><td>tests/test_channels_baseline.py</td><td>The seven-of-nine equality result and the bounded exemption for the two saturating scenarios</td></tr>
+          <tr><td>tests/test_absorption_learning.py</td><td>The learning loop: gradient direction, clamping, dead-zone, convergence</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    <p>Generated from the working tree of <code>cardio-twin</code> on branch <code>universal-visualisation</code>, 3 September 2026. Backend suite: 402 passing, 2 skipped by design (the two saturating scenarios, asserted separately and exactly). All quoted code is verbatim from the files and line numbers given.</p>
+  </footer>
+
+</div>

@@ -461,7 +461,7 @@ Response shape:
 
 ### 9.1 Kết quả demo
 
-File: [`feedback_kernel_demo.py`](feedback_kernel_demo.py) — chạy 2 kernel dynamics khác nhau hoàn toàn trên cùng 1 deviation signal để verify interface universal.
+File: `feedback_kernel_demo.py` (đã gỡ khỏi repo) — chạy 2 kernel dynamics khác nhau hoàn toàn trên cùng 1 deviation signal để verify interface universal.
 
 | Kernel | Dynamics | State shape | Settled? | Lọc nhiễu? |
 |---|---|---|---|---|

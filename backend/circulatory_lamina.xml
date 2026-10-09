@@ -60,7 +60,8 @@
 
   <!-- ============================================================== -->
   <!-- CHANNEL MAPPINGS: Links sensor attributes to ingestion channels -->
-  <!-- Channel definitions live in ingestion_manifold.xml            -->
+  <!-- Channel definitions will live in ingestion_manifold.xml, which -->
+  <!-- is not built yet: today every channel is the simulated feed.   -->
   <!-- ============================================================== -->
   <channel_mappings>
     <mapping attribute_id="SBP"  channel_id="ch_manual_slider" />

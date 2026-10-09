@@ -1,44 +1,36 @@
 # CardioTwin Backend
 
-FastAPI-based simulation engine for cardiovascular modeling.
+FastAPI app and the domain-neutral twin engine. The project overview, the model
+and the API table are in the [root README](../README.md).
 
-## Quick Start
+## Run
 
-1. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-2. **Run the development server:**
-   ```bash
-   uvicorn main:app --reload --port 8000
-   ```
-
-3. **Test the API:**
-   - Swagger UI: http://localhost:8000/docs
-   - Test endpoint: http://localhost:8000/health
-
-## Project Structure
-
-```
-backend/
-├── main.py                 # FastAPI app (Week 1)
-├── xml_converter.py        # XML ↔ JSON utilities (Week 1)
-├── circulatory_lamina.py   # Simulation engine
-├── universal_twin.py       # Base class
-├── circulatory_lamina.xml  # Schema definition
-├── requirements.txt        # Python dependencies
-└── __init__.py            # Package marker
+```bash
+pip install -r requirements.txt
+python serve.py                    # circulatory lamina on port 8000
+python serve.py respiratory        # another lamina
+python serve.py circulatory 8010   # another port
 ```
 
-## API Endpoints (Week 1 Implementation)
+`serve.py` sets the default lamina; the dashboard can still switch lamina per
+request. Swagger UI is at `http://localhost:8000/docs`.
 
-- `GET /api/schema` - Return slider configs
-- `POST /api/compute` - Run simulation with JSON input
-- `POST /api/upload` - Upload patient XML file
-- `POST /api/download` - Download results as XML
-- `GET /health` - Health check
+## Test
 
-## Development
+```bash
+python -m pytest tests -q
+```
 
-See [docs/roadmap.md](../docs/roadmap.md) for the 4-week development plan.
+## Layout
+
+| File | What it holds |
+|------|---------------|
+| `universal_twin.py` | The engine: XML parsing, the function chain, gates, composites, the feedback loop. Knows no physiology. |
+| `*_lamina.xml` + `*_lamina.py` | One lamina each: its declaration, and the arithmetic for every function it declares. |
+| `laminae.py` | Pairs a lamina XML with the class that implements it, by the XML's own id. |
+| `organism.py`, `organism*.xml` | Bodies: several laminae joined by channels with a gate on each side. |
+| `feedback_controller.py` | The adaptive feedback loop. |
+| `session.py`, `streaming_runtime.py`, `signal_source.py`, `snapshot.py` | The live stream behind `/ws/feedback` and `/ws/organism`. |
+| `main.py` | The FastAPI routes. |
+| `xml_converter.py` | XML ↔ JSON for patient files. |
+| `tools/capture_gate_traces.py` | Regenerates the gate-trace fixtures the tests compare against. |

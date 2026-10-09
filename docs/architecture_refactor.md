@@ -1,6 +1,6 @@
 # Architecture Refactor — BDT Foundation
 
-**Status:** Planned
+**Status:** Done except Change 2 (the ingestion manifold), which was never built — see the table at the end.
 **Triggered by:** Code review feedback (2026-03-26)
 **Scope:** XML schema redesign + ingestion layer + code decoupling
 
@@ -134,6 +134,13 @@ Channel IDs refer to entries in `ingestion_manifold.xml` (see Change 2).
 
 **File:** `backend/ingestion_manifold.xml` *(new)*
 
+> **Not built (checked 2026-10-09).** This file has never existed in the
+> repository. Laminae declare `<channel_mappings>`, the backend parses them and
+> `/api/schema` returns them, but no code routes data by channel: every
+> reading comes from the simulated feed. The Apple URL in the example below is
+> illustrative only — HealthKit has no public cloud API; its data leaves the
+> phone as an exported `export.xml` or through an iOS app.
+
 A separate, BDT-wide file that defines all data channels. Laminas reference channels by ID — they do not embed source configuration. This makes it possible to swap a manual slider for a live API without modifying the lamina XML.
 
 ```xml
@@ -251,7 +258,7 @@ def _dispatch_function(self, function_id: str):
 | 2 | Add `<segments>` section with 3 segments | `circulatory_lamina.xml` | DONE |
 | 3 | Add absorption vector placeholders to composites | `circulatory_lamina.xml` | DONE |
 | 4 | Add `<channel_mappings>` section to lamina | `circulatory_lamina.xml` | DONE |
-| 5 | Create ingestion manifold file | `ingestion_manifold.xml` (new) | DONE |
+| 5 | Create ingestion manifold file | `ingestion_manifold.xml` (new) | NOT BUILT |
 | 6 | Refactor base class to generic input resolver | `universal_twin.py` | DONE |
 | 7 | Refactor child class functions to use generic inputs | `circulatory_lamina.py` | DONE |
 | 8 | Update `xml_converter.py` to parse new schema sections | `xml_converter.py` | DONE |

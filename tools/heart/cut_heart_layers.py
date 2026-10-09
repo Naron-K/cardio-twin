@@ -4,8 +4,8 @@ Cut the anatomical heart illustration into the layers the 2D stage animates.
 Input is one opaque PNG (`screen.png`): a heart cross-section drawn over a flat
 navy background, with closed outlines and a distinct flat fill per touching
 region.  Image models cannot segment, so the brief asked for a single
-machine-separable picture and the separation happens here — see
-`HEART_SPRITE_SPEC.md` for the brief and `docs/heart-asset.md` for the design.
+machine-separable picture and the separation happens here — see `BRIEF.md`
+beside this script for the brief the picture was commissioned from.
 
 Writes to `frontend/public/heart/`:
     base.png                    static myocardium, valves, vessel walls
@@ -15,7 +15,8 @@ Writes to `frontend/public/heart/`:
 Geometry in template.json is machine-owned and rewritten every run; labels,
 motion and flow bindings are hand-editable and preserved.
 
-Run from the repo root:  python tools/cut_heart_layers.py
+Run from the repo root:  python tools/heart/cut_heart_layers.py
+Needs numpy, pillow and scipy, which the backend itself does not.
 """
 import json
 import os
@@ -25,8 +26,9 @@ import numpy as np
 from PIL import Image, ImageFilter
 from scipy import ndimage
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC = os.path.join(ROOT, "screen.png")
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(HERE))
+SRC = os.path.join(HERE, "screen.png")
 IMG_OUT = os.path.join(ROOT, "frontend", "public", "heart")
 TEMPLATE_OUT = os.path.join(IMG_OUT, "template.json")
 

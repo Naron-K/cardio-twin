@@ -14,10 +14,10 @@ PowerShell — the two shells disagree about the one line anybody actually wants
 to type.
 
 This sets the *default* lamina — what a request that names none will get.  It
-is no longer the only way to change lamina: the 2D view has a picker, and both
+is not the only way to change lamina: the dashboard has a picker, and both
 /api/schema and /ws/feedback take a `lamina` id per request, so switching does
 not need a restart and two tabs can hold two laminae at once.  What this script
-still decides is where a bare `#twin` lands.
+still decides is which lamina a bare URL opens.
 """
 from __future__ import annotations
 

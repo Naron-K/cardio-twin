@@ -76,7 +76,9 @@ cardio-twin/
 │
 ├── presets/                       # Example patient XML files
 ├── test_dataset/                  # Synthetic patient profiles
+├── tools/heart/                   # Cuts the heart illustration into the layers the stage animates
 └── docs/                          # Design notes and briefs (see Documentation below)
+    └── design/                    # Working plans and decisions from each development phase
 ```
 
 **Stack:** Python 3.10+ / FastAPI — React 19 / Vite / TypeScript / TailwindCSS / Recharts
@@ -87,25 +89,26 @@ cardio-twin/
 
 ### Prerequisites
 
-- Python 3.10 or higher
-- Node.js 18 or higher
+- Python 3.10 or higher (tested on 3.12)
+- Node.js 20.19+ or 22.12+ (required by Vite 8)
 
 ### 1. Start the backend
 
 ```bash
 cd backend
 pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
+python serve.py
 ```
 
 The API will be available at `http://localhost:8000`.
 Interactive API documentation (Swagger UI) is at `http://localhost:8000/docs`.
+Run the tests with `python -m pytest tests -q`.
 
 ### 2. Start the frontend
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
@@ -220,6 +223,10 @@ This is the format `POST /api/upload` accepts. The files in `presets/` demonstra
 - [Universal visualisation](./docs/universal-visualisation.md) — why the screen is built from the schema
 - [Laminae](./docs/laminae.md) — what a lamina has to declare to join a body
 - [Skeleton diagram brief](./docs/skeleton-diagram-brief.md) and [circulatory diagram brief](./docs/circulatory-diagram-brief.md) — the engine, and the engine with the circulatory lamina loaded
+- [The lamina seam](./docs/gate-transmission.html) — what crosses between two laminae, and the gates on each side
+- [Architecture refactor](./docs/architecture_refactor.md) — the move to a multi-lamina foundation, and what of it is still unbuilt
+- [`docs/design/`](./docs/design/) — working plans from each phase: the feedback loop, permeability gates, two-sided gate channels, lamina switching
+
 ---
 
 ## License

@@ -1,0 +1,235 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  CardioTwin: Circulatory lamina, function models for review
+  ==========================================================
+
+  Extracted on 2026-10-09 from the running model:
+    backend/circulatory_lamina.xml  (lamina_circulatory, version 2.0): declarations
+    backend/circulatory_lamina.py   (CirculatoryLamina): the arithmetic that actually runs
+
+  This file is a review copy. The application does not load it, so editing it
+  changes nothing in the model.
+
+  Contents
+    <how_the_model_runs>  what one computation cycle does
+    <inputs>              the 11 measured (SENSOR) attributes the functions read
+    <functions>           the 9 function models, in execution order. For each one:
+                            name, formula, inputs, output, description  (verbatim from the model)
+                            value_at_baseline                           (computed by the real code)
+                            implementation_note                         (what the Python does that the formula text does not say)
+    <dependency_chain>    which inputs reach which outputs
+    <open_points>         points found while preparing this extract, for discussion
+
+  The `wearable` attribute on each input was added for the October 2026 meeting
+  on the athlete BDT. It is not part of the model.
+-->
+<function_review lamina="lamina_circulatory"
+                 lamina_name="Circulatory"
+                 lamina_version="2.0"
+                 extracted="2026-10-09">
+
+  <how_the_model_runs>
+    The model does not predict. Each time a sensor value changes, it recalculates
+    every function once, in step order (1, 2, 3a, 3b, 3c, 3d, 4, 5, 6), as an
+    algebraic steady-state chain with no time step (behaviour_solver
+    type="algebraic_chain").
+
+    Each computed value has two parts: X' from the function below, plus X''
+    from the feedback loop (coupling type="additive"). The feedback loop may write
+    only onto computed (PRELIMINARY) attributes. It never changes a measured
+    (SENSOR) input.
+
+    Every value_at_baseline below is X' alone: all 11 inputs at their declared
+    baseline, with no feedback correction applied.
+  </how_the_model_runs>
+
+  <!-- ============================================================ -->
+  <!-- INPUTS: measured (SENSOR) attributes                         -->
+  <!-- wearable = can a consumer wearable (Apple Watch, Garmin,     -->
+  <!-- Oura) supply it? Added for the meeting, not part of model.   -->
+  <!-- ============================================================ -->
+  <inputs>
+    <attribute id="HR"  name="Heart Rate"                unit="bpm"    min="40"   max="200"   baseline="72"   wearable="yes" />
+    <attribute id="SBP" name="Systolic Blood Pressure"   unit="mmHg"   min="90"   max="180"   baseline="120"  wearable="no: needs a cuff (cuff readings can be stored in Apple Health)" />
+    <attribute id="DBP" name="Diastolic Blood Pressure"  unit="mmHg"   min="60"   max="120"   baseline="80"   wearable="no: needs a cuff (cuff readings can be stored in Apple Health)" />
+    <attribute id="EDV" name="End-Diastolic Volume"      unit="mL"     min="50"   max="250"   baseline="120"  wearable="no: echocardiography" />
+    <attribute id="eta" name="Blood Viscosity"           unit="mPa.s"  min="3.0"  max="4.0"   baseline="3.5"  wearable="no: blood test" />
+    <attribute id="L"   name="Vessel Length"             unit="cm"     min="1.0"  max="100.0" baseline="50"   wearable="no: one representative segment, not a measurable quantity" />
+    <attribute id="r"   name="Vessel Radius"             unit="cm"     min="0.01" max="1.5"   baseline="0.15" wearable="no: imaging" />
+    <attribute id="r_m" name="Membrane Resistance"       unit="ohm.cm" min="1000" max="10000" baseline="5000" wearable="no: electrophysiology" />
+    <attribute id="r_i" name="Intracellular Resistance"  unit="ohm/cm" min="100"  max="500"   baseline="200"  wearable="no: electrophysiology" />
+    <attribute id="r_e" name="Extracellular Resistance"  unit="ohm/cm" min="100"  max="500"   baseline="300"  wearable="no: electrophysiology" />
+    <attribute id="CVP" name="Central Venous Pressure"   unit="mmHg"   min="0"    max="12"    baseline="5"    wearable="no: invasive catheter" />
+  </inputs>
+
+  <!-- ============================================================ -->
+  <!-- FUNCTIONS, in execution order                                -->
+  <!-- ============================================================ -->
+  <functions>
+
+    <function id="pressure_regulation" step="1">
+      <name>Pressure Regulation</name>
+      <formula>MAP = (1/3)*SBP + (2/3)*DBP</formula>
+      <inputs>SBP, DBP</inputs>
+      <output id="MAP" unit="mmHg" min="60" max="110" />
+      <value_at_baseline>93.33</value_at_baseline>
+      <description>Computes mean arterial pressure. DBP weighted 2/3 because diastole is ~2x longer than systole.</description>
+      <implementation_note>Matches the formula exactly.</implementation_note>
+    </function>
+
+    <function id="vascular_resistance" step="2">
+      <name>Vascular Resistance</name>
+      <formula>R = 8*eta*L / (pi * r^4)</formula>
+      <inputs>eta, L, r</inputs>
+      <output id="R" unit="mmHg.min/L" min="10" max="40" />
+      <value_at_baseline>39.62</value_at_baseline>
+      <description>Poiseuille's Law for a single rigid cylindrical segment. r^4 dependence: 50% radius reduction = 16x resistance increase. Assumes steady laminar Newtonian flow in one rigid tube — it is a representative estimate, not whole-body SVR.</description>
+      <implementation_note>The formula is evaluated in CGS units (dyne.s/cm^5) and converted to mmHg.min/L by multiplying by 60 / (1333.22 * 1000). eta enters the formula as declared, without converting mPa.s to poise. See open point 1.</implementation_note>
+    </function>
+
+    <function id="cardiac_filling" step="3a">
+      <name>Cardiac Filling</name>
+      <formula>SV = k * EDV (with Starling limit)</formula>
+      <inputs>EDV</inputs>
+      <output id="SV" unit="mL" min="30" max="150" />
+      <value_at_baseline>66.00</value_at_baseline>
+      <description>Frank-Starling Law. Heart pumps what it receives, capped at physiological limit.</description>
+      <implementation_note>SV = k * min(EDV, EDV_limit), with k = 0.55 and EDV_limit = 200 mL. Both constants are in the Python class, not in the XML. The code also holds two alternative profiles, heart failure (k = 0.30, limit = 150 mL) and athletic (k = 0.65, limit = 220 mL), but nothing in the application selects them. See open point 3.</implementation_note>
+    </function>
+
+    <function id="cardiac_pump" step="3b">
+      <name>Cardiac Pump</name>
+      <formula>CO = HR * SV / 1000</formula>
+      <inputs>HR, SV</inputs>
+      <output id="CO" unit="L/min" min="2" max="12" />
+      <value_at_baseline>4.75</value_at_baseline>
+      <description>Primary pump output. HR from Apple Watch, SV from cardiac_filling.</description>
+      <implementation_note>Matches the formula exactly.</implementation_note>
+    </function>
+
+    <function id="cardiac_rhythm" step="3c">
+      <name>Cardiac Rhythm</name>
+      <formula>T_cycle = 60 / HR</formula>
+      <inputs>HR</inputs>
+      <output id="T_cycle" unit="s" min="0.30" max="1.60" />
+      <value_at_baseline>0.833</value_at_baseline>
+      <description>Cycle length from rate. Arithmetically trivial, but it is what lets a consumer read rhythm as a model output instead of reaching for the HR sensor — the model carries the complexity, the consumer reads a result.</description>
+      <implementation_note>Matches the formula. Raises an error if HR is not positive.</implementation_note>
+    </function>
+
+    <function id="systolic_interval" step="3d">
+      <name>Systolic Interval</name>
+      <formula>T_sys = 0.413 - 0.0017 * HR</formula>
+      <inputs>HR</inputs>
+      <output id="T_sys" unit="s" min="0.08" max="0.42" />
+      <value_at_baseline>0.291</value_at_baseline>
+      <description>Weissler's regression for left ventricular ejection time (seconds, adult male resting cohort). Replaces a fixed systolic fraction: ejection time falls with rate far more slowly than cycle length does, so systole takes up a larger share of a fast cycle. Coefficients are population regression, not per-patient — worth recalibrating against a real cohort before clinical claims.</description>
+      <implementation_note>Floored at 0.05 s. Within the declared HR range (up to 200 bpm) the floor is never reached. See open point 4.</implementation_note>
+    </function>
+
+    <function id="hemodynamic_flow" step="4">
+      <name>Hemodynamic Flow</name>
+      <formula>Q = (MAP - CVP) / R</formula>
+      <inputs>MAP, R, CVP</inputs>
+      <output id="Q" unit="L/min" min="0.5" max="15" />
+      <value_at_baseline>2.23</value_at_baseline>
+      <description>Ohm's Law for hemodynamics. Driving pressure is the arterio-venous gradient (MAP - CVP), not MAP alone; CVP was a Python constant and is now a declared SENSOR attribute (baseline 5 mmHg) a domain expert can edit. NOTE: R here is a single-segment Poiseuille estimate, so Q's ABSOLUTE value is unreliable; trust its trend, not its magnitude (see R).</description>
+      <implementation_note>Matches the formula. Raises an error if R is not positive. See open point 2.</implementation_note>
+    </function>
+
+    <function id="electrical_conduction" step="5">
+      <name>Electrical Conduction</name>
+      <formula>lambda = sqrt(r_m / (r_i + r_e))</formula>
+      <inputs>r_m, r_i, r_e</inputs>
+      <output id="lambda" unit="mm" min="0.5" max="5.0" />
+      <value_at_baseline>3.16</value_at_baseline>
+      <description>Cable Theory length constant lambda = sqrt(r_m / (r_i + r_e)). Relates to passive conduction (a longer lambda spreads charge further); the link to P-wave / arrhythmia risk is indirect and should be treated as illustrative, not diagnostic.</description>
+      <implementation_note>Matches the formula. No other function reads lambda. See open point 5.</implementation_note>
+    </function>
+
+    <function id="systemic_resistance" step="6">
+      <name>Systemic Vascular Resistance</name>
+      <formula>SVR = (MAP - CVP) / CO</formula>
+      <inputs>MAP, CO, CVP</inputs>
+      <output id="SVR" unit="mmHg.min/L" min="5" max="40" />
+      <value_at_baseline>18.59</value_at_baseline>
+      <description>Derived whole-body resistance from what the twin already measures: MAP from the SBP/DBP cuff, CO from the HR and EDV sensors, CVP from the declared CVP sensor. Dividing the arterio-venous gradient by the pump's output gives the resistance the pressure branch was missing — R (step 2) is a single-segment Poiseuille estimate that cannot move with the pump, so it can never reconcile Q with CO; SVR can.</description>
+      <implementation_note>Matches the formula. Raises an error if CO is zero or negative, or if any input is missing or not finite.</implementation_note>
+    </function>
+
+  </functions>
+
+  <!-- ============================================================ -->
+  <!-- DEPENDENCY CHAIN                                             -->
+  <!-- ============================================================ -->
+  <dependency_chain>
+    <branch name="pump">     HR, EDV  -> SV -> CO</branch>
+    <branch name="rhythm">   HR       -> T_cycle, T_sys</branch>
+    <branch name="pressure"> SBP, DBP -> MAP</branch>
+    <branch name="vessel">   eta, L, r -> R ; MAP, R, CVP -> Q</branch>
+    <branch name="systemic"> MAP, CO, CVP -> SVR</branch>
+    <branch name="conduction"> r_m, r_i, r_e -> lambda   (standalone, not connected to the other branches)</branch>
+  </dependency_chain>
+
+  <!-- ============================================================ -->
+  <!-- OPEN POINTS: found while preparing this extract              -->
+  <!-- ============================================================ -->
+  <open_points>
+
+    <point id="1" function="vascular_resistance">
+      Units of eta. eta is declared in mPa.s but enters the CGS formula unconverted.
+      Since 1 mPa.s = 0.01 poise, R comes out 100 times larger than with consistent units.
+      At baseline: R = 39.62 mmHg.min/L as computed, against 0.40 mmHg.min/L with eta in poise.
+      The computed value sits at the top of R's declared range (10 to 40). The description of R
+      says it is "calibrated" to land in the systemic range, and this factor of 100 is where
+      that calibration comes from. Question: keep it as an explicit, declared calibration
+      factor, or drop R in favour of SVR (step 6)?
+    </point>
+
+    <point id="2" function="hemodynamic_flow">
+      Q and CO disagree. Both are a flow in L/min, but at baseline Q = 2.23 while CO = 4.75,
+      a difference of about 2x, because Q divides by the single-segment R. SVR (step 6) was
+      added to give a resistance that moves with the pump. Question: should Q and R stay in
+      the model for their trend only, or be disabled?
+    </point>
+
+    <point id="3" function="cardiac_filling">
+      The Frank-Starling constants k = 0.55 and EDV_limit = 200 mL are hidden in Python, so
+      they cannot be reviewed or changed in the XML. For an athlete twin, the existing
+      "athletic" profile (k = 0.65, limit = 220 mL) is relevant but currently unused.
+      Proposal: move k and EDV_limit into the XML as declared parameters.
+    </point>
+
+    <point id="4" function="systolic_interval">
+      Weissler's regression was fitted on resting subjects. Used together with T_cycle, it gives
+      a systolic fraction (T_sys / T_cycle) that rises with HR only up to about 120 bpm and then
+      falls again: 0.27 at 50 bpm, 0.35 at 72, 0.42 at 120, 0.35 at 170, 0.29 at 190 bpm.
+      Physiologically, systole takes a larger share of the cycle as HR rises, which is also what
+      the function's own description says. Exercise heart rates in athletes (150 to 190 bpm) fall
+      in the range where the extrapolated regression reverses. Question: is another LVET relation
+      valid at exercise heart rates, or should HR be capped for this function?
+    </point>
+
+    <point id="5" function="electrical_conduction">
+      Units of lambda. With r_m in ohm.cm and r_i, r_e in ohm/cm, sqrt(r_m / (r_i + r_e))
+      has units of cm, but the output is labelled mm. Read as cm, the baseline 3.16 is
+      31.6 mm, outside the declared range of 0.5 to 5 mm. lambda also feeds no other
+      function. Question: correct the unit, or disable this branch for the athlete level 1?
+    </point>
+
+    <point id="6" function="all">
+      Wearable coverage for the athlete level 1. Of the 11 inputs, only HR comes from a
+      consumer wearable, and SBP/DBP come from a cuff. As a result:
+        - T_cycle and T_sys are fully driven by wearable data.
+        - MAP needs a cuff.
+        - SV and CO need EDV, which no wearable measures, so EDV must be held at a declared
+          value or estimated by the model.
+        - SVR needs MAP, CO and CVP.
+        - R, Q and lambda need inputs that no wearable provides.
+      Question: for each input that is not measured, should it be disabled, held at its
+      declared baseline (and shown as assumed), or estimated through the feedback loop?
+    </point>
+
+  </open_points>
+
+</function_review>

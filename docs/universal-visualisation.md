@@ -93,9 +93,11 @@ simply has no stage, and the lamina map takes the centre.
 
 ## What is on screen
 
-**Centre.** Artwork if this lamina has any, otherwise the map. The mode switch
-is assembled from what exists: the template-driven stage, its schematic
-overlay, any hand-authored alternates the registry declares, and the map.
+The app is one dashboard (`components/dashboard/Dashboard.tsx`) in four zones:
+data sources, the twin, outcomes, and deviation over time. The twin zone shows
+the artwork if this lamina has any (otherwise the map), a trend per computed
+attribute, or a table of inputs beside outputs. The views below live behind
+**Inspect**, a drawer built from the same view registry.
 
 **Lamina map** — the flagship, and the only view that shows the model's shape
 rather than its values. The forward band reads left to right: inputs →
@@ -136,8 +138,8 @@ had ever drawn it.
 **Machinery** — what this lamina selected and what it selected from, plus every
 declared gate.
 
-**Left rail** — one control per SENSOR attribute, span from its declared range,
-grouped by the segment that lists it. These are inputs, not readings: the stage
+**Data sources** — one control per SENSOR attribute, span from its declared
+range, grouped by the ingestion channel the lamina maps it to. These are inputs, not readings: the stage
 takes the computed half of the snapshot as its single data prop and has no prop
 through which a sensor could arrive.
 

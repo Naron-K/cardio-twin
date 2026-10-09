@@ -11,32 +11,40 @@ CardioTwin is a browser-based physiological digital twin for the cardiovascular 
 
 ## Overview
 
-The system allows researchers, clinicians, and students to:
+The app is a single dashboard, read left to right the way the data travels:
 
-- Adjust patient sensor inputs via interactive sliders and observe computed haemodynamic values instantly
-- Upload patient data as XML files or load built-in clinical presets (normal, hypertension, heart failure)
-- Visualise results through semi-circle gauges, composite radar charts, and tabular vector views
-- Save and restore named patient profiles in the browser
-- Download full simulation results as structured XML
+1. **Data sources** — the lamina's inputs, grouped by the ingestion channel each one is mapped to, with a slider per input
+2. **Digital twin** — what the model computes from them every cycle, shown as an animated heart, a trend per computed attribute, or a table of inputs beside outputs
+3. **Outcomes** — each behavioural outcome against the target and tolerance the model declares
+4. **Over time** — total distance from the targets, with the feedback loop on and with it off
+
+Everything on screen is built from the lamina XML and the live model state; the UI holds no attribute names, units or thresholds of its own. The functions, segments, feedback loop, composites and pipeline configuration are one click away under **Inspect**.
+
+Readings are currently generated around the baselines the XML declares, and the dashboard says so. No wearable device is connected yet.
 
 ---
 
 ## Simulation Model
 
-The cardiovascular simulation (`CirculatoryLamina`) computes six derived variables from ten sensor inputs using established physiological laws:
+The circulatory lamina (`CirculatoryLamina`) computes nine attributes from eleven sensor inputs:
 
 | Step | Variable | Law / Model |
 |------|----------|-------------|
-| 1 | Mean Arterial Pressure (MAP) | Weighted average of SBP and DBP |
-| 2 | Vascular Resistance (R) | Poiseuille's Law |
+| 1 | Mean Arterial Pressure (MAP) | MAP = (1/3)·SBP + (2/3)·DBP |
+| 2 | Vascular Resistance (R) | Poiseuille's Law, one representative segment |
 | 3a | Stroke Volume (SV) | Frank-Starling Law |
-| 3b | Cardiac Output (CO) | CO = HR x SV |
-| 4 | Haemodynamic Flow (Q) | Ohm's analogy: Q = delta-P / R |
+| 3b | Cardiac Output (CO) | CO = HR · SV |
+| 3c | Cardiac Cycle Length (T_cycle) | T_cycle = 60 / HR |
+| 3d | Ventricular Ejection Time (T_sys) | Weissler's regression |
+| 4 | Haemodynamic Flow (Q) | Q = (MAP − CVP) / R |
 | 5 | Conduction Length Constant (lambda) | Cable Theory |
+| 6 | Systemic Vascular Resistance (SVR) | SVR = (MAP − CVP) / CO |
 
-All computed values are normalised to a `[0, 1]` physiological range. Physiological gate checks flag abnormal values and model inconsistencies as warnings.
+The model does not predict: each time an input changes, it recalculates every state and outcome at once. A feedback loop adds a correction (X″) to computed values to pull outcomes towards their targets; it never changes a measured input.
 
-The schema (`circulatory_lamina.xml`) defines all attributes, physiological ranges, composite groupings, and gate conditions. Extending the model — adding new sensors, adjusting ranges, or defining new gates — requires only XML edits, with no changes to application code.
+The schema (`circulatory_lamina.xml`) defines all attributes, physiological ranges, functions, composites, outcomes and gates. Adjusting ranges, targets or groupings requires only XML edits. A new function still needs its arithmetic registered in the lamina's Python class.
+
+[`docs/circulatory_functions_review.xml`](./docs/circulatory_functions_review.xml) lists the nine functions as they run, with their values at baseline and the open points found while cross-checking the XML against the code.
 
 ---
 
@@ -45,37 +53,30 @@ The schema (`circulatory_lamina.xml`) defines all attributes, physiological rang
 ```
 cardio-twin/
 ├── backend/
-│   ├── universal_twin.py          # Base class: XML parsing, dependency resolution, gate validation
-│   ├── circulatory_lamina.py      # Cardiovascular physics functions
-│   ├── circulatory_lamina.xml     # Domain schema (attributes, composites, gates, functions)
-│   ├── main.py                    # FastAPI REST API
-│   ├── xml_converter.py           # XML <-> JSON utilities
-│   └── requirements.txt
+│   ├── universal_twin.py          # Domain-neutral engine: XML parsing, function chain, gates, feedback loop
+│   ├── circulatory_lamina.py/.xml # Circulatory lamina: physics + its declaration
+│   ├── respiratory_lamina.py/.xml # Respiratory lamina
+│   ├── metabolic_lamina.py/.xml   # Metabolic lamina
+│   ├── laminae.py                 # Pairs each lamina XML with the class holding its arithmetic
+│   ├── organism.py, organism*.xml # Bodies: several laminae joined by gated channels
+│   ├── feedback_controller.py     # Adaptive feedback loop
+│   ├── session.py, streaming_runtime.py, signal_source.py, snapshot.py  # Live stream
+│   ├── main.py, serve.py          # FastAPI app and launcher
+│   └── tests/
 │
 ├── frontend/
 │   └── src/
-│       ├── App.tsx                # Main application component
+│       ├── App.tsx                # The one screen, and its URL state
 │       ├── components/
-│       │   ├── Sidebar.tsx        # Sensor input sliders
-│       │   ├── GaugeChart.tsx     # Semi-circle gauges (MAP, CO, Q)
-│       │   ├── CardioRadarChart.tsx  # Composite radar chart
-│       │   ├── DataTable.tsx      # Tabular vector view
-│       │   ├── XMLUpload.tsx      # File upload and preset loader
-│       │   ├── ProfileManager.tsx # Save / load / export patient profiles
-│       │   ├── Toast.tsx          # Notification system
-│       │   └── ErrorBoundary.tsx  # Top-level error handler
-│       └── utils/
-│           ├── api.ts             # Typed API client
-│           └── localStorage.ts   # Profile persistence helpers
+│       │   ├── dashboard/         # The dashboard: zones, tiles, trends, table, Inspect drawer
+│       │   └── twin/              # Panels the dashboard and Inspect are built from
+│       ├── hooks/                 # Live stream + per-lamina structure
+│       ├── twin/                  # Schema index, view registry, stage template, outcome helpers
+│       └── utils/api.ts           # /api/laminae and /api/schema client
 │
-├── presets/
-│   ├── normal.xml
-│   ├── hypertension.xml
-│   └── heart_failure.xml
-│
-└── docs/
-    ├── development_guide.md
-    └── roadmap.md
+├── presets/                       # Example patient XML files
+├── test_dataset/                  # Synthetic patient profiles
+└── docs/                          # Design notes and briefs (see Documentation below)
 ```
 
 **Stack:** Python 3.10+ / FastAPI — React 19 / Vite / TypeScript / TailwindCSS / Recharts
@@ -135,10 +136,17 @@ If something else already holds port 8000, start the backend on another port
 
 ## API Reference
 
+The dashboard uses the first three; the rest remain available for scripts.
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/schema` | Returns full schema (attributes, composites, functions) as JSON |
+| GET | `/api/laminae` | The laminae this backend can serve, and the default |
+| GET | `/api/schema` | Full lamina structure (attributes, functions, segments, composites, outcomes, tags, gates) as JSON |
+| WS | `/ws/feedback` | Live stream: one model snapshot per cycle; accepts `set_sensor`, `pause`, `resume`, `reset` |
+| GET | `/api/organisms`, `/api/organism` | Bodies of several laminae and the channels between them |
+| WS | `/ws/organism` | Live stream for a body |
 | POST | `/api/compute` | Accepts sensor values, returns computed results and vectors |
+| POST | `/api/feedback/step`, `/api/feedback/run` | Run the feedback loop one or many cycles |
 | POST | `/api/upload` | Accepts a patient XML file, returns computed results |
 | POST | `/api/download` | Accepts a results object, returns formatted XML for download |
 
@@ -192,13 +200,15 @@ Patient input files follow this structure:
 </patient>
 ```
 
-The three preset files in `presets/` demonstrate the expected format for normal, hypertensive, and heart failure scenarios.
+This is the format `POST /api/upload` accepts. The files in `presets/` demonstrate it for normal, hypertensive, and heart failure scenarios.
 
 ---
 
 ## Known Limitations
 
-- **Q vs CO gate warning on the normal preset:** The flow variable Q is computed via MAP/R (Ohm's analogy) while cardiac output CO uses HR x SV (Frank-Starling). These two independent pathways may diverge by more than the 10% gate tolerance under typical inputs. This is a known model characteristic, not an error.
+- **Q and CO disagree:** Q divides by R, a single-segment Poiseuille estimate, so at baseline Q is about 2.2 L/min while CO is about 4.75 L/min. Trust Q's trend, not its magnitude. SVR = (MAP − CVP) / CO is the resistance that moves with the pump.
+- **Outcomes outside tolerance at a healthy baseline:** SVR (≈18.6 against a target of 14 ± 4) and lambda read outside tolerance with every input at its declared baseline. These are open questions about the targets and units, listed in `docs/circulatory_functions_review.xml`.
+- **No device input yet:** every reading is generated around the baselines the XML declares. The lamina maps its inputs to channels, but no wearable channel exists yet.
 - **Windows terminal encoding:** The Omega character in console output may render incorrectly on some Windows terminals. This is cosmetic and does not affect computation.
 - **Local deployment only:** This MVP is designed for local research use. There is no authentication, database, or cloud deployment.
 
@@ -206,9 +216,10 @@ The three preset files in `presets/` demonstrate the expected format for normal,
 
 ## Documentation
 
-- [Development Guide](./docs/development_guide.md) — Architecture decisions, tech stack rationale, and design patterns
-- [Roadmap](./docs/roadmap.md) — Four-week development plan with deliverables
-
+- [Circulatory functions for review](./docs/circulatory_functions_review.xml) — the nine functions as they run, values at baseline, open points
+- [Universal visualisation](./docs/universal-visualisation.md) — why the screen is built from the schema
+- [Laminae](./docs/laminae.md) — what a lamina has to declare to join a body
+- [Skeleton diagram brief](./docs/skeleton-diagram-brief.md) and [circulatory diagram brief](./docs/circulatory-diagram-brief.md) — the engine, and the engine with the circulatory lamina loaded
 ---
 
 ## License

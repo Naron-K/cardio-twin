@@ -8,6 +8,31 @@ html {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* ── Touch display ─────────────────────────────────────────────────────────
+   The dashboard is also shown on a wall-mounted touch board.  A downward drag
+   there must move a slider, not pull the page into a reload, and a tap must
+   not flash the browser's grey highlight over a panel. */
+html,
+body {
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (pointer: coarse) {
+  /* A drag across a label would otherwise start a text selection, and a long
+     press would open the selection handles instead of the description. */
+  body {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+  input,
+  textarea {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+}
+
 @layer utilities {
   /* Pixel sprites must never be smoothed by the browser. */
   .pixelated {
@@ -102,4 +127,35 @@ input[type='range']::-moz-range-thumb {
   border-radius: 50%;
   background: #22d3ee;
   cursor: pointer;
+}
+
+/* A 14px thumb is a mouse target.  Under a finger the control needs a thumb
+   about the size of a fingertip and a hit area taller than the 4px track, so
+   the input grows to 32px, turns transparent, and the track is drawn inside
+   it instead. */
+@media (pointer: coarse) {
+  input[type='range'] {
+    height: 32px;
+    background: transparent;
+  }
+  input[type='range']::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 9999px;
+    background: #040e1f; /* surface-lowest */
+  }
+  input[type='range']::-webkit-slider-thumb {
+    width: 28px;
+    height: 28px;
+    margin-top: -12px; /* centres the thumb on the 4px track */
+    box-shadow: 0 0 0 4px rgb(34 211 238 / 0.18);
+  }
+  input[type='range']::-moz-range-track {
+    height: 4px;
+    border-radius: 9999px;
+    background: #040e1f;
+  }
+  input[type='range']::-moz-range-thumb {
+    width: 28px;
+    height: 28px;
+  }
 }

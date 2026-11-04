@@ -56,6 +56,11 @@ interface Props {
   onChange: (id: string, value: number) => void
 }
 
+/** A declared range end as people write it: 90–180, not 90.00–180.0. */
+function fmtBound(v: number): string {
+  return String(Number(v.toPrecision(4)))
+}
+
 export function InputRail({
   index,
   values,
@@ -124,6 +129,15 @@ export function InputRail({
               // appear and vanish at 10 Hz, which is worse than either.
               const noisy = (attr.noise_sigma ?? 0) > 0
               const showReading = reading !== undefined && noisy
+              // The control stops at the declared range, and the model refuses
+              // anything past it. A thumb pinned at the end with no word looks
+              // like a control that has stopped responding, so say where the
+              // edge is — once the reader has pushed it there, not when a
+              // baseline merely happens to sit on it.
+              const halfStep = span / 400
+              const atLow = set <= attr.physio_min + halfStep
+              const atHigh = set >= attr.physio_max - halfStep
+              const atLimit = commanded[id] !== undefined && (atLow || atHigh)
 
               return (
                 <label key={id} className="block" title={attr.description}>
@@ -154,6 +168,12 @@ export function InputRail({
                     className="mt-1 w-full h-1 appearance-none rounded-full bg-surface-lowest
                                accent-crimson-container disabled:opacity-40 cursor-pointer"
                   />
+                  {atLimit && (
+                    <span role="status" className="block mt-0.5 font-mono text-[10px] readout text-warn tabular-nums">
+                      {atLow ? 'Lowest' : 'Highest'} value the model accepts · range{' '}
+                      {fmtBound(attr.physio_min)}–{fmtBound(attr.physio_max)} {attr.unit}
+                    </span>
+                  )}
                   {showReading && (
                     <span className="block mt-0.5 font-mono text-[9px] readout text-ink/30 tabular-nums">
                       reading {fmtValue(reading)} {attr.unit}

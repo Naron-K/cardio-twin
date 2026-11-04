@@ -283,7 +283,7 @@ export function LaminaMap({
           ))}
         </div>
         <p className="font-mono text-[9px] readout text-ink/25 mt-1">
-          Every box and line is declared in {index.schema.lamina_id} — hover a node to isolate what
+          Every box and line is declared in {index.schema.lamina_id} — hover or tap a node to isolate what
           it reads and what reads it. The lower band is the correction returning.
         </p>
       </div>

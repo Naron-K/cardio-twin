@@ -168,7 +168,16 @@ export interface InboundProvenance {
   offer_waiting?: boolean
 }
 
-export type StreamStatus = 'connecting' | 'open' | 'closed'
+/**
+ * The connection lifecycle, plus one state the socket itself cannot express.
+ *
+ * `suspended` is not a network condition: the caller asked for no stream
+ * (`enabled: false`) and the hook deliberately closed the socket.  Without a
+ * word for that, "off on purpose" and "dropped, retrying" both read as
+ * `closed`, and a screen ends up offering a retry for something the user just
+ * switched off.
+ */
+export type StreamStatus = 'connecting' | 'open' | 'closed' | 'suspended'
 
 // Control message shapes — mirrors the WebSocket protocol in main.py
 export type ControlMsg =
@@ -176,6 +185,24 @@ export type ControlMsg =
   | { type: 'pause' }
   | { type: 'resume' }
   | { type: 'reset' }
+  /** Idle liveness frame — see KEEPALIVE_MS for why it exists. */
+  | { type: 'keepalive' }
+
+/**
+ * A frame the backend sends instead of a snapshot when it refuses a control
+ * message.  The codes are the backend's vocabulary (`unknown_input`,
+ * `invalid_value`, `out_of_range`, `bad_message`), and `id` names the sensor
+ * the refusal was about when there was one.
+ *
+ * This exists because the old hook could only report a close: a refused
+ * slider move left the control looking accepted while the model ignored it.
+ */
+export interface ServerNotice {
+  level: 'warning' | 'error'
+  code: string
+  id: string | null
+  message: string
+}
 
 export interface UseCardioStreamOptions {
   /** Tick interval in ms (default 100 = 10 Hz). */
@@ -190,12 +217,29 @@ export interface UseCardioStreamOptions {
    * present.
    */
   lamina?: string | null
+  /**
+   * Whether the caller wants a stream at all (default true).  False closes the
+   * socket and stops reconnecting — a caller switching the twin off is not a
+   * network drop, and retrying on its behalf would fight the switch.  Turning
+   * it back on connects immediately; the replayed controls make it look as
+   * though the stream never left.
+   */
+  enabled?: boolean
+  /** Every notice frame the backend sends, including those for refusals. */
+  onNotice?: (n: ServerNotice) => void
+  /**
+   * The socket opened again after having been open before, for this lamina.
+   * `restored` is how many sensor values were replayed onto the fresh session
+   * so the caller can say the controls were carried over rather than reset.
+   */
+  onReconnect?: (restored: number) => void
 }
 
 export interface UseCardioStreamResult {
   ticks: StreamTick[]
   status: StreamStatus
-  sendControl: (msg: ControlMsg) => void
+  /** True when the message went onto an open socket; false when it was only recorded. */
+  sendControl: (msg: ControlMsg) => boolean
   /**
    * When the last tick arrived, as epoch ms — null before the first one.
    *
@@ -206,6 +250,24 @@ export interface UseCardioStreamResult {
   lastTickAt: number | null
   /** Why the server closed the socket, when it said — e.g. an unknown lamina. */
   closeReason: string | null
+  /**
+   * Epoch ms of the next scheduled reconnect while status is 'closed';
+   * null when open, connecting, suspended, or refused (1008 has no retry).
+   * A countdown needs a deadline, not just "reconnecting".
+   */
+  retryAt: number | null
+  /** Consecutive closes since the last successful open; 0 while open. */
+  attempts: number
+  /** The socket has opened at least once for the current lamina. */
+  everOpened: boolean
+  /** Mirrors navigator.onLine, so the screen can blame the network instead of us. */
+  online: boolean
+  /**
+   * Skip the rest of the current backoff and connect now.  A no-op while open,
+   * connecting or suspended — there is either nothing to hurry or nothing to
+   * start.  Stable, so it can be passed straight to a button.
+   */
+  retryNow: () => void
 }
 
 // ── Snapshot parsing ───────────────────────────────────────────────────────────
@@ -301,9 +363,43 @@ function parseSnapshot(raw: unknown): StreamTick | null {
   }
 }
 
+// ── Notice frames ─────────────────────────────────────────────────────────────
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+/**
+ * A notice, or null when this frame is something else.
+ *
+ * Snapshot frames have no `type` key at all, so the tag is the only way to
+ * tell the two apart.  Every field is defaulted or type-checked: a notice
+ * missing `message` is still worth surfacing, and a notice with a number where
+ * a string belongs must not take the whole socket down with it.
+ */
+function parseNotice(raw: unknown): ServerNotice | null {
+  if (!isRecord(raw) || raw.type !== 'notice') return null
+  return {
+    level: raw.level === 'error' ? 'error' : 'warning',
+    code: typeof raw.code === 'string' ? raw.code : '',
+    id: typeof raw.id === 'string' ? raw.id : null,
+    message: typeof raw.message === 'string' ? raw.message : '',
+  }
+}
+
 // ── Hook ───────────────────────────────────────────────────────────────────────
 
 const MAX_BACKOFF_MS = 16_000
+
+/**
+ * How often an open socket says something with no data in it.
+ *
+ * A host that sleeps idle services — Render's free plan is one — counts inbound
+ * WebSocket messages as activity, and a screen someone is watching without
+ * touching sends none.  Four minutes is well inside the usual idle window and
+ * far cheaper than a reconnect every time someone reads a panel.
+ */
+const KEEPALIVE_MS = 4 * 60_000
 
 /**
  * Everything the socket has produced, and which lamina produced it.
@@ -320,6 +416,13 @@ interface StreamBuffer {
   ticks: StreamTick[]
   lastTickAt: number | null
   closeReason: string | null
+  /**
+   * Whether this lamina's socket has ever opened.  Carried in the tagged
+   * buffer for the same reason as the ticks: a stale buffer is read as the
+   * empty one, so a lamina switch resets this without a separate clearing
+   * effect (and without a render-time setState).
+   */
+  everOpened: boolean
 }
 
 /** Stable identity, so a mismatched buffer does not re-render on every read. */
@@ -328,16 +431,63 @@ const EMPTY_BUFFER: StreamBuffer = {
   ticks: [],
   lastTickAt: null,
   closeReason: null,
+  everOpened: false,
 }
 
 export function useCardioStream({
   tickMs    = 100,
   bufferSize = 120,
   lamina    = null,
+  enabled   = true,
+  onNotice,
+  onReconnect,
 }: UseCardioStreamOptions = {}): UseCardioStreamResult {
   const [buffer, setBuffer] = useState<StreamBuffer>(() => ({ ...EMPTY_BUFFER, lamina }))
-  const [status, setStatus] = useState<StreamStatus>('connecting')
+  const [status, setStatus] = useState<StreamStatus>(enabled ? 'connecting' : 'suspended')
+  const [retryAt, setRetryAt] = useState<number | null>(null)
+  const [attempts, setAttempts] = useState(0)
+  // Start "online": the first effect run below replaces this with the browser's
+  // answer.  Reading navigator in render would be a side effect during render,
+  // and a wrong value for one paint is less trouble than that.
+  const [online, setOnline] = useState(true)
   const wsRef = useRef<WebSocket | null>(null)
+
+  // Mirrors `status` for callbacks (retryNow, the online listener) that live
+  // outside the effect owning the socket.  Kept in step by setPhase() inside
+  // that effect rather than during render, so retryNow sees the phase the
+  // socket is in now, not the one from whichever render created it.
+  const statusRef = useRef<StreamStatus>(status)
+
+  // Whether this lamina has ever opened.  A ref rather than state because
+  // onReconnect is decided inside the socket callbacks, which must remember
+  // opens across the effect re-runs that `enabled` and the tick settings cause.
+  const everOpenedRef = useRef(false)
+
+  // What to put back onto a fresh server session.  The backend starts every
+  // connection from the lamina's baselines; the sliders on screen do not.  Hold
+  // the user's inputs here so a reconnect does not silently snap every control
+  // back to baseline while the rail still shows what they set.
+  const replayRef = useRef<{
+    lamina: string | null
+    sensors: Record<string, number>
+    paused: boolean
+  }>({ lamina: null, sensors: {}, paused: false })
+
+  // The online listener and retryNow reach the effect's connect() through this
+  // ref.  A ref keeps retryNow stable and stops a re-created listener from
+  // opening a second socket.
+  const retryNowRef = useRef<(() => void) | null>(null)
+
+  const onNoticeRef = useRef(onNotice)
+  const onReconnectRef = useRef(onReconnect)
+
+  // Latest-callback refs, refreshed after every render.  An effect rather than
+  // a render-time assignment so changing either callback cannot change what
+  // this hook renders; no dependency array so it is never stale.
+  useEffect(() => {
+    onNoticeRef.current = onNotice
+    onReconnectRef.current = onReconnect
+  })
 
   // Derived on read, not cleared on change: the moment `lamina` differs, the
   // buffer built for the previous one stops being this hook's answer.  No
@@ -345,9 +495,42 @@ export function useCardioStream({
   const own = buffer.lamina === lamina ? buffer : EMPTY_BUFFER
 
   useEffect(() => {
+    // A new lamina means none of the old lamina's controls mean anything on it,
+    // and its first open is not "again" for this lamina.  Compare against the
+    // ref's tag so a re-run for `enabled` or the tick settings keeps the replay
+    // and the reopen memory intact.
+    if (replayRef.current.lamina !== lamina) {
+      replayRef.current = { lamina, sensors: {}, paused: false }
+      everOpenedRef.current = false
+    }
+
+    /** Set both the rendered status and the ref retryNow reads, in one place. */
+    const setPhase = (next: StreamStatus) => {
+      statusRef.current = next
+      setStatus(next)
+    }
+
+    if (!enabled) {
+      const suspend = () => {
+        setPhase('suspended')
+        setRetryAt(null)
+      }
+      suspend()
+      retryNowRef.current = null
+      return
+    }
+
     let cancelled  = false
     let backoff    = 1_000
     let reconnTimer: ReturnType<typeof setTimeout> | null = null
+    let keepaliveTimer: ReturnType<typeof setInterval> | null = null
+
+    const stopKeepalive = () => {
+      if (keepaliveTimer) {
+        clearInterval(keepaliveTimer)
+        keepaliveTimer = null
+      }
+    }
 
     /** Write into this lamina's buffer, starting a fresh one if it is stale. */
     const record = (patch: (prev: StreamBuffer) => StreamBuffer) =>
@@ -358,7 +541,9 @@ export function useCardioStream({
     const connect = () => {
       if (cancelled) return
 
-      setStatus('connecting')
+      // Whatever we were waiting for, we are now connecting: no retry deadline.
+      setRetryAt(null)
+      setPhase('connecting')
 
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
       const query = new URLSearchParams({ tick_ms: String(tickMs) })
@@ -369,15 +554,60 @@ export function useCardioStream({
 
       ws.onopen = () => {
         if (cancelled) { ws.close(); return }
-        setStatus('open')
-        record((prev) => (prev.closeReason === null ? prev : { ...prev, closeReason: null }))
+
+        // Read the reopen flag before marking it: this open is the first for
+        // the lamina when the ref was still false, and a reopen otherwise.
+        const reopened = everOpenedRef.current
+        everOpenedRef.current = true
+        setPhase('open')
+        setAttempts(0)
+        setRetryAt(null)
+        record((prev) => ({ ...prev, everOpened: true, closeReason: null }))
         backoff = 1_000   // reset on successful connect
+
+        // The sliders still hold the user's values, but this session started
+        // from the lamina's baselines.  Put the recorded controls back before
+        // the first snapshot can paint over them.
+        const replay = replayRef.current
+        let restored = 0
+        for (const [id, value] of Object.entries(replay.sensors)) {
+          try {
+            ws.send(JSON.stringify({ type: 'set_sensor', id, value }))
+            restored += 1
+          } catch { /* socket went away mid-replay; the next open retries it */ }
+        }
+        if (replay.paused) {
+          try {
+            ws.send(JSON.stringify({ type: 'pause' }))
+          } catch { /* same as above */ }
+        }
+        if (reopened) onReconnectRef.current?.(restored)
+
+        // An idle screen sends no data, and some hosts count that as no
+        // activity.  Say something before they decide we have gone.
+        stopKeepalive()
+        keepaliveTimer = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            try {
+              ws.send(JSON.stringify({ type: 'keepalive' }))
+            } catch { /* closed between the check and the send */ }
+          }
+        }, KEEPALIVE_MS)
       }
 
       ws.onmessage = (ev: MessageEvent<string>) => {
         if (cancelled) return
         try {
-          const tick = parseSnapshot(JSON.parse(ev.data))
+          const frame: unknown = JSON.parse(ev.data)
+          // Notices are refusals, not readings: hand them to the caller and
+          // leave the buffer untouched.  parseNotice defaults every missing or
+          // mistyped field, so a bad notice cannot crash the socket.
+          const notice = parseNotice(frame)
+          if (notice) {
+            onNoticeRef.current?.(notice)
+            return
+          }
+          const tick = parseSnapshot(frame)
           if (tick) {
             record((prev) => ({
               ...prev,
@@ -392,36 +622,92 @@ export function useCardioStream({
 
       ws.onclose = (ev: CloseEvent) => {
         if (cancelled) return
-        setStatus('closed')
+        stopKeepalive()
+        setPhase('closed')
         // 1008 is the server refusing what was asked for — an unknown lamina,
         // today.  Retrying cannot fix that, and the reason is worth showing
         // rather than hiding behind an endless "Reconnecting".
         if (ev.code === 1008) {
           const reason = ev.reason || 'refused by the server'
           record((prev) => ({ ...prev, closeReason: reason }))
+          setRetryAt(null)
           return
         }
+        // Record the delay actually used before doubling, so a countdown can
+        // point at the same moment the timer will.
+        const delay = backoff
+        backoff = Math.min(backoff * 2, MAX_BACKOFF_MS)
+        setAttempts((n) => n + 1)
+        setRetryAt(Date.now() + delay)
         reconnTimer = setTimeout(() => {
-          backoff = Math.min(backoff * 2, MAX_BACKOFF_MS)
+          reconnTimer = null
           connect()
-        }, backoff)
+        }, delay)
       }
+    }
+
+    // Manual retry is only meaningful between closes: while open there is
+    // nothing to hurry, while connecting there is already one in flight, and
+    // while suspended the caller asked for no stream at all.
+    retryNowRef.current = () => {
+      if (cancelled || statusRef.current !== 'closed') return
+      if (reconnTimer) {
+        clearTimeout(reconnTimer)
+        reconnTimer = null
+      }
+      connect()
     }
 
     connect()
 
     return () => {
       cancelled = true
+      retryNowRef.current = null
       if (reconnTimer) clearTimeout(reconnTimer)
+      stopKeepalive()
       wsRef.current?.close()
       wsRef.current = null
     }
-  }, [tickMs, bufferSize, lamina])
+  }, [tickMs, bufferSize, lamina, enabled])
 
-  const sendControl = useCallback((msg: ControlMsg) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(msg))
+  // Network reachability is a fact about the browser, not the socket, and a
+  // 'closed' socket on an offline machine is not worth the same retry as a
+  // server that dropped us.  The online event also runs the retry path so
+  // reconnecting need not wait out the rest of a backoff.
+  useEffect(() => {
+    const sync = () => setOnline(navigator.onLine)
+    const goOnline = () => {
+      sync()
+      retryNowRef.current?.()
     }
+    window.addEventListener('online', goOnline)
+    window.addEventListener('offline', sync)
+    sync()
+    return () => {
+      window.removeEventListener('online', goOnline)
+      window.removeEventListener('offline', sync)
+    }
+  }, [])
+
+  const sendControl = useCallback((msg: ControlMsg): boolean => {
+    // Record intent even when the socket is down: a slider moved while
+    // reconnecting should survive, not be dropped because it was early.
+    if (msg.type === 'set_sensor') replayRef.current.sensors[msg.id] = msg.value
+    else if (msg.type === 'pause') replayRef.current.paused = true
+    else if (msg.type === 'resume') replayRef.current.paused = false
+
+    const ws = wsRef.current
+    if (ws?.readyState !== WebSocket.OPEN) return false
+    try {
+      ws.send(JSON.stringify(msg))
+      return true
+    } catch {
+      return false
+    }
+  }, [])
+
+  const retryNow = useCallback(() => {
+    retryNowRef.current?.()
   }, [])
 
   return {
@@ -430,5 +716,10 @@ export function useCardioStream({
     sendControl,
     lastTickAt:  own.lastTickAt,
     closeReason: own.closeReason,
+    retryAt,
+    attempts,
+    everOpened: own.everOpened,
+    online,
+    retryNow,
   }
 }

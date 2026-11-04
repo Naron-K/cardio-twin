@@ -135,6 +135,66 @@ If something else already holds port 8000, start the backend on another port
 (`python serve.py circulatory 8010`) and point the frontend at it with
 `CARDIOTWIN_API=http://localhost:8010` before `npm run dev` or `npm run preview`.
 
+Once `frontend/dist` exists, the backend serves the dashboard as well, at
+`http://localhost:8000/`: one process, one port. To open it from another device
+on the same network (a touch display, a phone), bind every interface and use
+this machine's IP address:
+
+```powershell
+$env:CARDIOTWIN_HOST = "0.0.0.0"; python serve.py
+```
+
+### 4. Hosting it online (Render)
+
+The repository deploys as a single Docker service: [Dockerfile](./Dockerfile)
+builds the dashboard and runs the backend beside it, so the UI, the API and the
+WebSocket share one origin and nothing in the frontend needs a URL.
+[render.yaml](./render.yaml) describes the service for Render's free plan.
+
+1. Push this repository to GitHub.
+2. In [Render](https://render.com), sign in with GitHub, choose **New → Blueprint**
+   and pick the repository. Render reads `render.yaml`, builds the image and
+   gives the service an `https://….onrender.com` address.
+3. Every push to `main` redeploys. An open dashboard notices the new version
+   and offers to reload.
+
+`render.yaml` places the service in Singapore. The region cannot change after
+creation, so edit it first if the display is far from there.
+
+What the free plan means for whoever is looking at the screen:
+
+- **It sleeps.** After 15 minutes with no traffic the service stops, and the
+  next visit waits about a minute while it starts. The dashboard says so
+  instead of showing a blank page or frozen numbers.
+- **The dashboard lets go when nobody is watching.** After 15 minutes with no
+  touch it closes its stream and asks for a touch to continue. Add `?idle=30`
+  to the address for a longer wait, or `?idle=0` for a screen that should never
+  let go. Each open dashboard streams about 70 KB/s, which counts against the
+  plan's monthly bandwidth.
+- **No sign-in.** Anyone with the address can open the dashboard. Nothing is
+  stored on the server; each tab gets its own session.
+
+To check the image locally first:
+
+```bash
+docker build -t cardio-twin .
+docker run -p 8000:8000 cardio-twin
+```
+
+### 5. On the LG CreateBoard (Android touch display)
+
+Open the address in Chrome, then use **⋮ → Add to Home screen**. The shortcut
+opens the dashboard full screen, without the address bar. On the screen itself:
+
+- Sliders have a finger-sized thumb, and dragging one does not scroll or reload
+  the page.
+- **Press and hold** a label, a chip or a box to read what it means: the touch
+  version of the descriptions a mouse sees on hover.
+- While someone is using it, the dashboard keeps the display from dimming; once
+  it goes idle, the display's own power settings take over.
+- If the text is too small from where people stand, raise Chrome's page zoom
+  (**⋮ → Settings → Accessibility**).
+
 ---
 
 ## API Reference
@@ -213,7 +273,7 @@ This is the format `POST /api/upload` accepts. The files in `presets/` demonstra
 - **Outcomes outside tolerance at a healthy baseline:** SVR (≈18.6 against a target of 14 ± 4) and lambda read outside tolerance with every input at its declared baseline. These are open questions about the targets and units, listed in `docs/circulatory_functions_review.xml`.
 - **No device input yet:** every reading is generated around the baselines the XML declares. The lamina maps its inputs to channels, but no wearable channel exists yet.
 - **Windows terminal encoding:** The Omega character in console output may render incorrectly on some Windows terminals. This is cosmetic and does not affect computation.
-- **Local deployment only:** This MVP is designed for local research use. There is no authentication, database, or cloud deployment.
+- **No authentication or database:** a hosted copy (see *Hosting it online*) is open to anyone with its address, and keeps nothing between sessions.
 
 ---
 

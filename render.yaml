@@ -1,0 +1,15 @@
+# Render Blueprint: one free web service built from the Dockerfile.
+# In Render: New → Blueprint → pick this repository.  Every push to main
+# redeploys.  Pick the region nearest the display; it cannot change later.
+services:
+  - type: web
+    name: cardio-twin
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: CARDIOTWIN_ECHO_LOG
+        value: "0"

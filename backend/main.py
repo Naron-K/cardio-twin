@@ -12,13 +12,17 @@ Endpoints:
   POST /api/download    - Convert results to downloadable XML
   WS   /ws/feedback     - Stream one lamina (?lamina=<id>)
   WS   /ws/organism     - Stream a whole body (?organism=<file>)
+  GET  /                - The built dashboard (frontend/dist), when it exists
 
 Run:
     uvicorn main:app --reload --port 8000
 """
 
 import asyncio
+import json
+import math
 import os
+import re
 import sys
 import xml.etree.ElementTree as ET
 from datetime import datetime
@@ -28,6 +32,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -43,7 +48,7 @@ from laminae import (
     load_twin,
     resolve_lamina,
 )
-from universal_twin import INTER_LAMINA, UniversalTwin
+from universal_twin import INTER_LAMINA, SENSOR, UniversalTwin
 from feedback_controller import (
     FeedbackController,
     DEFAULT_EPSILON_RATIO,
@@ -77,6 +82,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Shrink the JSON and asset payloads that cross the wire.  Below a kilobyte
+# the framing overhead outweighs any gain, hence the floor.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
+
 # Path to the XML schema, relative to this file
 # Which lamina this process is running.  Overridable via CARDIOTWIN_LAMINA so
 # "point the backend at a different lamina and the visualiser follows" is a
@@ -88,9 +97,54 @@ SCHEMA_PATH = lamina_path()
 # Path to presets folder (one level up from backend/)
 PRESETS_PATH = Path(__file__).parent.parent / "presets"
 
+# Where the Vite build lands.  Overridable so a deployment can point at a
+# build staged elsewhere without moving files into the checkout.
+FRONTEND_DIST = Path(os.environ.get(
+    "CARDIOTWIN_FRONTEND_DIST",
+    str(Path(__file__).parent.parent / "frontend" / "dist"),
+))
+
 # Serve preset XML files as static files at /presets/<name>.xml
 if PRESETS_PATH.exists():
     app.mount("/presets", StaticFiles(directory=str(PRESETS_PATH)), name="presets")
+
+
+class FrontendFiles(StaticFiles):
+    """
+    StaticFiles with cache headers that match what the filenames promise.
+
+    Vite fingerprints everything under assets/, so those files can be cached
+    forever: a changed file gets a changed name.  index.html keeps its name,
+    so it must not be cached — after a redeploy a cached index.html would
+    point at hashed asset files that no longer exist and the screen would
+    load blank.
+    """
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        # Starlette hands back OS separators on Windows; the URL contract is "/".
+        if path.replace("\\", "/").startswith("assets/"):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        else:
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
+def frontend_build_id(dist: Path) -> Optional[str]:
+    """
+    The hashed entry script named by the built index.html.
+
+    The client compares this with its own script name to know a new version
+    was deployed.  Returns None when the build is absent or names no script,
+    so a machine running the API alone answers the health check instead of
+    failing it.
+    """
+    try:
+        html = (Path(dist) / "index.html").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    match = re.search(r'src="/assets/([^"]+\.js)"', html)
+    return match.group(1) if match else None
 
 
 # ── Pydantic Models ───────────────────────────────────────────────────────────
@@ -326,8 +380,12 @@ def _build_feedback_twin(sensor_data: Dict[str, float],
 
 @app.get("/health")
 def health():
-    """Health check."""
-    return {"status": "ok", "timestamp": datetime.now().isoformat()}
+    """Health check, including which frontend build (if any) is being served."""
+    return {
+        "status": "ok",
+        "timestamp": datetime.now().isoformat(),
+        "build": frontend_build_id(FRONTEND_DIST),
+    }
 
 
 def _resolve_or_400(lamina: Optional[str]) -> Path:
@@ -948,6 +1006,108 @@ def download(request: DownloadRequest):
 
 # ── WebSocket streaming endpoint (Phase 3) ───────────────────────────────────
 
+def _shown(raw: Any, limit: int = 40) -> str:
+    """A refused value as the notice quotes it: repr, cut short so a client
+    that sends a megabyte of junk does not get a megabyte of notice back."""
+    text = repr(raw)
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def validate_sensor_command(
+    twin: UniversalTwin, sensor_id: Any, raw: Any
+) -> tuple[Optional[float], Optional[dict]]:
+    """
+    Decide whether one inbound set_sensor command may be applied.
+
+    Returns ``(value, None)`` for a command the twin can accept, or
+    ``(None, notice)`` for one it cannot.  The notice is a frame the
+    browser can render: it names the command that was refused and says in
+    plain English why.  A control that silently does nothing is
+    indistinguishable from a broken one, and an exception in the receive
+    loop used to close the socket — which looks like a network fault.
+
+    Nothing here is allowed to raise.  Every value comes off the wire, so
+    "a number" may arrive as a string, a list, a bool or a NaN, and the
+    caller's only safe assumption is that none of it is well formed.
+    """
+    # The id is shown back to the user verbatim, so keep it printable even
+    # when the frame carried a list or an object where a string belongs.
+    sid = None if sensor_id is None else str(sensor_id)
+
+    # A command addresses a declared SENSOR by id.  Anything else — empty,
+    # unknown, or a computed/inter-lamina attribute such as MAP — is not
+    # an input this model has a slot for.
+    if not isinstance(sensor_id, str) or not sensor_id:
+        return None, {
+            "type": "notice",
+            "level": "warning",
+            "code": "unknown_input",
+            "id": sid,
+            "message": (
+                f"'{sid}' is not an input this model accepts, "
+                "so the change was not applied."
+            ),
+        }
+
+    attr = twin.attributes.get(sensor_id)
+    if attr is None or attr.source != SENSOR:
+        return None, {
+            "type": "notice",
+            "level": "warning",
+            "code": "unknown_input",
+            "id": sid,
+            "message": (
+                f"'{sid}' is not an input this model accepts, "
+                "so the change was not applied."
+            ),
+        }
+
+    # bool is a subclass of int, and float(True) is 1.0, so it would sail
+    # through a numeric check while meaning something else entirely.
+    try:
+        if raw is None or isinstance(raw, bool):
+            raise TypeError
+        value = float(raw)
+    except (TypeError, ValueError, OverflowError):
+        return None, {
+            "type": "notice",
+            "level": "warning",
+            "code": "invalid_value",
+            "id": sid,
+            "message": (
+                f"{sid} needs a number; {_shown(raw)} is not one, "
+                "so the change was not applied."
+            ),
+        }
+
+    if not math.isfinite(value):
+        return None, {
+            "type": "notice",
+            "level": "warning",
+            "code": "invalid_value",
+            "id": sid,
+            "message": (
+                f"{sid} needs a number; {_shown(raw)} is not one, "
+                "so the change was not applied."
+            ),
+        }
+
+    if value < attr.physio_min or value > attr.physio_max:
+        return None, {
+            "type": "notice",
+            "level": "warning",
+            "code": "out_of_range",
+            "id": sid,
+            "message": (
+                f"{sid} = {value:g} {attr.unit} is outside the range this "
+                f"model accepts ({attr.physio_min:g}-{attr.physio_max:g} "
+                f"{attr.unit}), so the change was not applied."
+            ),
+        }
+
+    return value, None
+
+
 @app.websocket("/ws/feedback")
 async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
                       lamina: Optional[str] = None):
@@ -969,6 +1129,10 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
       {"type": "pause"}
       {"type": "resume"}
       {"type": "reset"}
+      {"type": "keepalive"}
+
+    Outbound, beside the snapshots: {"type": "notice", "level": "warning",
+    "code": ..., "id": ..., "message": ...} when a command was not applied.
 
     On disconnect: the ticker task is cancelled and the session is freed.
     One ticker task per connection — sessions are never shared.
@@ -1049,22 +1213,53 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
     ingest_task = asyncio.create_task(_ingest())
 
     try:
-        async for msg in websocket.iter_json():
+        while True:
+            # Read text ourselves rather than iter_json(): a malformed frame
+            # is a message the user can be told about, not a reason to close
+            # the socket under them.
+            text = await websocket.receive_text()
+            try:
+                msg = json.loads(text)
+            except (json.JSONDecodeError, TypeError):
+                await websocket.send_json({
+                    "type": "notice",
+                    "level": "warning",
+                    "code": "bad_message",
+                    "id": None,
+                    "message": (
+                        "That message was not valid JSON, "
+                        "so it was ignored."
+                    ),
+                })
+                continue
+
             if not isinstance(msg, dict):
-                continue  # non-dict payload — silently skip
+                await websocket.send_json({
+                    "type": "notice",
+                    "level": "warning",
+                    "code": "bad_message",
+                    "id": None,
+                    "message": (
+                        "That message was not a JSON object, "
+                        "so it was ignored."
+                    ),
+                })
+                continue
 
             msg_type = msg.get("type", "")
 
             if msg_type == "set_sensor":
-                sensor_id = str(msg.get("id", ""))
+                sensor_id = msg.get("id")
                 raw       = msg.get("value")
-                if sensor_id and raw is not None:
-                    value = float(raw)
-                    source.set_baseline(sensor_id, value)
-                    try:
-                        session.twin.set_sensor(sensor_id, value)
-                    except (KeyError, ValueError):
-                        pass  # PRELIMINARY or unknown attr — ignore
+                value, notice = validate_sensor_command(
+                    session.twin, sensor_id, raw
+                )
+                if notice is not None:
+                    await websocket.send_json(notice)
+                    continue
+                sensor_id = str(sensor_id)
+                source.set_baseline(sensor_id, value)
+                session.twin.set_sensor(sensor_id, value)
 
             elif msg_type == "pause":
                 flags["paused"] = True
@@ -1074,6 +1269,13 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
 
             elif msg_type == "reset":
                 session.reset()
+
+            elif msg_type == "keepalive":
+                # The dashboard sends one every few minutes so a host that
+                # sleeps idle services (Render's free plan counts inbound
+                # WebSocket messages as activity) does not stop a screen
+                # someone is watching.  It needs no reply.
+                pass
 
             # Unknown types are silently dropped (forward-compatible).
 
@@ -1206,3 +1408,15 @@ async def ws_organism(websocket: WebSocket, tick_ms: int = 100,
             pass
         await runtime.stop()
         print("[WS] /ws/organism disconnected")
+
+
+# ── Frontend ──────────────────────────────────────────────────────────────────
+
+# Mounted last, after every API route and websocket, so "/" only catches what
+# nothing above claimed and the API keeps priority.  A missing build is not an
+# error: the API is useful on its own.
+if (FRONTEND_DIST / "index.html").is_file():
+    app.mount("/", FrontendFiles(directory=str(FRONTEND_DIST), html=True), name="frontend")
+else:
+    print("[serve] frontend/dist not built - the API runs alone; "
+          "build the UI with: cd frontend && npm run build")

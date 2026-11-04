@@ -14,6 +14,7 @@ Developers add new function models in child classes.
 """
 
 import math
+import os
 import sys
 
 import numpy as np
@@ -21,6 +22,11 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Any, Optional
 from datetime import datetime
+
+# Whether _log echoes to stdout.  A hosted backend sets CARDIOTWIN_ECHO_LOG=0:
+# the echo is ~2 KB per cycle at 10 Hz per open tab, which buries every line
+# worth reading in the host's log viewer.  The in-memory log is kept either way.
+_ECHO_LOG = os.environ.get("CARDIOTWIN_ECHO_LOG", "1") != "0"
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -2545,6 +2551,8 @@ class UniversalTwin:
         is what the snapshot and the warnings list read.
         """
         self._computation_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] {message}")
+        if not _ECHO_LOG:
+            return
         line = f"  {message}"
         try:
             print(line)

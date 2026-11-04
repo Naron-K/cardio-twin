@@ -64,7 +64,12 @@ def main() -> None:
 
     import uvicorn
 
-    uvicorn.run("main:app", host="127.0.0.1", port=port)
+    # 127.0.0.1 keeps a development backend private to this machine.  Set
+    # CARDIOTWIN_HOST=0.0.0.0 to let another device on the network (a touch
+    # display, a phone) open it, after `npm run build` so this port serves
+    # the dashboard as well.
+    host = os.environ.get("CARDIOTWIN_HOST", "127.0.0.1")
+    uvicorn.run("main:app", host=host, port=port)
 
 
 if __name__ == "__main__":

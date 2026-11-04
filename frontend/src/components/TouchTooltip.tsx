@@ -49,6 +49,17 @@ function describe(start: Element): string | null {
   return null
 }
 
+/**
+ * The zoom display.ts puts on <html> for a large screen or `?scale=`. Event
+ * coordinates arrive in screen pixels while a fixed element's left/top are
+ * multiplied by the zoom, so a tip placed at clientX would land at twice the
+ * distance on a 4K board at zoom 2. Everything here is divided by it first.
+ */
+function rootZoom(): number {
+  const z = parseFloat(getComputedStyle(document.documentElement).zoom)
+  return Number.isFinite(z) && z > 0 ? z : 1
+}
+
 export function TouchTooltip() {
   const [tip, setTip] = useState<Tip | null>(null)
 
@@ -58,7 +69,8 @@ export function TouchTooltip() {
       const text = e.target instanceof Element ? describe(e.target) : null
       if (!text) return
       e.preventDefault()
-      setTip({ text, x: e.clientX, y: e.clientY })
+      const z = rootZoom()
+      setTip({ text, x: e.clientX / z, y: e.clientY / z })
     }
     const hide = () => setTip(null)
 
@@ -85,11 +97,14 @@ export function TouchTooltip() {
   if (!tip) return null
 
   // Above the finger, which covers whatever is below it, and kept on screen.
-  const width = Math.min(TIP_WIDTH, window.innerWidth - EDGE * 2)
-  const left = Math.min(Math.max(EDGE, tip.x - width / 2), window.innerWidth - width - EDGE)
+  const z = rootZoom()
+  const viewW = window.innerWidth / z
+  const viewH = window.innerHeight / z
+  const width = Math.min(TIP_WIDTH, viewW - EDGE * 2)
+  const left = Math.min(Math.max(EDGE, tip.x - width / 2), viewW - width - EDGE)
   const above = tip.y > 160
   const style = above
-    ? { left, width, bottom: window.innerHeight - tip.y + 28 }
+    ? { left, width, bottom: viewH - tip.y + 28 }
     : { left, width, top: tip.y + 28 }
 
   return (

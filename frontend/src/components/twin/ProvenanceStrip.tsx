@@ -39,14 +39,14 @@ export function ProvenanceStrip({ stage, sources }: Props) {
 
   return (
     <div
-      className="flex items-center gap-3 rounded-el border border-white/10 bg-surface-lowest/85
-                 backdrop-blur-sm px-3 py-1.5"
+      className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-el border border-white/10
+                 bg-surface-lowest/85 backdrop-blur-sm px-3 py-1.5"
     >
       <span className="font-mono text-[9px] readout uppercase text-ink/30 shrink-0">
         Data source
       </span>
 
-      <div className="flex items-center gap-2.5 shrink-0">
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
         {order.map((p) =>
           tally[p] === 0 && p !== 'sensor' ? null : (
             <span key={p} className="flex items-center gap-1.5 shrink-0">
@@ -63,7 +63,7 @@ export function ProvenanceStrip({ stage, sources }: Props) {
       </div>
 
       {constants.length > 0 && (
-        <span className="font-mono text-[9px] readout text-warn/70 leading-snug ml-auto text-right">
+        <span className="min-w-[14rem] flex-1 font-mono text-[9px] readout text-warn/70 leading-snug text-right">
           {constants.map((c) => c.label).join(' and ')} run on a declared constant — the model
           computes nothing that describes {constants.length > 1 ? 'them' : 'it'}
         </span>

@@ -1,4 +1,5 @@
 /** @type {import('tailwindcss').Config} */
+import plugin from 'tailwindcss/plugin'
 
 // ── "Scientific Indie" design tokens (see DESIGN.md) ──────────────────────────
 // Only *extends* the default theme so the existing analysis/streaming views keep
@@ -80,5 +81,17 @@ export default {
       },
     },
   },
-  plugins: [],
+  plugins: [
+    // The tier variants read the attribute display.ts puts on <html>. They are
+    // deliberately not media queries: the same physical screen can ask for a
+    // larger `?scale=`, and the tier already accounts for both that scale and
+    // the visible height (100vh is wrong on iPad Safari), so a breakpoint on
+    // raw window pixels would disagree with the layout actually on screen.
+    plugin(({ addVariant }) => {
+      addVariant('phone', '[data-tier="phone"] &')
+      addVariant('tablet', '[data-tier="tablet"] &')
+      addVariant('wide', '[data-tier="wide"] &')
+      addVariant('fit', ':is([data-tier="tablet"],[data-tier="wide"]) &')
+    }),
+  ],
 }

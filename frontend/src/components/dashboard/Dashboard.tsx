@@ -120,7 +120,7 @@ export function Dashboard({ lamina, onLamina, form, onForm }: Props) {
     const notFound = twin.schemaAttempts === 0 || twin.schemaError.startsWith('No lamina')
 
     content = (
-      <div className="h-screen flex flex-col items-center justify-center gap-4 bg-surface text-ink">
+      <div className="h-app flex flex-col items-center justify-center gap-4 px-6 bg-surface text-ink">
         {notFound ? (
           <>
             <p className="font-mono text-[12px] readout text-crimson-container">{twin.schemaError}</p>
@@ -151,7 +151,7 @@ export function Dashboard({ lamina, onLamina, form, onForm }: Props) {
     )
   } else if (!index) {
     content = (
-      <div className="h-screen flex flex-col items-center justify-center bg-surface">
+      <div className="h-app flex flex-col items-center justify-center px-6 bg-surface">
         <p className="font-mono text-[12px] readout uppercase text-ink/40 animate-pulse">
           Reading the lamina…
         </p>
@@ -188,15 +188,15 @@ export function Dashboard({ lamina, onLamina, form, onForm }: Props) {
             : { tone: 'crimson' as const, pulse: true, label: 'Offline' }
 
     content = (
-      <div className="h-screen flex flex-col bg-surface text-ink font-body overflow-hidden">
+      <div className="min-h-app fit:h-app flex flex-col bg-surface text-ink font-body fit:overflow-hidden">
         {/* ── Header ──────────────────────────────────────────────────────── */}
-        <header className="shrink-0 flex items-center gap-4 px-margin py-3 border-b border-white/10 bg-surface-low/70 backdrop-blur-lg">
+        <header className="shrink-0 flex flex-wrap items-center gap-x-4 gap-y-2 px-4 wide:px-margin py-3 border-b border-white/10 bg-surface-low/70 backdrop-blur-lg">
           <span className="font-display text-lg font-extrabold tracking-tight text-ink">
             CardioTwin
           </span>
           <div className="flex items-baseline gap-2.5 pl-3 border-l border-white/10 min-w-0">
             <LaminaPicker laminae={twin.laminae} current={index.schema.lamina_id} onPick={onLamina} />
-            <span className="font-mono text-[10px] readout text-ink/30 truncate">
+            <span className="phone:hidden font-mono text-[10px] readout text-ink/30 truncate">
               {index.schema.lamina_id} · level {index.schema.lamina_level}
             </span>
           </div>
@@ -238,14 +238,20 @@ export function Dashboard({ lamina, onLamina, form, onForm }: Props) {
           </div>
         </header>
 
-        {/* ── Body: sources | twin | outcomes, with time underneath ──────── */}
+        {/* ── Body: sources | twin | outcomes, with time underneath ────────
+             The tier comes from display.ts. Wide: three columns, as designed.
+             Tablet: inputs beside one scrolling column of twin, outcomes and
+             time, so no panel is squeezed below what it needs. Phone: one
+             column, and the page scrolls. */}
         <div
-          className="flex-1 min-h-0 grid gap-gutter px-margin py-gutter
-                     grid-cols-[300px_minmax(0,1fr)_360px] grid-rows-[minmax(0,1fr)_auto]"
+          className="grid gap-4 p-4 fit:flex-1 fit:min-h-0
+                     tablet:grid-cols-[minmax(250px,300px)_minmax(0,1fr)] tablet:grid-rows-[minmax(0,1fr)]
+                     wide:gap-gutter wide:px-margin wide:py-gutter
+                     wide:grid-cols-[300px_minmax(0,1fr)_360px] wide:grid-rows-[minmax(0,1fr)_auto]"
         >
           {/* 1 — Data sources */}
           <Panel
-            className="row-span-2 min-h-0 overflow-y-auto !p-5"
+            className="wide:row-span-2 fit:min-h-0 fit:overflow-y-auto !p-5"
             eyebrow="1 · Data sources"
             title="How measurements enter the twin"
           >
@@ -261,9 +267,12 @@ export function Dashboard({ lamina, onLamina, form, onForm }: Props) {
             />
           </Panel>
 
+          <div className="flex flex-col gap-4 tablet:min-h-0 tablet:overflow-y-auto tablet:pr-1 wide:contents">
           {/* 2 — Digital twin */}
           <Panel
-            className="min-h-0 flex flex-col !p-5"
+            className="shrink-0 flex flex-col !p-5 h-[420px]
+                       tablet:h-[clamp(360px,calc(var(--app-h)-180px),620px)]
+                       wide:h-auto wide:min-h-0 wide:shrink"
             eyebrow="2 · Digital twin"
             title="What the model computes from them, every cycle"
             action={
@@ -363,7 +372,7 @@ export function Dashboard({ lamina, onLamina, form, onForm }: Props) {
 
           {/* 3 — Outcomes */}
           <Panel
-            className={`row-span-2 min-h-0 flex flex-col !p-5 ${dim}`}
+            className={`shrink-0 wide:shrink wide:row-span-2 wide:min-h-0 flex flex-col !p-5 ${dim}`}
             eyebrow="3 · Outcomes"
             title="Against the targets the model declares"
           >
@@ -372,16 +381,17 @@ export function Dashboard({ lamina, onLamina, form, onForm }: Props) {
 
           {/* 4 — Over time */}
           <Panel
-            className={`!p-5 ${dim}`}
+            className={`shrink-0 !p-5 ${dim}`}
             eyebrow="4 · Over time"
             title="Distance from the targets, with and without the feedback loop"
           >
             <ConvergenceChart ticks={twin.mismatch ? [] : ticks} height={150} />
           </Panel>
+          </div>
         </div>
 
         {/* ── Status line ─────────────────────────────────────────────────── */}
-        <footer className="shrink-0 flex items-center gap-3 px-margin py-2.5 border-t border-white/10 bg-surface-lowest/80">
+        <footer className="shrink-0 flex items-center gap-3 px-4 wide:px-margin py-2.5 border-t border-white/10 bg-surface-lowest/80">
           <span className="font-mono text-[11px] readout text-oxy-container">{'>'}</span>
           <span className="font-mono text-[11px] readout text-ink/55 truncate">
             {index.sensors.length} inputs · {index.functions.length} functions ·{' '}

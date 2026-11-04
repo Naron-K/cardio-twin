@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { installDisplayProfile } from './display'
 
 // React 19's development build records a performance.measure for every
 // component render, carrying a diff of the props that changed, and the
@@ -15,6 +16,9 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 if (import.meta.env.DEV) {
   setInterval(() => performance.clearMeasures(), 10_000)
 }
+
+// Set the scale and tier on <html> before the first render paints.
+installDisplayProfile()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

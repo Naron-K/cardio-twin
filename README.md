@@ -192,8 +192,23 @@ opens the dashboard full screen, without the address bar. On the screen itself:
   version of the descriptions a mouse sees on hover.
 - While someone is using it, the dashboard keeps the display from dimming; once
   it goes idle, the display's own power settings take over.
-- If the text is too small from where people stand, raise Chrome's page zoom
-  (**⋮ → Settings → Accessibility**).
+- If the text is too small from where people stand, add `?scale=1.25` (or
+  1.5) to the address, e.g. `…onrender.com/?scale=1.25&idle=0`. Chrome's page
+  zoom (**⋮ → Settings → Accessibility**) works too.
+
+### Screens of every size
+
+The layout follows the screen it is on (`frontend/src/display.ts`):
+
+- **Wide** (1280 × 700 and up: desktops, the board) — the three columns as
+  designed.
+- **Tablet** (an iPad, or a laptop with little height) — inputs on the left,
+  and one scrolling column of twin, outcomes and time beside them.
+- **Phone** — one column; the page scrolls.
+
+A screen reporting much more than 1920 × 1080 (a 4K board at full resolution)
+is scaled up to match, so text never shrinks to a fraction of its size.
+`?scale=` overrides that scale on any screen.
 
 ---
 

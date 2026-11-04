@@ -68,6 +68,16 @@ body {
   .readout {
     letter-spacing: 0.05em;
   }
+
+  /* The visible viewport height, set by display.ts; 100dvh is the fallback. */
+  .h-app {
+    height: 100vh;
+    height: var(--app-h, 100dvh);
+  }
+  .min-h-app {
+    min-height: 100vh;
+    min-height: var(--app-h, 100dvh);
+  }
 }
 
 /* Out-of-range vitals: crimson bloom that breathes. */

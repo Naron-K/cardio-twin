@@ -46,7 +46,9 @@ export function OutcomeTiles({ index, latest }: Props) {
 
   return (
     <div className="flex flex-col gap-2.5 min-h-0">
-      <div className="flex flex-col gap-2 min-h-0 overflow-y-auto pr-1">
+      {/* As many tile columns as fit: one in the wide layout's 360 px column,
+          two or three when a tablet or phone gives the outcomes the full width. */}
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] content-start gap-2 min-h-0 overflow-y-auto pr-1">
         {rows.map(({ id, o }) => {
           const attr = index.attribute(o.attribute_id)
           const loopHolds = Math.abs(o.x_pp) > 1e-4

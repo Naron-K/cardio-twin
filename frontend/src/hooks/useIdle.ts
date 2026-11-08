@@ -2,8 +2,8 @@
  * useIdle — has anyone touched this screen lately?
  *
  * The dashboard is left open on a wall display. A stream nobody is watching
- * still costs the server a session and about 70 KB/s, and on a free host it
- * also keeps the service awake against its monthly allowance. So after a
+ * still costs the server a session and about 70 KB/s before compression, which
+ * the host meters against its monthly bandwidth. So after a
  * stretch with no touch, key or wheel, the dashboard closes its stream and
  * says so, the way a video service asks whether you are still watching; the
  * next touch opens it again.

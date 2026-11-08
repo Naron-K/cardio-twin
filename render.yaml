@@ -1,11 +1,12 @@
-# Render Blueprint: one free web service built from the Dockerfile.
-# In Render: New → Blueprint → pick this repository.  Every push to main
-# redeploys.  Pick the region nearest the display; it cannot change later.
+# Render Blueprint: one web service built from the Dockerfile. 0.5c-512mb is
+# the $7/month plan: unlike free, it does not spin down when idle.
+# In Render: New → Blueprint → pick this repository.  Every push to the
+# linked branch redeploys.  Pick the region nearest the display; it cannot change later.
 services:
   - type: web
     name: cardio-twin
     runtime: docker
-    plan: free
+    plan: 0.5c-512mb
     region: singapore
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health

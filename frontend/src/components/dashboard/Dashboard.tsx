@@ -136,7 +136,7 @@ export function Dashboard({ lamina, onLamina, form, onForm }: Props) {
             <p className="font-mono text-[12px] readout text-crimson-container">Can't load the model</p>
             <p className="font-body text-[13px] text-ink/60 max-w-md text-center leading-relaxed">
               {seconds !== null
-                ? `The server did not answer. If it was asleep, starting it takes up to a minute — trying again in ${seconds}s.`
+                ? `The server did not answer. If it is starting up, this can take up to a minute — trying again in ${seconds}s.`
                 : 'The server did not answer. Trying again…'}
             </p>
             <button
@@ -157,7 +157,7 @@ export function Dashboard({ lamina, onLamina, form, onForm }: Props) {
         </p>
         {slow && (
           <p className="mt-3 font-body text-[13px] text-ink/45 text-center max-w-md">
-            Waiting for the server. If it was asleep, this takes up to a minute.
+            Waiting for the server. If it is starting up, this can take up to a minute.
           </p>
         )}
       </div>
@@ -424,7 +424,7 @@ export function Dashboard({ lamina, onLamina, form, onForm }: Props) {
 
 /**
  * The dashboard lets go of a stream nobody is watching: a wall display left
- * untouched still costs a server session, and a free host counts that as use.
+ * untouched still costs a server session, and the host meters its bandwidth.
  * This says why the screen went quiet, and the next touch is the way back.
  */
 function IdleOverlay({ idleMinutes, wake }: { idleMinutes: number; wake: () => void }) {
@@ -437,15 +437,14 @@ function IdleOverlay({ idleMinutes, wake }: { idleMinutes: number; wake: () => v
     >
       <div className="max-w-xl rounded-card border-2 border-oxy-container/40 bg-surface-low/90 shadow-inset1 px-10 py-9 text-center">
         <p className="font-mono text-[11px] font-bold readout uppercase text-oxy/60">
-          Paused to save the server
+          Paused to save bandwidth
         </p>
         <p className="font-display text-3xl font-extrabold text-ink mt-2">
           Touch anywhere to continue
         </p>
         <p className="mt-4 font-body text-[15px] leading-relaxed text-ink/65">
           No one has touched the screen for {idleMinutes} minute{idleMinutes === 1 ? '' : 's'}, so
-          the live connection was closed. Touching reconnects it; if the server went to sleep
-          meanwhile, that takes up to a minute.
+          the live connection was closed. Touching reconnects it.
         </p>
       </div>
     </button>

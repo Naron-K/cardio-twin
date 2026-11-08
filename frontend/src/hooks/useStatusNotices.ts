@@ -281,7 +281,7 @@ export function useStatusNotices(
         sticky: true,
         dismissible: false,
         title: 'Connecting to the server…',
-        body: 'If the server was asleep, starting it takes up to a minute. The dashboard appears as soon as it answers.',
+        body: 'If the server is starting up, this can take up to a minute. The dashboard appears as soon as it answers.',
       })
     }, SLOW_CONNECT_MS)
 
@@ -335,7 +335,7 @@ export function useStatusNotices(
         tone: 'error',
         title: "Can't reach the server",
         body:
-          'The server may be restarting or waking up: on the free plan it sleeps after 15 minutes without use and takes about a minute to start. ' +
+          'The server may be restarting, which can take about a minute. ' +
           tail,
         action: retry,
       })

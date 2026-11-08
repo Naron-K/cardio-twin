@@ -149,28 +149,35 @@ $env:CARDIOTWIN_HOST = "0.0.0.0"; python serve.py
 The repository deploys as a single Docker service: [Dockerfile](./Dockerfile)
 builds the dashboard and runs the backend beside it, so the UI, the API and the
 WebSocket share one origin and nothing in the frontend needs a URL.
-[render.yaml](./render.yaml) describes the service for Render's free plan.
+[render.yaml](./render.yaml) describes the service on Render's $7/month plan
+(`0.5c-512mb`). A workspace needs a card on file before it can use it.
 
 1. Push this repository to GitHub.
 2. In [Render](https://render.com), sign in with GitHub, choose **New → Blueprint**
    and pick the repository. Render reads `render.yaml`, builds the image and
    gives the service an `https://….onrender.com` address.
-3. Every push to `main` redeploys. An open dashboard notices the new version
-   and offers to reload.
+3. Every push to the branch you linked redeploys. An open dashboard notices the
+   new version and offers to reload.
 
 `render.yaml` places the service in Singapore. The region cannot change after
 creation, so edit it first if the display is far from there.
 
-What the free plan means for whoever is looking at the screen:
+What this means for whoever is looking at the screen, and for the bill:
 
-- **It sleeps.** After 15 minutes with no traffic the service stops, and the
-  next visit waits about a minute while it starts. The dashboard says so
-  instead of showing a blank page or frozen numbers.
+- **It stays awake.** A paid plan does not spin down when idle. The free plan
+  does, and because the same server delivers the page, a browser opening a
+  sleeping service only shows a spinner until it wakes; the dashboard's notices
+  can only appear once the page has loaded. A free service here also once failed
+  to wake at all until it was redeployed by hand.
 - **The dashboard lets go when nobody is watching.** After 15 minutes with no
   touch it closes its stream and asks for a touch to continue. Add `?idle=30`
   to the address for a longer wait, or `?idle=0` for a screen that should never
-  let go. Each open dashboard streams about 70 KB/s, which counts against the
-  plan's monthly bandwidth.
+  let go.
+- **Bandwidth is the real cost.** One open dashboard streams about 270 MB an hour
+  before compression and an estimated 70 MB after it: roughly 12 GB a month at 8
+  hours a day on weekdays, and 50 GB a month left on around the clock. Check the
+  included allowance and the overage rate on the workspace's Billing page before
+  leaving `?idle=0` running.
 - **No sign-in.** Anyone with the address can open the dashboard. Nothing is
   stored on the server; each tab gets its own session.
 

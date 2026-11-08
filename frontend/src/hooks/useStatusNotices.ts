@@ -15,6 +15,8 @@
  *     to hurry the retry, with the countdown kept current.
  *   • 'connection', refused — retrying cannot fix a refusal, so name it and
  *     point at a different model or a reload.
+ *   • 'connection', data limit — the month's bandwidth is used and the server
+ *     has stopped streaming on purpose; that must not read as an outage.
  *   • 'reconnected' — say the drop is over, and that the reader's inputs came
  *     back with it rather than being silently reset.
  *   • 'server:<code>:<id>' — a refused control change must not look accepted;
@@ -35,6 +37,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { NoticeApi } from '../components/notices/useNotices'
+import { STREAM_LIMIT_CLOSE } from './useCardioStream'
 import type { ServerNotice, StreamStatus } from './useCardioStream'
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
@@ -46,6 +49,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /** The words the backend's refusal code deserves on screen. */
 function noticeTitle(code: string): string {
   switch (code) {
+    case 'usage_warning':
+      return 'Approaching the monthly data limit'
     case 'out_of_range':
       return 'Value outside the accepted range'
     case 'invalid_value':
@@ -167,7 +172,7 @@ export function useStreamNoticeHandlers(api: NoticeApi): {
       push({
         key: `server:${code}:${id}`,
         tone: 'warning',
-        ttlMs: 8000,
+        ttlMs: code === 'usage_warning' ? 15_000 : 8000,
         title: noticeTitle(code),
         body: message || 'The server did not apply the last change.',
       })
@@ -216,6 +221,7 @@ export interface StatusState {
   retryAt: number | null
   online: boolean
   closeReason: string | null
+  closeCode: number | null
   retryNow: () => void
   paused: boolean
   resume: () => void
@@ -240,7 +246,7 @@ export function useStatusNotices(
   state: StatusState,
 ): { confirmReset: () => void } {
   const { push, dismiss } = api
-  const { status, everOpened, attempts, retryAt, online, closeReason, paused, diverged } = state
+  const { status, everOpened, attempts, retryAt, online, closeReason, closeCode, paused, diverged } = state
 
   // Action functions are read through a ref so replacing them on every render
   // cannot re-run any of the effects below.
@@ -354,6 +360,20 @@ export function useStatusNotices(
   // ── 3. The server refused this model ──────────────────────────────────────
   useEffect(() => {
     if (!(status === 'closed' && closeReason)) return
+    // Used up, not broken: say so plainly, and that it is deliberate.
+    if (closeCode === STREAM_LIMIT_CLOSE) {
+      push({
+        key: 'connection',
+        tone: 'error',
+        title: 'Live data is off for this month',
+        body: `${closeReason}. This keeps the hosting bill from growing.`,
+        action: {
+          label: 'Reload',
+          onAction: () => window.location.reload(),
+        },
+      })
+      return
+    }
 
     push({
       key: 'connection',
@@ -365,7 +385,7 @@ export function useStatusNotices(
         onAction: () => window.location.reload(),
       },
     })
-  }, [status, closeReason, push])
+  }, [status, closeReason, closeCode, push])
 
   // ── 4. An open or deliberately suspended stream has nothing to explain ────
   useEffect(() => {

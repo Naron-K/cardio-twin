@@ -59,6 +59,7 @@ from organism import OrganismError, available_organisms, load_organism
 from session import OrganismSession, Session
 from signal_source import SimulatedSource
 from streaming_runtime import StreamingRuntime
+from usage_meter import UsageMeter
 from snapshot import (
     _KSTATE_SEP,
     _simulation_snapshot,
@@ -408,6 +409,9 @@ def health():
         # How to check from outside that nothing runs when no page is open:
         # a browser tab left streaming keeps a non-zero count here.
         "streams": _open_streams,
+        # Where this UTC month stands against the host's data allowance, so a
+        # dashboard can tell why live data stopped without parsing close codes.
+        "usage": usage.snapshot(),
     }
 
 
@@ -1039,6 +1043,22 @@ STREAM_SEND_TIMEOUT_S = 15.0
 # Close code for a stream reaped for silence.  App-defined range, so it cannot
 # be mistaken for a protocol-level close.
 STREAM_SILENT_CLOSE = 4408
+# Close code for a stream stopped by the monthly data allowance.  Beside the
+# silence code in the app range so a client can tell the two endings apart.
+STREAM_LIMIT_CLOSE = 4429
+
+# How much data the live streams may send this UTC month.  A disabled limit
+# (the default) still counts but never closes anything.  The meter is a module
+# global read at call time, so /health can report it and a test can swap it.
+usage = UsageMeter.from_env()
+
+# Send only every Nth snapshot.  The model still runs every cycle; only every
+# Nth snapshot is sent, so the loop's timing does not change and bandwidth
+# falls by N.  Parsed once here but read at call time so a test can change it.
+try:
+    STREAM_EMIT_EVERY = max(1, int(os.environ.get("CARDIOTWIN_EMIT_EVERY", "1")))
+except (TypeError, ValueError):
+    STREAM_EMIT_EVERY = 1
 
 # Streams currently accepted and not yet torn down, in this process.  /health
 # reports it so "nothing runs when no page is open" is observable from outside.
@@ -1070,6 +1090,52 @@ def _close_soon(websocket: WebSocket, code: int, reason: str) -> None:
         return
     _close_tasks.add(task)
     task.add_done_callback(_close_tasks.discard)
+
+
+def _limit_reason() -> str:
+    """The close reason shown to a client that hit the monthly allowance.
+
+    Built from d.day and strftime('%b') rather than %-d, which does not exist
+    on Windows.  The result is far under the 123-byte cap a close reason has.
+    """
+    resume = usage.resumes_on()
+    return (
+        "Monthly data limit reached; live data resumes on "
+        f"{resume.day} {resume.strftime('%b')}"
+    )
+
+
+def _usage_notice() -> dict:
+    """The one-frame warning sent when the month nears its allowance."""
+    info = usage.snapshot()
+    resume = usage.resumes_on()
+    return {
+        "type": "notice",
+        "level": "warning",
+        "code": "usage_warning",
+        "id": None,
+        "message": (
+            f"{info['used_gb']:g} of this month's {info['limit_gb']:g} GB of "
+            "live data is used. Live data turns off at the limit, until "
+            f"{resume.day} {resume.strftime('%b')}."
+        ),
+    }
+
+
+async def _send_frame(websocket, payload) -> None:
+    """Serialise, send and account for one frame.
+
+    The meter is told the UTF-8 length of exactly what left, after the send
+    succeeds, because that is what the host bills.  Counting before a failed
+    send would spend bandwidth the client never received.
+    """
+    text = json.dumps(
+        jsonable_encoder(payload),
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    await asyncio.wait_for(websocket.send_text(text), STREAM_SEND_TIMEOUT_S)
+    usage.add(len(text.encode("utf-8")))
 
 
 def _shown(raw: Any, limit: int = 40) -> str:
@@ -1207,6 +1273,10 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
     for STREAM_SILENCE_S closes the socket with STREAM_SILENT_CLOSE, and a
     send that cannot finish within STREAM_SEND_TIMEOUT_S stops the runtime
     and closes the wedged socket from a separate task.
+
+    The monthly data allowance is enforced here: at the limit the stream closes
+    with STREAM_LIMIT_CLOSE (4429) and says when live data resumes, and at
+    `warn_ratio` it sends a single `usage_warning` notice first.
     """
     global _open_streams
 
@@ -1223,6 +1293,21 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
         return
 
     await websocket.accept()
+
+    # Refuse before any session or ticker exists: an over-limit connection must
+    # cost nothing but the close frame, and must not touch _open_streams.
+    if usage.over:
+        await websocket.close(code=STREAM_LIMIT_CLOSE, reason=_limit_reason())
+        print("[WS] /ws/feedback refused: monthly data limit reached")
+        return
+
+    # One warning per connection.  If the month is already near the edge when
+    # the page opens, say so at once rather than waiting for the first tick.
+    warned = {"usage": False}
+    if usage.near:
+        warned["usage"] = True
+        await _send_frame(websocket, _usage_notice())
+
     _open_streams += 1
     print(f"[WS] /ws/feedback connected  tick_ms={tick_ms}  lamina={lamina or '(default)'}")
 
@@ -1234,6 +1319,7 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
     session.seed(source.starting_state())
     print(f"[WS] feed: {source.describe()}")
     flags   = {"paused": False}
+    emitted = {"n": 0}
 
     # ── Layer 1 streaming runtime ────────────────────────────────────
     # Ingestion and control run on two independent timescales (spec
@@ -1265,15 +1351,36 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
         return snapshot
 
     async def _send(snapshot: dict) -> None:
+        # The meter counts what actually left, so the limit is usually crossed
+        # by a send that succeeded.  Stop the loop from here instead of awaiting
+        # close(): the receive loop still holds the socket, and a separate close
+        # task is what gives it its disconnect.
+        if usage.over:
+            print("[WS] /ws/feedback monthly data limit reached, closing")
+            runtime.request_stop()
+            _close_soon(websocket, STREAM_LIMIT_CLOSE, _limit_reason())
+            return
+
+        emitted["n"] += 1
+        # The model ran this cycle regardless; only the wire is thinned.  The
+        # first snapshot always goes so a page is never blank while waiting.
+        send_snapshot = (emitted["n"] - 1) % STREAM_EMIT_EVERY == 0
+        send_notice = usage.near and not warned["usage"]
+        # A notice is not a snapshot, so thinning must never drop one.
+        if not send_snapshot and not send_notice:
+            return
+        if send_notice:
+            warned["usage"] = True
+
         # jsonable_encoder handles any numpy scalars inside vectors/outcomes.
         try:
-            # A send that blocks past the timeout means the peer has stopped
-            # reading.  Left alone it parks the control loop forever and the
-            # stream outlives the page that asked for it.
-            await asyncio.wait_for(
-                websocket.send_json(jsonable_encoder(snapshot)),
-                STREAM_SEND_TIMEOUT_S,
-            )
+            if send_notice:
+                await _send_frame(websocket, _usage_notice())
+            if send_snapshot:
+                # A send that blocks past the timeout means the peer has stopped
+                # reading.  Left alone it parks the control loop forever and the
+                # stream outlives the page that asked for it.
+                await _send_frame(websocket, snapshot)
         except asyncio.TimeoutError:
             # End the stream from this side, but not by awaiting close()
             # here: the receive loop is still parked in receive_text() and
@@ -1449,6 +1556,14 @@ async def ws_organism(websocket: WebSocket, tick_ms: int = 100,
         return
 
     await websocket.accept()
+
+    # Same refusal as /ws/feedback: nothing runs and no stream is counted past
+    # the monthly allowance.
+    if usage.over:
+        await websocket.close(code=STREAM_LIMIT_CLOSE, reason=_limit_reason())
+        print("[WS] /ws/organism refused: monthly data limit reached")
+        return
+
     _open_streams += 1
     print(f"[WS] /ws/organism connected  tick_ms={tick_ms}  "
           f"organism={organism or '(default)'}  "
@@ -1471,7 +1586,7 @@ async def ws_organism(websocket: WebSocket, tick_ms: int = 100,
         return snapshot
 
     async def _send(snapshot: dict) -> None:
-        await websocket.send_json(jsonable_encoder(snapshot))
+        await _send_frame(websocket, snapshot)
 
     runtime = StreamingRuntime(
         process=_control,
@@ -1528,6 +1643,10 @@ async def ws_organism(websocket: WebSocket, tick_ms: int = 100,
 
 
 # ── Frontend ──────────────────────────────────────────────────────────────────
+
+# Persist the month's count on the way out.  The lambda reads the module global
+# at call time, so it flushes whichever meter is current when shutdown runs.
+app.add_event_handler("shutdown", lambda: usage.flush())
 
 # Mounted last, after every API route and websocket, so "/" only catches what
 # nothing above claimed and the API keeps priority.  A missing build is not an

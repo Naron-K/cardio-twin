@@ -25,6 +25,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { useLaminaTwin } from '../../hooks/useLaminaTwin'
+import { STREAM_LIMIT_CLOSE } from '../../hooks/useCardioStream'
 import { idleMinutesFromUrl, useIdle } from '../../hooks/useIdle'
 import { useWakeLock } from '../../hooks/useWakeLock'
 import { usePageViewing } from '../../hooks/usePageViewing'
@@ -84,6 +85,7 @@ export function Dashboard({ lamina, onLamina, form, onForm }: Props) {
     retryAt: twin.retryAt,
     online: twin.online,
     closeReason: twin.closeReason,
+    closeCode: twin.closeCode,
     retryNow: twin.retryNow,
     paused: twin.paused,
     resume: twin.togglePause,
@@ -177,8 +179,11 @@ export function Dashboard({ lamina, onLamina, form, onForm }: Props) {
       graph: 'Graph',
       table: 'Table',
     }
+    const dataLimit = twin.closeCode === STREAM_LIMIT_CLOSE
     const statusChip =
-      status === 'open'
+      dataLimit
+        ? { tone: 'warn' as const, pulse: false, label: 'Data limit reached' }
+        : status === 'open'
         ? { tone: 'oxy' as const, pulse: false, label: 'Live' }
         : status === 'suspended'
           ? { tone: 'neutral' as const, pulse: false, label: 'Paused · idle' }
@@ -354,7 +359,7 @@ export function Dashboard({ lamina, onLamina, form, onForm }: Props) {
                     </p>
                   ) : twin.closeReason ? (
                     <p className="font-mono text-[11px] readout text-crimson-container max-w-[380px]">
-                      Stream refused: {twin.closeReason}
+                      {dataLimit ? 'Live data is off:' : 'Stream refused:'} {twin.closeReason}
                     </p>
                   ) : (
                     <p className="font-mono text-[12px] readout uppercase text-ink/50 animate-pulse">

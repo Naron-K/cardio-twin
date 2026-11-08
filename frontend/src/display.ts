@@ -77,7 +77,7 @@ export function computeProfile(
   const width = W / scale
   const height = H / scale
   const tier: Tier =
-    width >= 1280 && height >= 700
+    width >= 1280 && height >= 860
       ? 'wide'
       : width >= 720 && height >= 500
         ? 'tablet'

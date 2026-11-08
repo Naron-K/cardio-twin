@@ -178,11 +178,23 @@ What this means for whoever is looking at the screen, and for the bill:
 - **Nothing runs without an open page.** Each page gets its own session, which
   ends when the page goes. The process itself stays up, at about 60 MB of RAM
   and almost no CPU. `/health` reports `streams`, the number open right now.
-- **Bandwidth is the real cost.** One open dashboard streams about 270 MB an hour
-  before compression and an estimated 70 MB after it: roughly 12 GB a month at 8
-  hours a day on weekdays, and 50 GB a month left on around the clock. Check the
-  included allowance and the overage rate on the workspace's Billing page before
-  leaving `?idle=0` running.
+- **Bandwidth is the real cost.** Render does not pass WebSocket compression
+  through, so one open dashboard at 10 frames a second uses about 264 MB an hour
+  (measured on the live service). The Hobby workspace includes 5 GB a month and
+  bills $0.15 per GB above that.
+- **It stops itself at a limit.** `CARDIOTWIN_MONTHLY_GB` in `render.yaml` caps the
+  bytes the streams send in a UTC month. At 80% an open dashboard warns; at the
+  limit every stream closes and new ones are refused until the month turns, and
+  the screen says so. The page itself still loads. `/health` reports `usage`.
+  The count covers the streams, not page loads, so the limit sits a little under
+  the allowance. It is kept in a file that a deploy or restart erases, so it
+  restarts then and the limit can be overshot; the Billing page stays the source
+  of truth. A persistent disk mounted at `CARDIOTWIN_USAGE_FILE`'s folder would
+  keep it ($0.25 per GB a month, and no zero-downtime deploys). Anyone with the
+  address spends from the same limit.
+- **Fewer frames cost less.** `CARDIOTWIN_EMIT_EVERY=5` sends every 5th snapshot
+  (2 a second, about 53 MB an hour). The model still runs every cycle, and the
+  heart animates in the browser, so only how often the numbers refresh changes.
 - **No sign-in.** Anyone with the address can open the dashboard. Nothing is
   stored on the server; each tab gets its own session.
 
@@ -212,7 +224,7 @@ opens the dashboard full screen, without the address bar. On the screen itself:
 
 The layout follows the screen it is on (`frontend/src/display.ts`):
 
-- **Wide** (1280 × 700 and up: desktops, the board) — the three columns as
+- **Wide** (1280 × 860 and up: desktops, the board) — the three columns as
   designed.
 - **Tablet** (an iPad, or a laptop with little height) — inputs on the left,
   and one scrolling column of twin, outcomes and time beside them.

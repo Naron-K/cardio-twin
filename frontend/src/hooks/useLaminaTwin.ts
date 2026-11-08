@@ -80,6 +80,8 @@ export interface LaminaTwin {
   latest: StreamTick | null
   status: StreamStatus
   closeReason: string | null
+  /** The close code that came with it. */
+  closeCode: number | null
   /** The socket is sending a lamina this structure was not read for. */
   mismatch: boolean
   streamLamina: string
@@ -120,6 +122,7 @@ export function useLaminaTwin({
     sendControl,
     lastTickAt,
     closeReason,
+    closeCode,
     retryAt,
     attempts,
     everOpened,
@@ -351,6 +354,7 @@ export function useLaminaTwin({
     latest,
     status,
     closeReason,
+    closeCode,
     mismatch,
     streamLamina,
     stale,

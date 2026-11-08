@@ -14,3 +14,11 @@ services:
     envVars:
       - key: CARDIOTWIN_ECHO_LOG
         value: "0"
+      # Streams stop by themselves at this many GB in a UTC month, a little under
+      # the 5 GB the workspace includes. Each GB above 5 costs $0.15.
+      - key: CARDIOTWIN_MONTHLY_GB
+        value: "4.5"
+      # Send every 5th snapshot: 2 a second, about 53 MB an hour per open page
+      # instead of 264. The model still runs every cycle.
+      - key: CARDIOTWIN_EMIT_EVERY
+        value: "5"

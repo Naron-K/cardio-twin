@@ -250,6 +250,8 @@ export interface UseCardioStreamResult {
   lastTickAt: number | null
   /** Why the server closed the socket, when it said — e.g. an unknown lamina. */
   closeReason: string | null
+  /** The code that came with it: 1008 refused, STREAM_LIMIT_CLOSE out of data. */
+  closeCode: number | null
   /**
    * Epoch ms of the next scheduled reconnect while status is 'closed';
    * null when open, connecting, suspended, or refused (1008 has no retry).
@@ -391,6 +393,9 @@ function parseNotice(raw: unknown): ServerNotice | null {
 
 const MAX_BACKOFF_MS = 16_000
 
+/** The server's close code for a used-up monthly data limit; see main.py. */
+export const STREAM_LIMIT_CLOSE = 4429
+
 /**
  * How often an open socket says something with no data in it.
  *
@@ -416,6 +421,8 @@ interface StreamBuffer {
   ticks: StreamTick[]
   lastTickAt: number | null
   closeReason: string | null
+  /** The code that came with it: 1008 refused, STREAM_LIMIT_CLOSE out of data. */
+  closeCode: number | null
   /**
    * Whether this lamina's socket has ever opened.  Carried in the tagged
    * buffer for the same reason as the ticks: a stale buffer is read as the
@@ -431,6 +438,7 @@ const EMPTY_BUFFER: StreamBuffer = {
   ticks: [],
   lastTickAt: null,
   closeReason: null,
+  closeCode: null,
   everOpened: false,
 }
 
@@ -562,7 +570,7 @@ export function useCardioStream({
         setPhase('open')
         setAttempts(0)
         setRetryAt(null)
-        record((prev) => ({ ...prev, everOpened: true, closeReason: null }))
+        record((prev) => ({ ...prev, everOpened: true, closeReason: null, closeCode: null }))
         backoff = 1_000   // reset on successful connect
 
         // The sliders still hold the user's values, but this session started
@@ -627,9 +635,12 @@ export function useCardioStream({
         // 1008 is the server refusing what was asked for — an unknown lamina,
         // today.  Retrying cannot fix that, and the reason is worth showing
         // rather than hiding behind an endless "Reconnecting".
-        if (ev.code === 1008) {
+        // The monthly data limit is the same: a retry would only be refused until
+        // the month turns, and every attempt would look like a network fault.
+        if (ev.code === 1008 || ev.code === STREAM_LIMIT_CLOSE) {
           const reason = ev.reason || 'refused by the server'
-          record((prev) => ({ ...prev, closeReason: reason }))
+          const code = ev.code
+          record((prev) => ({ ...prev, closeReason: reason, closeCode: code }))
           setRetryAt(null)
           return
         }
@@ -716,6 +727,7 @@ export function useCardioStream({
     sendControl,
     lastTickAt:  own.lastTickAt,
     closeReason: own.closeReason,
+    closeCode:   own.closeCode,
     retryAt,
     attempts,
     everOpened: own.everOpened,

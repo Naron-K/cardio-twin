@@ -19,13 +19,15 @@
  *
  * What happened to the stream is said out loud through useStatusNotices, a
  * screen nobody has touched lets the stream go and reopens it on the next
- * touch (useIdle, with `?idle=` in the URL), and the long press a finger
+ * touch (useIdle, with `?idle=` in the URL), a hidden page does the same after
+ * half a minute (usePageViewing), and the long press a finger
  * cannot hover shows the `title` text through TouchTooltip.
  */
 import { useEffect, useRef, useState } from 'react'
 import { useLaminaTwin } from '../../hooks/useLaminaTwin'
 import { idleMinutesFromUrl, useIdle } from '../../hooks/useIdle'
 import { useWakeLock } from '../../hooks/useWakeLock'
+import { usePageViewing } from '../../hooks/usePageViewing'
 import { useStatusNotices, useStreamNoticeHandlers } from '../../hooks/useStatusNotices'
 import { anyOutOfBand } from '../../twin/outcomes'
 import { LaminaStage } from '../twin/LaminaStage'
@@ -60,11 +62,12 @@ export function Dashboard({ lamina, onLamina, form, onForm }: Props) {
   const [idleMinutes] = useState(() => idleMinutesFromUrl())
   const { idle, wake } = useIdle(idleMinutes)
   useWakeLock(!idle)
+  const viewing = usePageViewing()
 
   const twin = useLaminaTwin({
     lamina,
     onLamina,
-    enabled: !idle,
+    enabled: !idle && viewing,
     onNotice: streamHandlers.onNotice,
     onReconnect: streamHandlers.onReconnect,
   })

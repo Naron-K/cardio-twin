@@ -238,6 +238,18 @@ class StreamingRuntime:
                 pass                            # already recorded on .error
             self._task = None
 
+    def request_stop(self) -> None:
+        """
+        Ask the loop to end after the current cycle.
+
+        Unlike stop(), this is safe to call from inside `emit`: it does not
+        wait for the task it is running in.  It only clears the flag the
+        loop already reads, so the loop finishes the cycle and then exits
+        normally.  A requested stop is an ending, not a failure, so `error`
+        is left alone.
+        """
+        self._running = False
+
     @property
     def running(self) -> bool:
         return self._running and self._task is not None

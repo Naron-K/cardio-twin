@@ -20,6 +20,7 @@ Run:
 
 import asyncio
 import json
+import logging
 import math
 import os
 import re
@@ -378,6 +379,25 @@ def _build_feedback_twin(sensor_data: Dict[str, float],
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
+class _QuietHealthChecks(logging.Filter):
+    """
+    Drop uvicorn's access line for GET /health.
+
+    Render polls /health every 5 seconds, which at that rate buries every
+    other line in the log.  Only the health request is dropped; a failed
+    one still surfaces through uvicorn's error logging, not this filter.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            return '"GET /health ' not in record.getMessage()
+        except Exception:               # noqa: BLE001 — a filter may not raise
+            return True
+
+
+logging.getLogger("uvicorn.access").addFilter(_QuietHealthChecks())
+
+
 @app.get("/health")
 def health():
     """Health check, including which frontend build (if any) is being served."""
@@ -385,6 +405,9 @@ def health():
         "status": "ok",
         "timestamp": datetime.now().isoformat(),
         "build": frontend_build_id(FRONTEND_DIST),
+        # How to check from outside that nothing runs when no page is open:
+        # a browser tab left streaming keeps a non-zero count here.
+        "streams": _open_streams,
     }
 
 
@@ -1006,6 +1029,49 @@ def download(request: DownloadRequest):
 
 # ── WebSocket streaming endpoint (Phase 3) ───────────────────────────────────
 
+# How long a stream may go without hearing from the client.  The dashboard
+# sends a keepalive every 4 minutes, so 10 minutes of silence means no page is
+# there.  Read at call time so a test can shrink it.
+STREAM_SILENCE_S = 600.0
+# A frame this slow to leave means the client has stopped reading.  Without
+# this the send can park forever and the stream outlives the tab.
+STREAM_SEND_TIMEOUT_S = 15.0
+# Close code for a stream reaped for silence.  App-defined range, so it cannot
+# be mistaken for a protocol-level close.
+STREAM_SILENT_CLOSE = 4408
+
+# Streams currently accepted and not yet torn down, in this process.  /health
+# reports it so "nothing runs when no page is open" is observable from outside.
+_open_streams = 0
+
+# Close tasks started off the send path are kept here until they finish, so
+# the loop does not warn about a pending task during teardown.
+_close_tasks: set[asyncio.Task] = set()
+
+
+def _close_soon(websocket: WebSocket, code: int, reason: str) -> None:
+    """
+    Close a socket from outside the task that is using it.
+
+    A close on an already-closed socket, or one started while the server is
+    shutting down, must never raise out of whoever asked for it.  The task is
+    retained until done so the event loop does not report it as pending.
+    """
+
+    async def _close() -> None:
+        try:
+            await websocket.close(code=code, reason=reason)
+        except Exception:               # noqa: BLE001 — teardown must not raise
+            pass
+
+    try:
+        task = asyncio.create_task(_close())
+    except RuntimeError:                # no loop left to run the close in
+        return
+    _close_tasks.add(task)
+    task.add_done_callback(_close_tasks.discard)
+
+
 def _shown(raw: Any, limit: int = 40) -> str:
     """A refused value as the notice quotes it: repr, cut short so a client
     that sends a megabyte of junk does not get a megabyte of notice back."""
@@ -1136,7 +1202,14 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
 
     On disconnect: the ticker task is cancelled and the session is freed.
     One ticker task per connection — sessions are never shared.
+
+    A client that vanishes without closing is reaped too: no inbound message
+    for STREAM_SILENCE_S closes the socket with STREAM_SILENT_CLOSE, and a
+    send that cannot finish within STREAM_SEND_TIMEOUT_S stops the runtime
+    and closes the wedged socket from a separate task.
     """
+    global _open_streams
+
     # Resolved before accepting: a socket that opens and then closes looks
     # like a network fault, and this is a request for something that does not
     # exist.  1008 (policy violation) with the reason on the close frame says
@@ -1150,6 +1223,7 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
         return
 
     await websocket.accept()
+    _open_streams += 1
     print(f"[WS] /ws/feedback connected  tick_ms={tick_ms}  lamina={lamina or '(default)'}")
 
     # The feed is built from the loaded lamina's own sensor declarations, and
@@ -1192,7 +1266,29 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
 
     async def _send(snapshot: dict) -> None:
         # jsonable_encoder handles any numpy scalars inside vectors/outcomes.
-        await websocket.send_json(jsonable_encoder(snapshot))
+        try:
+            # A send that blocks past the timeout means the peer has stopped
+            # reading.  Left alone it parks the control loop forever and the
+            # stream outlives the page that asked for it.
+            await asyncio.wait_for(
+                websocket.send_json(jsonable_encoder(snapshot)),
+                STREAM_SEND_TIMEOUT_S,
+            )
+        except asyncio.TimeoutError:
+            # End the stream from this side, but not by awaiting close()
+            # here: the receive loop is still parked in receive_text() and
+            # the send that just timed out still holds the socket.  A
+            # separate close task gives the receive loop its disconnect.
+            print("[WS] /ws/feedback client stopped reading, closing")
+            runtime.request_stop()
+            _close_soon(websocket, 1011, "Client stopped reading")
+        except (WebSocketDisconnect, RuntimeError):
+            # A tab closing, or a send racing the close after one, is the
+            # normal way a stream ends.  Stop the loop quietly — this is
+            # not a failure and must not print a traceback.  Every other
+            # exception propagates so the runtime can report it loudly.
+            runtime.request_stop()
+            return
 
     runtime = StreamingRuntime(
         process=_control,
@@ -1217,7 +1313,23 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
             # Read text ourselves rather than iter_json(): a malformed frame
             # is a message the user can be told about, not a reason to close
             # the socket under them.
-            text = await websocket.receive_text()
+            try:
+                # The dashboard's keepalive resets this timer.  When it stops
+                # arriving, nobody is on the other end: a vanished client
+                # never sends a close frame, so silence is the only signal.
+                text = await asyncio.wait_for(
+                    websocket.receive_text(), STREAM_SILENCE_S
+                )
+            except asyncio.TimeoutError:
+                print(f"[WS] /ws/feedback silent for {STREAM_SILENCE_S:g}s, closing")
+                try:
+                    await websocket.close(
+                        code=STREAM_SILENT_CLOSE,
+                        reason="No message from the client",
+                    )
+                except Exception:       # noqa: BLE001 — close must not escape
+                    pass
+                break
             try:
                 msg = json.loads(text)
             except (json.JSONDecodeError, TypeError):
@@ -1288,6 +1400,7 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
         except asyncio.CancelledError:
             pass
         await runtime.stop()
+        _open_streams -= 1
         print("[WS] /ws/feedback disconnected")
 
 
@@ -1321,6 +1434,8 @@ async def ws_organism(websocket: WebSocket, tick_ms: int = 100,
        "id": "HR", "value": 110.0}
       {"type": "pause"} / {"type": "resume"} / {"type": "reset"}
     """
+    global _open_streams
+
     try:
         session = OrganismSession(organism)
     except (OrganismError, FileNotFoundError, ET.ParseError) as e:
@@ -1334,6 +1449,7 @@ async def ws_organism(websocket: WebSocket, tick_ms: int = 100,
         return
 
     await websocket.accept()
+    _open_streams += 1
     print(f"[WS] /ws/organism connected  tick_ms={tick_ms}  "
           f"organism={organism or '(default)'}  "
           f"laminae={list(session.organism.twins)}")
@@ -1407,6 +1523,7 @@ async def ws_organism(websocket: WebSocket, tick_ms: int = 100,
         except asyncio.CancelledError:
             pass
         await runtime.stop()
+        _open_streams -= 1
         print("[WS] /ws/organism disconnected")
 
 

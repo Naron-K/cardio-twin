@@ -172,7 +172,12 @@ What this means for whoever is looking at the screen, and for the bill:
 - **The dashboard lets go when nobody is watching.** After 15 minutes with no
   touch it closes its stream and asks for a touch to continue. Add `?idle=30`
   to the address for a longer wait, or `?idle=0` for a screen that should never
-  let go.
+  let go. A page hidden for more than 30 seconds (a background tab, a screen
+  switched off) closes its stream too, whatever `?idle=` says, and reconnects
+  when it is visible again.
+- **Nothing runs without an open page.** Each page gets its own session, which
+  ends when the page goes. The process itself stays up, at about 60 MB of RAM
+  and almost no CPU. `/health` reports `streams`, the number open right now.
 - **Bandwidth is the real cost.** One open dashboard streams about 270 MB an hour
   before compression and an estimated 70 MB after it: roughly 12 GB a month at 8
   hours a day on weekdays, and 50 GB a month left on around the clock. Check the

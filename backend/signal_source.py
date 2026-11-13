@@ -47,6 +47,51 @@ _FALLBACK_SIGMA_FRACTION = 0.002
 REPLAY_SPEEDS = (60, 120, 600)
 
 
+def _validated_coefficient_overrides(
+    twin: "UniversalTwin",
+    params: dict | None,
+    coefficient_ids,
+    mapped: dict,
+    *,
+    mapped_reason: str,
+    only_clause: str,
+) -> dict[str, float]:
+    """
+    Check a params mapping against a lamina's coefficients and return it.
+
+    Shared by the replay and scenario feeds so "a coefficient, and finite"
+    has one definition.  The two feeds differ only in how they explain a
+    mapped sensor; the rest of the rule, and every message around it, is the
+    replay's wording unchanged.
+    """
+    if params is not None and not isinstance(params, dict):
+        raise ValueError(
+            f"params must be a mapping of coefficient ids to finite "
+            f"values, got {type(params).__name__}."
+        )
+
+    coefficient_ids = set(coefficient_ids)
+    overrides: dict[str, float] = {}
+    for attr_id, value in (params or {}).items():
+        if not isinstance(attr_id, str) or attr_id not in coefficient_ids:
+            if isinstance(attr_id, str) and attr_id in mapped:
+                reason = mapped_reason
+            else:
+                reason = (
+                    f"is not a coefficient SENSOR on lamina "
+                    f"{twin.lamina_id}"
+                )
+            raise ValueError(
+                f"params names '{attr_id}', which {reason}. {only_clause}"
+            )
+        if not is_finite_number(value):
+            raise ValueError(
+                f"params['{attr_id}']={value!r} is not a finite number."
+            )
+        overrides[attr_id] = float(value)
+    return overrides
+
+
 class SignalSource(ABC):
     """Minimal interface for a sensor reading producer."""
 
@@ -278,32 +323,16 @@ class ReplaySource(SignalSource):
                     f"which a replay cannot resolve."
                 )
 
-        if params is not None and not isinstance(params, dict):
-            raise ValueError(
-                f"params must be a mapping of coefficient ids to finite "
-                f"values, got {type(params).__name__}."
-            )
-
-        coefficient_ids = set(coefficients)
-        overrides: dict[str, float] = {}
-        for attr_id, value in (params or {}).items():
-            if not isinstance(attr_id, str) or attr_id not in coefficient_ids:
-                if isinstance(attr_id, str) and attr_id in mapped:
-                    reason = "comes from the recorded day during a replay"
-                else:
-                    reason = (
-                        f"is not a coefficient SENSOR on lamina "
-                        f"{twin.lamina_id}"
-                    )
-                raise ValueError(
-                    f"params names '{attr_id}', which {reason}. Only a SENSOR "
-                    f"without a replay_field may be set for a replay."
-                )
-            if not is_finite_number(value):
-                raise ValueError(
-                    f"params['{attr_id}']={value!r} is not a finite number."
-                )
-            overrides[attr_id] = float(value)
+        overrides = _validated_coefficient_overrides(
+            twin,
+            params,
+            coefficients,
+            mapped,
+            mapped_reason="comes from the recorded day during a replay",
+            only_clause=(
+                "Only a SENSOR without a replay_field may be set for a replay."
+            ),
+        )
 
         self._twin = twin
         self._bundle = bundle
@@ -508,4 +537,210 @@ class ReplaySource(SignalSource):
                 readings[attr_id] = value
 
         readings.update(self._coefficients)
+        return readings, missing
+
+
+class ScenarioSource(SignalSource):
+    """
+    A feed that holds one described state, with no noise and no clock.
+
+    A scenario is not a recording: there is no minute-by-minute row to replay.
+    It is a set of inputs a domain expert (or a preset file) says the person is
+    in, held steady until somebody changes it.  Two consequences follow, and
+    both are deliberate:
+
+      * an observed SENSOR is omitted rather than invented.  `HR_obs` is a
+        measurement the model predicts, and a scenario has no measurement to
+        offer; `last_missing` names it so a consumer can tell a scenario from
+        a recording.
+      * nothing is clamped except an explicit `set_baseline`.  A preset value
+        is the state somebody asked for, including a pathological one; quietly
+        moving it into range would make the scenario say something it did not.
+
+    Input precedence per sensor is: a `set_baseline` override, the preset's
+    value, a coefficient's `params` value, the declared baseline, then the
+    midpoint of the declared range.
+    """
+
+    KIND = "scenario"
+
+    def __init__(
+        self,
+        twin: "UniversalTwin",
+        preset: dict,
+        params: dict | None = None,
+    ) -> None:
+        self._twin = twin
+        self._sensor_ids: list[str] = []
+        self._ranges: dict[str, tuple[float, float]] = {}
+        self._observed: set[str] = set()
+        coefficients: list[str] = []
+        self._declared: dict[str, float] = {}
+
+        for attr_id in twin.list_attributes("SENSOR"):
+            attr = twin.attributes[attr_id]
+            lo, hi = attr.physio_min, attr.physio_max
+            self._sensor_ids.append(attr_id)
+            self._ranges[attr_id] = (lo, hi)
+            if attr.observed:
+                self._observed.add(attr_id)
+            if attr.replay_field is None:
+                coefficients.append(attr_id)
+            if attr.baseline is not None:
+                self._declared[attr_id] = float(attr.baseline)
+            else:
+                self._declared[attr_id] = (lo + hi) / 2.0
+
+        overrides = _validated_coefficient_overrides(
+            twin,
+            params,
+            coefficients,
+            {},
+            mapped_reason="",
+            only_clause="Only a SENSOR without a replay_field is a coefficient.",
+        )
+        self._fitted = params is not None
+        for attr_id, value in overrides.items():
+            self._declared[attr_id] = value
+
+        self._overrides: dict[str, float] = {}
+        self._preset_values: dict[str, float] = {}
+        self._name = ""
+        self._label = ""
+        self._subject: str | None = None
+        self._last_missing: list[str] = []
+
+        self.set_preset(preset)
+
+    # ── Public API ────────────────────────────────────────────────────
+
+    def next(self) -> dict[str, float]:
+        """Emit one scenario tick, omitting every observed measurement."""
+        readings, missing = self._current_state()
+        self._last_missing = missing
+        return readings
+
+    def starting_state(self) -> dict[str, float]:
+        """The scenario's values, for seeding a Session before the first tick."""
+        readings, _ = self._current_state()
+        return readings
+
+    def set_baseline(self, sensor_id: str, value: float) -> None:
+        """
+        Override one input for future ticks, clamped to its declared range.
+
+        An observed SENSOR is refused: the scenario has no measurement, so
+        overriding one would be inventing the very number the model is meant
+        to be compared against.  Unknown ids are ignored, as in SimulatedSource.
+        """
+        if sensor_id in self._observed:
+            raise ValueError(
+                f"'{sensor_id}' is a measurement, and a scenario has none."
+            )
+        if sensor_id not in self._ranges:
+            return
+        lo, hi = self._ranges[sensor_id]
+        self._overrides[sensor_id] = max(lo, min(hi, float(value)))
+
+    def set_preset(self, preset: dict) -> None:
+        """
+        Move to a new state.
+
+        Overrides for inputs the new preset sets are dropped — a preset change
+        means "go to this state", so a stale slider value must not survive it.
+        Overrides for inputs it does not mention are kept, because the new
+        preset says nothing about them.
+        """
+        if not isinstance(preset, dict):
+            raise ValueError(
+                f"A scenario preset must be a mapping, got "
+                f"{type(preset).__name__}."
+            )
+        supplied = preset.get("values")
+        if not isinstance(supplied, dict):
+            raise ValueError(
+                "A scenario preset must carry a 'values' mapping of attribute "
+                "ids to numbers."
+            )
+
+        label = preset.get("label") or preset.get("name") or "<preset>"
+        values: dict[str, float] = {}
+        for attr_id, value in supplied.items():
+            attr = self._twin.attributes.get(attr_id)
+            if attr is None:
+                raise ValueError(
+                    f"Preset '{label}' names attribute '{attr_id}', which "
+                    f"lamina {self._twin.lamina_id} does not declare."
+                )
+            if attr.source != "SENSOR":
+                raise ValueError(
+                    f"Preset '{label}' names '{attr_id}', which is "
+                    f"{attr.source}, not SENSOR. A scenario can only set an "
+                    f"input."
+                )
+            if attr.observed:
+                raise ValueError(
+                    f"Preset '{label}' names '{attr_id}', which is an "
+                    f"observed measurement. A scenario has no measurement to "
+                    f"set."
+                )
+            if not is_finite_number(value):
+                raise ValueError(
+                    f"Preset '{label}' gives '{attr_id}'={value!r}, which is "
+                    f"not a finite number."
+                )
+            values[attr_id] = float(value)
+
+        for attr_id in values:
+            self._overrides.pop(attr_id, None)
+
+        self._preset_values = values
+        self._name = preset.get("name", "")
+        self._label = preset.get("label") or self._name
+        self._subject = preset.get("subject")
+
+    def describe(self) -> str:
+        """One line naming the state this feed is holding."""
+        suffix = " · fitted" if self._fitted else ""
+        return f"Scenario · {self._label}{suffix}"
+
+    def status(self) -> dict:
+        """The scenario, in the same terms ReplaySource reports itself."""
+        return {
+            "kind": self.KIND,
+            "detail": self.describe(),
+            "preset": self._name,
+            "label": self._label,
+            "subject": self._subject,
+            "coefficients": (
+                "fitted" if self._fitted else "declared defaults"
+            ),
+        }
+
+    # ── Properties ────────────────────────────────────────────────────
+
+    @property
+    def last_missing(self) -> list[str]:
+        """Observed sensors omitted from the most recent next() call."""
+        return list(self._last_missing)
+
+    # ── Internal ──────────────────────────────────────────────────────
+
+    def _current_state(self) -> tuple[dict[str, float], list[str]]:
+        """Build one tick's readings and the observed sensors it omits."""
+        readings: dict[str, float] = {}
+        missing: list[str] = []
+
+        for attr_id in self._sensor_ids:
+            if attr_id in self._observed:
+                missing.append(attr_id)
+                continue
+            if attr_id in self._overrides:
+                value = self._overrides[attr_id]
+            elif attr_id in self._preset_values:
+                value = self._preset_values[attr_id]
+            else:
+                value = self._declared[attr_id]
+            readings[attr_id] = value
+
         return readings, missing

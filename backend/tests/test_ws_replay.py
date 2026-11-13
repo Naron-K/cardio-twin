@@ -112,7 +112,8 @@ def test_emit_every_does_not_thin_a_replay(fast_speeds, monkeypatch):
         ),
         (
             "/ws/feedback?lamina=lamina_wearable&source=scenario",
-            "scenario mode is not built yet",
+            "A scenario needs a preset, for example "
+            "?source=scenario&preset=walk.",
         ),
         (
             "/ws/feedback?lamina=lamina_wearable&source=bogus",
@@ -219,11 +220,13 @@ def test_sources_lists_the_demo_day_for_the_wearable():
         body = client.get("/api/sources?lamina=lamina_wearable").json()
 
     assert body["lamina"] == "lamina_wearable"
-    assert body["modes"] == ["simulated", "replay"]
+    assert body["modes"] == ["simulated", "replay", "scenario"]
     assert body["replay"]["subjects"]["demo"] == ["2025-06-01"]
     assert body["replay"]["speeds"] == [60, 120, 600]
     assert body["replay"]["default_speed"] == 60
-    assert body["presets"] == []
+    assert [preset["name"] for preset in body["presets"]] == [
+        "sleep", "rest_awake", "desk_work", "walk", "vigorous"
+    ]
 
 
 def test_sources_does_not_offer_replay_to_a_lamina_without_replay_fields():

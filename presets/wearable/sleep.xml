@@ -1,0 +1,16 @@
+<?xml version='1.0' encoding='utf-8'?>
+<patient>
+  <metadata>
+    <name>Sleep</name>
+    <lamina>lamina_wearable</lamina>
+    <subject>s2</subject>
+    <order>1</order>
+    <description>s2's median over 864 minutes on 23 days (2023-05-11 to 2025-05-11) where there is no workout, the local hour is before 6, steps are zero and heart rate is missing or no higher than the day's resting level. A proxy for Sleep, not a labelled state. The resting level, 77.2 bpm, is the median of the pipeline's daily level over 121 days. Only 864 minutes qualify, so this median is weak. Median activity here is not lower than awake rest, so these minutes are probably not sleep: the watch is rarely worn at night. Indistinguishable from Rest (awake) in this data. Indistinguishable from Desk work in this data.</description>
+  </metadata>
+  <sensor_data>
+    <AE_rate>0.38</AE_rate>
+    <step_rate>0</step_rate>
+    <hour_local>1.5</hour_local>
+    <HR_level>77.2</HR_level>
+  </sensor_data>
+</patient>

@@ -1,0 +1,16 @@
+<?xml version='1.0' encoding='utf-8'?>
+<patient>
+  <metadata>
+    <name>Desk work</name>
+    <lamina>lamina_wearable</lamina>
+    <subject>s2</subject>
+    <order>3</order>
+    <description>s2's median over 22583 minutes on 83 days (2023-05-11 to 2025-05-11) where there is no workout, it is a Monday-to-Friday working hour from 9 to before 17, and steps are at most 10. A proxy for Desk work, not a labelled state. The resting level, 77.2 bpm, is the median of the pipeline's daily level over 121 days. Indistinguishable from Sleep in this data. Indistinguishable from Rest (awake) in this data.</description>
+  </metadata>
+  <sensor_data>
+    <AE_rate>0.37</AE_rate>
+    <step_rate>0</step_rate>
+    <hour_local>12.9</hour_local>
+    <HR_level>77.2</HR_level>
+  </sensor_data>
+</patient>

@@ -1,0 +1,16 @@
+<?xml version='1.0' encoding='utf-8'?>
+<patient>
+  <metadata>
+    <name>Rest (awake)</name>
+    <lamina>lamina_wearable</lamina>
+    <subject>s2</subject>
+    <order>2</order>
+    <description>s2's median over 14156 minutes on 121 days (2023-05-11 to 2025-05-11) where there is no workout, the local hour is from 7 to before 23, activity is at most 0.5 kcal/min and steps are at most 5. A proxy for Rest (awake), not a labelled state. The resting level, 77.2 bpm, is the median of the pipeline's daily level over 121 days. Indistinguishable from Sleep in this data. Indistinguishable from Desk work in this data.</description>
+  </metadata>
+  <sensor_data>
+    <AE_rate>0.31</AE_rate>
+    <step_rate>0</step_rate>
+    <hour_local>17.7</hour_local>
+    <HR_level>77.2</HR_level>
+  </sensor_data>
+</patient>

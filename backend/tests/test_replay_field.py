@@ -75,6 +75,28 @@ def test_a_field_that_could_never_resolve_is_refused(tmp_path, field):
       <replay_field>{field}</replay_field></attribute>""")
 
 
+def test_only_the_measured_heart_rate_is_observed():
+    # An observation is what a scenario leaves unset: inventing it would give
+    # the model a reading to be compared against that nobody measured.
+    twin = load_twin(WEARABLE)
+    assert [a for a, v in twin.attributes.items() if v.observed] == ["HR_obs"]
+    for name in ("circulatory", "respiratory", "metabolic"):
+        other = load_twin(LAMINA_DIR / f"{name}_lamina.xml")
+        assert not any(v.observed for v in other.attributes.values())
+
+
+@pytest.mark.parametrize(
+    "source, value, match",
+    [("PRELIMINARY", "true", "Only a SENSOR"), ("SENSOR", "yes", "observed")],
+)
+def test_a_bad_observed_flag_is_refused(tmp_path, source, value, match):
+    with pytest.raises(ValueError, match=match):
+        _load(tmp_path, f"""
+    <attribute id="x"><name>X</name><unit>1</unit><source>{source}</source>
+      <physio_min>0</physio_min><physio_max>1</physio_max>
+      <observed>{value}</observed></attribute>""")
+
+
 def test_the_schema_reports_the_mapping_so_a_control_can_show_a_readout():
     import main
 
@@ -84,3 +106,5 @@ def test_the_schema_reports_the_mapping_so_a_control_can_show_a_readout():
     by_id = body["attributes"]          # keyed by attribute id
     assert {k: by_id[k]["replay_field"] for k in EXPECTED} == EXPECTED
     assert by_id["k_I"]["replay_field"] is None
+    assert by_id["HR_obs"]["observed"] is True
+    assert by_id["AE_rate"]["observed"] is False

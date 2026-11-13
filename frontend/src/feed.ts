@@ -5,16 +5,18 @@
  * WebSocket URL.
  *
  *   ?source=replay&subject=s2&date=2025-04-03&speed=600
+ *   ?source=scenario&preset=resting
  *
  * A simulated feed carries no parameters at all, which is exactly what the
  * dashboard used before replays existed.
  */
 import type { FeedRequest } from './hooks/useCardioStream'
 
-const REPLAY_KEYS = ['source', 'subject', 'date', 'speed'] as const
+const FEED_KEYS = ['source', 'subject', 'date', 'speed', 'preset'] as const
 
 const SUBJECT_RE = /^[a-z0-9_]{1,32}$/
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+const PRESET_RE = /^[a-z0-9_]{1,32}$/
 
 /**
  * A speed only says how fast to play the day; it is not part of which day is
@@ -33,7 +35,15 @@ function speedFrom(raw: string | null): number {
 export function feedFromSearch(search: string): FeedRequest {
   try {
     const query = new URLSearchParams(search)
-    if (query.get('source') !== 'replay') return { source: 'simulated' }
+    const source = query.get('source')
+
+    if (source === 'scenario') {
+      const preset = query.get('preset') ?? ''
+      if (!PRESET_RE.test(preset)) return { source: 'simulated' }
+      return { source: 'scenario', preset }
+    }
+
+    if (source !== 'replay') return { source: 'simulated' }
 
     const subject = query.get('subject') ?? ''
     const date = query.get('date') ?? ''
@@ -59,13 +69,16 @@ export function feedToSearch(feed: FeedRequest, search: string): string {
     query = new URLSearchParams()
   }
 
-  for (const key of REPLAY_KEYS) query.delete(key)
+  for (const key of FEED_KEYS) query.delete(key)
 
   if (feed.source === 'replay') {
     query.set('source', 'replay')
     query.set('subject', feed.subject)
     query.set('date', feed.date)
     query.set('speed', String(feed.speed))
+  } else if (feed.source === 'scenario') {
+    query.set('source', 'scenario')
+    query.set('preset', feed.preset)
   }
 
   const text = query.toString()

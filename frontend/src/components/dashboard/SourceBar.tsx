@@ -10,13 +10,20 @@ import { useEffect, useState } from 'react'
 import type { FeedRequest, FeedStatus } from '../../hooks/useCardioStream'
 import { fetchSources } from '../../utils/api'
 import type { SourcesResponse } from '../../utils/api'
-import { defaultReplayFeed, statusLine } from '../../twin/sourceBar'
+import {
+  defaultReplayFeed,
+  defaultScenarioFeed,
+  scenarioStatusLine,
+  statusLine,
+} from '../../twin/sourceBar'
 
 interface Props {
-  /** The lamina whose recorded days are being offered. */
+  /** The lamina whose recorded days and scenarios are being offered. */
   lamina: string | null
   feed: FeedRequest
   onFeed: (feed: FeedRequest) => void
+  /** Switch scenario preset without reopening the socket. */
+  onPreset: (preset: string) => void
   latest?: FeedStatus
   paused: boolean
   onTogglePause: () => void
@@ -31,7 +38,7 @@ interface SourceState {
   sources: SourcesResponse | null
 }
 
-type Mode = 'simulated' | 'replay'
+type Mode = 'simulated' | 'replay' | 'scenario'
 
 const SELECT_CLASS =
   'min-h-[44px] min-w-0 rounded-el border border-white/10 bg-surface-lowest px-3 ' +
@@ -41,6 +48,7 @@ export function SourceBar({
   lamina,
   feed,
   onFeed,
+  onPreset,
   latest,
   paused,
   onTogglePause,
@@ -98,35 +106,50 @@ export function SourceBar({
   }
 
   const replay = sources.replay
+  const presets = sources.presets
   const offered: Mode[] = []
   if (sources.modes.includes('simulated')) offered.push('simulated')
   if (sources.modes.includes('replay') && replay) offered.push('replay')
+  if (sources.modes.includes('scenario') && presets.length > 0) offered.push('scenario')
 
   // A feed the backend would refuse is not a choice to draw.
-  if (offered.length < 2 || !replay) return null
+  if (offered.length < 2) return null
 
   const isReplay = feed.source === 'replay'
-  const selectedMode: Mode = isReplay ? 'replay' : 'simulated'
+  const isScenario = feed.source === 'scenario'
+  const selectedMode: Mode = isReplay ? 'replay' : isScenario ? 'scenario' : 'simulated'
 
-  const subjects = Object.keys(replay.subjects)
+  const subjects = replay ? Object.keys(replay.subjects) : []
   const subject =
     isReplay && subjects.includes(feed.subject) ? feed.subject : subjects[0]
-  const dates = subject ? replay.subjects[subject] ?? [] : []
+  const dates = replay && subject ? replay.subjects[subject] ?? [] : []
   const date = isReplay && dates.includes(feed.date) ? feed.date : dates[0]
 
   const tickSpeed =
     typeof latest?.speed === 'number' && Number.isFinite(latest.speed)
       ? latest.speed
       : null
-  const speed =
-    isReplay ? tickSpeed ?? feed.speed : replay.default_speed
+  const speed = isReplay ? tickSpeed ?? feed.speed : replay?.default_speed ?? 60
+
+  // The active preset is the one the latest tick reports, falling back to the
+  // feed's own preset until the first tick of a switched scenario arrives.
+  const tickPreset = typeof latest?.preset === 'string' ? latest.preset : null
+  const activePresetName = isScenario ? tickPreset ?? feed.preset : ''
+  const activePreset =
+    presets.find((preset) => preset.name === activePresetName) ?? null
 
   const chooseReplay = () => {
     const next = defaultReplayFeed(sources, feed)
     if (next) onFeed(next)
   }
 
+  const chooseScenario = () => {
+    const next = defaultScenarioFeed(sources, feed)
+    if (next) onFeed(next)
+  }
+
   const changeSubject = (nextSubject: string) => {
+    if (!replay) return
     const nextDates = replay.subjects[nextSubject]
     if (!nextDates || nextDates.length === 0) return
     onFeed({
@@ -142,31 +165,39 @@ export function SourceBar({
     onFeed({ source: 'replay', subject, date: nextDate, speed })
   }
 
-  const line = isReplay ? statusLine(latest) : ''
+  const line = isReplay
+    ? statusLine(latest)
+    : isScenario
+      ? scenarioStatusLine(latest)
+      : ''
 
   return (
     <div className="mb-4 flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex rounded-full border border-white/10 bg-surface-lowest/80 p-0.5">
+        {/* Full width with equal buttons: three modes at their natural width
+            overflow the 300 px input column and give it a sideways scroll. */}
+        <div className="flex w-full rounded-full border border-white/10 bg-surface-lowest/80 p-0.5">
           {offered.map((mode) => (
             <button
               key={mode}
               type="button"
-              onClick={() =>
-                mode === 'simulated' ? onFeed({ source: 'simulated' }) : chooseReplay()
-              }
-              className={`min-h-[44px] rounded-full px-4 font-mono text-[11px] readout uppercase transition-colors ${
+              onClick={() => {
+                if (mode === 'simulated') onFeed({ source: 'simulated' })
+                else if (mode === 'replay') chooseReplay()
+                else chooseScenario()
+              }}
+              className={`min-h-[44px] min-w-0 flex-1 rounded-full px-2 font-mono text-[11px] readout uppercase transition-colors ${
                 selectedMode === mode
                   ? 'bg-white/10 text-ink'
                   : 'text-ink/40 hover:text-ink/70'
               }`}
             >
-              {mode === 'simulated' ? 'Synthetic' : 'Replay'}
+              {mode === 'simulated' ? 'Synthetic' : mode === 'replay' ? 'Replay' : 'Scenario'}
             </button>
           ))}
         </div>
 
-        {isReplay && subjects.length > 1 && (
+        {isReplay && replay && subjects.length > 1 && (
           <select
             aria-label="Subject"
             value={subject ?? ''}
@@ -198,7 +229,32 @@ export function SourceBar({
         )}
       </div>
 
-      {isReplay && (
+      {isScenario && (
+        <div className="flex flex-wrap gap-1.5">
+          {presets.map((preset) => (
+            <button
+              key={preset.name}
+              type="button"
+              onClick={() => onPreset(preset.name)}
+              className={`min-h-[44px] rounded-el border px-3 font-mono text-[11px] font-bold readout uppercase transition-colors ${
+                activePreset?.name === preset.name
+                  ? 'border-oxy-container/60 bg-oxy-container/15 text-oxy'
+                  : 'border-white/10 bg-surface-lowest text-ink/50 hover:text-ink'
+              }`}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {isScenario && activePreset && (
+        <p className="font-mono text-[10px] readout text-ink/45 leading-snug">
+          {activePreset.description}
+        </p>
+      )}
+
+      {isReplay && replay && (
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -229,7 +285,7 @@ export function SourceBar({
         </div>
       )}
 
-      {isReplay && line && (
+      {(isReplay || isScenario) && line && (
         <p className="font-mono text-[12px] readout text-ink/55">{line}</p>
       )}
 

@@ -99,6 +99,24 @@ def _replay_field(text: Optional[str], attr_id: str, source: str) -> Optional[st
     return value
 
 
+def _observed(text: Optional[str], attr_id: str, source: str) -> bool:
+    """Parse an optional <observed>true|false</observed>, SENSOR only."""
+    if text is None or not text.strip():
+        return False
+    value = text.strip().lower()
+    if value not in ("true", "false"):
+        raise ValueError(
+            f"Attribute '{attr_id}' declares observed '{text.strip()}'. "
+            f"Use 'true' or 'false'."
+        )
+    if value == "true" and source != SENSOR:
+        raise ValueError(
+            f"Attribute '{attr_id}' is {source} but declares observed true. "
+            f"Only a SENSOR is a measurement; remove it or change the source."
+        )
+    return value == "true"
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Attribute sources
 # ──────────────────────────────────────────────────────────────────────
@@ -177,6 +195,11 @@ class Attribute:
     # table in the replay code.  None → a replay leaves this input where the
     # declared baseline or a slider put it, which is what a coefficient wants.
     replay_field: Optional[str] = None
+    # A measurement of something the model also predicts, rather than an input
+    # that drives it.  A recording has one; a scenario does not, so a scenario
+    # feed leaves it unset instead of inventing a reading for the model to be
+    # compared against.  Only a SENSOR can be observed.
+    observed: bool = False
     value_external: Optional[float] = None  # X' — external/computed input
     value_feedback: float = 0.0             # X'' — feedback-loop delta
     normalised: Optional[float] = None  # value in [0, 1] vector space
@@ -1695,6 +1718,7 @@ class UniversalTwin:
                 replay_field=_replay_field(
                     attr_el.findtext("replay_field"), attr_id, source
                 ),
+                observed=_observed(attr_el.findtext("observed"), attr_id, source),
                 computed_by=attr_el.findtext("computed_by"),
                 depends_on=depends,
             )

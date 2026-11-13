@@ -13,7 +13,7 @@
 import type { StreamTick } from '../../hooks/useCardioStream'
 import type { LaminaIndex } from '../../twin/schema'
 import { fmtValue } from '../../twin/schema'
-import { deviationBands, orderedOutcomes, totalDeviation } from '../../twin/outcomes'
+import { deviationBands, orderedOutcomes, totalDeviation, unjudgedReason } from '../../twin/outcomes'
 import { ToleranceBar } from '../twin/OutcomePanel'
 
 interface Props {
@@ -34,9 +34,12 @@ export function OutcomeTiles({ index, latest }: Props) {
   }
 
   if (rows.length === 0) {
+    const reason = unjudgedReason(index.outcomes, latest)
     return (
-      <p className="font-mono text-[12px] readout text-ink/40 py-6 animate-pulse">
-        Waiting for the first outcome evaluation…
+      <p
+        className={`font-mono text-[12px] readout text-ink/40 py-6 ${reason ? '' : 'animate-pulse'}`}
+      >
+        {reason ?? 'Waiting for the first outcome evaluation…'}
       </p>
     )
   }

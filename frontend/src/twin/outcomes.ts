@@ -74,3 +74,23 @@ export function latestEvaluated(ticks: StreamTick[]): StreamTick | null {
   }
   return null
 }
+
+/**
+ * Why no outcome is being judged right now, or null when one is (or when it
+ * is simply too early to say).
+ *
+ * "Waiting for the first outcome evaluation" is only true while nothing has
+ * arrived.  Once ticks arrive and every outcome's attribute is stale, waiting
+ * will not help: a scenario has no measurement, and a recorded night has no
+ * reading.  The backend's own reason is quoted so the screen says which.
+ */
+export function unjudgedReason(
+  outcomes: { attribute_id: string }[],
+  latest: StreamTick | null,
+): string | null {
+  if (!latest || outcomes.length === 0) return null
+  const reasons = outcomes.map((o) => latest.staleComputed[o.attribute_id])
+  if (reasons.some((r) => typeof r !== 'string')) return null
+  const first = outcomes[0].attribute_id
+  return `No outcome can be judged: ${first} did not compute (${reasons[0]}).`
+}

@@ -9,6 +9,7 @@
  * them.
  */
 import assert from 'node:assert/strict'
+import { unjudgedReason } from '../src/twin/outcomes.ts'
 import {
   DAY_SECONDS,
   clockOfSeconds,
@@ -119,5 +120,17 @@ assert.equal(clockOfSeconds(86400), '24:00')
 assert.equal(clockOfSeconds(-60), '')
 assert.equal(clockOfSeconds(Number.NaN), '')
 assert.equal(clockOfSeconds(undefined), '')
+
+// No outcome can be judged once ticks arrive and every outcome's attribute is
+// stale; before any tick, or while one still computes, it is just "waiting".
+const outcomesDeclared = [{ attribute_id: 'HR_residual' }]
+const staleTick = { staleComputed: { HR_residual: 'input HR_measured not available' } }
+assert.equal(
+  unjudgedReason(outcomesDeclared, staleTick as never),
+  'No outcome can be judged: HR_residual did not compute (input HR_measured not available).',
+)
+assert.equal(unjudgedReason(outcomesDeclared, { staleComputed: {} } as never), null)
+assert.equal(unjudgedReason(outcomesDeclared, null), null)
+assert.equal(unjudgedReason([], staleTick as never), null)
 
 console.log('trend-check ok')

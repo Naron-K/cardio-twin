@@ -19,16 +19,26 @@ export interface ReplaySources {
   fitted: Record<string, boolean>
 }
 
+/** One scenario the backend offers, as declared by the lamina. */
+export interface PresetSource {
+  name: string
+  label: string
+  description: string
+  subject: string
+  order: number
+}
+
 /** `GET /api/sources?lamina=<id>`, after every field has been checked. */
 export interface SourcesResponse {
   lamina: string
   modes: string[]
   replay: ReplaySources | null
-  presets: unknown[]
+  presets: PresetSource[]
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const SUBJECT_RE = /^[a-z0-9_]{1,32}$/
+const PRESET_RE = /^[a-z0-9_]{1,32}$/
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -88,6 +98,34 @@ function parseReplay(raw: unknown): ReplaySources | null {
   return { subjects, speeds, default_speed, fitted }
 }
 
+/**
+ * The scenario presets, in the order the backend declares, with anything that
+ * is not a complete, well-typed entry dropped. A name is the only value that
+ * can reach `onPreset`, so it is checked against the same shape a preset URL
+ * accepts.
+ */
+export function parsePresets(raw: unknown): PresetSource[] {
+  if (!Array.isArray(raw)) return []
+
+  const seen = new Set<string>()
+  const presets: PresetSource[] = []
+  for (const entry of raw) {
+    if (!isRecord(entry)) continue
+
+    const { name, label, description, subject, order } = entry
+    if (typeof name !== 'string' || !PRESET_RE.test(name) || seen.has(name)) continue
+    if (typeof label !== 'string') continue
+    if (typeof description !== 'string') continue
+    if (typeof subject !== 'string') continue
+    if (typeof order !== 'number' || !Number.isFinite(order)) continue
+
+    seen.add(name)
+    presets.push({ name, label, description, subject, order })
+  }
+
+  return presets.sort((a, b) => a.order - b.order)
+}
+
 /** A sources response with every usable field kept and every wrong type dropped. */
 export function parseSources(raw: unknown): SourcesResponse {
   if (!isRecord(raw)) {
@@ -102,7 +140,7 @@ export function parseSources(raw: unknown): SourcesResponse {
     lamina: typeof raw.lamina === 'string' ? raw.lamina : '',
     modes,
     replay: parseReplay(raw.replay),
-    presets: Array.isArray(raw.presets) ? raw.presets : [],
+    presets: parsePresets(raw.presets),
   }
 }
 
@@ -140,6 +178,33 @@ export function defaultReplayFeed(
 }
 
 /**
+ * The feed the Scenario choice should open.
+ *
+ * An existing scenario is kept when the response still offers its preset;
+ * otherwise the first preset by order is opened. `null` means the response
+ * offers no scenario at all.
+ */
+export function defaultScenarioFeed(
+  sources: unknown,
+  current?: FeedRequest | null,
+): FeedRequest | null {
+  const parsed = parseSources(sources)
+  if (!parsed.modes.includes('scenario')) return null
+
+  const presets = parsed.presets
+  if (presets.length === 0) return null
+
+  if (
+    current?.source === 'scenario' &&
+    presets.some((preset) => preset.name === current.preset)
+  ) {
+    return current
+  }
+
+  return { source: 'scenario', preset: presets[0].name }
+}
+
+/**
  * The line under the replay controls, built only from fields that arrived with
  * the type they need. The clock is the literal time part of `dataTime`; the
  * recorded day is never converted between time zones.
@@ -170,6 +235,24 @@ export function statusLine(latest?: FeedStatus | null): string {
   else if (latest.coefficients === 'declared defaults') parts.push('declared defaults')
 
   if (latest.synthetic === true) parts.push('synthetic day')
+
+  return parts.join(' · ')
+}
+
+/**
+ * The line under the scenario controls: which preset is being generated and
+ * whether it is backed by fitted coefficients or the lamina's declared
+ * defaults. Built only from fields that arrived with the type they need.
+ */
+export function scenarioStatusLine(latest?: FeedStatus | null): string {
+  if (!isRecord(latest) || latest.kind !== 'scenario') return ''
+
+  const parts = ['Scenario']
+  if (typeof latest.label === 'string' && latest.label.length > 0) {
+    parts.push(latest.label)
+  }
+  if (latest.coefficients === 'fitted') parts.push('fitted coefficients')
+  else if (latest.coefficients === 'declared defaults') parts.push('declared defaults')
 
   return parts.join(' · ')
 }

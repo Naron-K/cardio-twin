@@ -67,6 +67,12 @@ function noticeTitle(code: string): string {
       return 'Not replaying'
     case 'bad_speed':
       return 'Speed not available'
+    case 'observed_input':
+      return 'Measured input'
+    case 'not_scenario':
+      return 'Not a scenario'
+    case 'unknown_preset':
+      return 'Unknown preset'
     default:
       return 'Change not applied'
   }

@@ -116,6 +116,30 @@ export function InputRail({
           <div className="space-y-2">
             {group.ids.map((id) => {
               const attr = index.attribute(id)!
+              // A scenario never carries an observed input. It is a readout
+              // with no measurement behind it, so it gets no slider and no
+              // number that could be mistaken for one.
+              if (sourceKind === 'scenario' && attr.observed) {
+                return (
+                  <div key={id} className="block" title={attr.description}>
+                    <span className="flex items-baseline gap-1.5">
+                      <span className="font-mono text-[10px] font-bold readout text-ink/70">
+                        {id}
+                      </span>
+                      <span className="font-mono text-[9px] readout text-ink/25 truncate">
+                        {attr.name}
+                      </span>
+                      <span className="ml-auto font-mono text-[10px] tabular-nums text-ink shrink-0">
+                        —
+                        <span className="text-ink/30 text-[9px] ml-0.5">{attr.unit}</span>
+                      </span>
+                    </span>
+                    <span className="block mt-0.5 font-mono text-[9px] readout text-ink/30">
+                      no measurement in a scenario
+                    </span>
+                  </div>
+                )
+              }
               // During a replay an input with a replay_field is fed by the
               // recording, not by the reader, and the server refuses
               // set_sensor on it. It is a readout, so it gets no slider.
@@ -146,14 +170,18 @@ export function InputRail({
               // The commanded value, falling back to what the lamina declares
               // it rests at, and only then to the middle of its range. Never
               // the live reading of a NOISY feed: that is what made the
-              // control unusable.  A replay adds no noise, and its coefficients
-              // may be a fitted params.json rather than the declared baseline,
-              // so there the value the server is using is the set point.
-              const replaySet =
-                sourceKind === 'replay' && Number.isFinite(values[id]) ? values[id] : undefined
+              // control unusable.  A replay or scenario adds no noise, and its
+              // coefficients may be a fitted params.json or a preset rather
+              // than the declared baseline, so there the value the server is
+              // using is the set point.
+              const feedSet =
+                (sourceKind === 'replay' || sourceKind === 'scenario') &&
+                Number.isFinite(values[id])
+                  ? values[id]
+                  : undefined
               const set =
                 commanded[id] ??
-                replaySet ??
+                feedSet ??
                 attr.baseline ??
                 (attr.physio_min + attr.physio_max) / 2
               const reading = values[id]
@@ -163,7 +191,8 @@ export function InputRail({
               // per frame — "show it when it currently differs" — makes the line
               // appear and vanish at 10 Hz, which is worse than either.
               const noisy = (attr.noise_sigma ?? 0) > 0
-              const showReading = reading !== undefined && noisy
+              const showReading =
+                reading !== undefined && noisy && sourceKind !== 'scenario'
               // The control stops at the declared range, and the model refuses
               // anything past it. A thumb pinned at the end with no word looks
               // like a control that has stopped responding, so say where the

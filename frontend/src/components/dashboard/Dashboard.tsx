@@ -31,7 +31,7 @@ import { idleMinutesFromUrl, useIdle } from '../../hooks/useIdle'
 import { useWakeLock } from '../../hooks/useWakeLock'
 import { usePageViewing } from '../../hooks/usePageViewing'
 import { useStatusNotices, useStreamNoticeHandlers } from '../../hooks/useStatusNotices'
-import { anyOutOfBand } from '../../twin/outcomes'
+import { anyOutOfBand, unjudgedReason } from '../../twin/outcomes'
 import { LaminaStage } from '../twin/LaminaStage'
 import { LaminaMap } from '../twin/LaminaMap'
 import { ProvenanceStrip } from '../twin/ProvenanceStrip'
@@ -261,6 +261,11 @@ export function Dashboard({ lamina, onLamina, form, onForm, feed, onFeed, formNa
                 {feed.synthetic === true ? ' · synthetic day' : ''}
               </Chip>
             ))}
+          {feed.kind === 'scenario' && (
+            <Chip tone="oxy" title={feed.detail}>
+              {feed.label ? `Scenario · ${feed.label}` : 'Scenario'}
+            </Chip>
+          )}
 
           <div className="ml-auto flex items-center gap-3">
             <span className={`flex items-baseline gap-1.5 ${dim}`}>
@@ -305,6 +310,10 @@ export function Dashboard({ lamina, onLamina, form, onForm, feed, onFeed, formNa
               lamina={index.schema.lamina_id}
               feed={twin.feed}
               onFeed={onFeed}
+              onPreset={(preset) => {
+                twin.setPreset(preset)
+                onFeed({ source: 'scenario', preset })
+              }}
               latest={twin.latest?.source}
               paused={twin.paused}
               onTogglePause={twin.togglePause}
@@ -361,7 +370,7 @@ export function Dashboard({ lamina, onLamina, form, onForm, feed, onFeed, formNa
                 {/* The model's own verdict, not a range typed in here. */}
                 <Chip tone={alert ? 'crimson' : 'neutral'}>
                   {Object.keys(outcomes).length === 0
-                    ? 'No outcomes yet'
+                    ? unjudgedReason(index.outcomes, latest) ? 'No outcome judged' : 'No outcomes yet'
                     : alert
                       ? 'Outcome outside tolerance'
                       : 'All outcomes in tolerance'}
@@ -454,6 +463,7 @@ export function Dashboard({ lamina, onLamina, form, onForm, feed, onFeed, formNa
               ticks={twin.mismatch ? [] : ticks}
               height={150}
               loopActive={index.tags.length > 0}
+              emptyText={unjudgedReason(index.outcomes, latest)}
             />
           </Panel>
           </div>

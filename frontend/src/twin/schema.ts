@@ -60,6 +60,11 @@ export interface AttributeSchema {
    * `indexLamina` reads as null so callers never have to handle undefined.
    */
   replay_field: string | null
+  /**
+   * Whether a scenario carries a measurement for this input. An older backend
+   * omits the field entirely, which `indexLamina` reads as false.
+   */
+  observed: boolean
 }
 
 export interface CompositeSchema {
@@ -227,12 +232,12 @@ function push<T>(map: Record<string, T[]>, key: string, value: T): void {
 }
 
 export function indexLamina(raw: LaminaSchema): LaminaIndex {
-  // An older backend sends no replay_field at all; normalise the gap to null
-  // here so every attribute has the same answer to the question.
+  // An older backend sends no replay_field or observed at all; normalise those
+  // gaps here so every attribute has the same answer to both questions.
   const attributes: Record<string, AttributeSchema> = Object.fromEntries(
     Object.entries(raw.attributes ?? {}).map(([id, a]) => [
       id,
-      { ...a, replay_field: a.replay_field ?? null },
+      { ...a, replay_field: a.replay_field ?? null, observed: a.observed === true },
     ])
   )
   const functions = [...(raw.functions ?? [])].sort(byStep)

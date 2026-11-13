@@ -55,6 +55,7 @@
       <baseline>65</baseline>
       <noise_sigma>2</noise_sigma>
       <replay_field>sample.hr</replay_field>
+      <observed>true</observed>
       <description>Mean measured heart rate in this minute. The one direct measurement of the quantity the rest of the chain models, so it is allowed to disagree with the model — that disagreement is what HR_residual reports.</description>
     </attribute>
 

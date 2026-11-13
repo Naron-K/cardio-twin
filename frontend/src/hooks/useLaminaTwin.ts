@@ -88,6 +88,8 @@ export interface LaminaTwin {
   feed: FeedRequest
   /** Change replay speed without reopening the socket. */
   setSpeed: (speed: number) => void
+  /** Change scenario preset without reopening the socket. */
+  setPreset: (preset: string) => void
   ticks: StreamTick[]
   /** The newest tick, or null when there is none or it is from another lamina. */
   latest: StreamTick | null
@@ -364,6 +366,11 @@ export function useLaminaTwin({
     [sendControl]
   )
 
+  const setPreset = useCallback(
+    (preset: string) => sendControl({ type: 'set_preset', preset }),
+    [sendControl]
+  )
+
   return {
     index,
     schemaError,
@@ -373,6 +380,7 @@ export function useLaminaTwin({
     laminae,
     feed,
     setSpeed,
+    setPreset,
     ticks,
     latest,
     status,

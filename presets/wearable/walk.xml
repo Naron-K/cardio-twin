@@ -1,0 +1,16 @@
+<?xml version='1.0' encoding='utf-8'?>
+<patient>
+  <metadata>
+    <name>Walk</name>
+    <lamina>lamina_wearable</lamina>
+    <subject>s2</subject>
+    <order>4</order>
+    <description>s2's median over 1156 minutes on 30 days (2023-05-11 to 2025-05-11) where the workout label is Walking. A proxy for Walk, not a labelled state. The resting level, 77.2 bpm, is the median of the pipeline's daily level over 121 days.</description>
+  </metadata>
+  <sensor_data>
+    <AE_rate>3.18</AE_rate>
+    <step_rate>107</step_rate>
+    <hour_local>17.2</hour_local>
+    <HR_level>77.2</HR_level>
+  </sensor_data>
+</patient>

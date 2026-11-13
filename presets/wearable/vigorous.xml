@@ -1,0 +1,16 @@
+<?xml version='1.0' encoding='utf-8'?>
+<patient>
+  <metadata>
+    <name>Vigorous</name>
+    <lamina>lamina_wearable</lamina>
+    <subject>s2</subject>
+    <order>5</order>
+    <description>s2's median over 290 minutes on 18 days (2023-05-11 to 2025-05-11) where the workout label is one of Running, HighIntensityIntervalTraining, StairClimbing, Elliptical or Cycling. A proxy for Vigorous, not a labelled state. The resting level, 77.2 bpm, is the median of the pipeline's daily level over 121 days. Only 290 minutes qualify, so this median is weak.</description>
+  </metadata>
+  <sensor_data>
+    <AE_rate>5.57</AE_rate>
+    <step_rate>58</step_rate>
+    <hour_local>18.5</hour_local>
+    <HR_level>77.2</HR_level>
+  </sensor_data>
+</patient>

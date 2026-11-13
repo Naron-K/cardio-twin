@@ -24,6 +24,7 @@ import logging
 import math
 import os
 import re
+import scenario_presets
 import signal_source
 import sys
 import xml.etree.ElementTree as ET
@@ -58,7 +59,7 @@ from feedback_controller import (
 )
 from organism import OrganismError, available_organisms, load_organism
 from session import OrganismSession, Session
-from signal_source import ReplaySource, SimulatedSource
+from signal_source import ReplaySource, ScenarioSource, SimulatedSource
 from streaming_runtime import StreamingRuntime
 from bundles import UnknownBundle, list_bundles, load_bundle, load_params
 from usage_meter import UsageMeter
@@ -652,6 +653,8 @@ def get_schema(lamina: Optional[str] = Query(default=None,
             # Which recorded field feeds this input during a replay, so a
             # control can show a readout instead of a slider for it.
             "replay_field": attr.replay_field,
+            # A measurement of what the model predicts: a scenario has none.
+            "observed": attr.observed,
         }
 
     composites = {}
@@ -798,10 +801,13 @@ def get_sources(lamina: Optional[str] = Query(
 
     The list is derived, not typed in: "replay" is offered only when the
     lamina declares at least one SENSOR with a `replay_field` and there is a
-    recorded day to read, because a mode the stream would refuse is not a
+    recorded day to read, and "scenario" only when the presets directory holds
+    a preset for this lamina, because a mode the stream would refuse is not a
     choice a caller can make.  `subjects` maps each subject to its available
     dates, and `speeds` is read from `signal_source` at call time so a test
     or a deployment can change it without rebuilding this module.
+    `presets` is read from `scenario_presets.PRESET_DIR` at call time for the
+    same reason.
     """
     print(f"[LOG] GET /api/sources  lamina={lamina or '(default)'}")
     path = _resolve_or_400(lamina)
@@ -820,10 +826,15 @@ def get_sources(lamina: Optional[str] = Query(
         attr.source == SENSOR and attr.replay_field is not None
         for attr in twin.attributes.values()
     )
+    presets = scenario_presets.list_presets(
+        twin.lamina_id, scenario_presets.PRESET_DIR
+    )
 
     modes = ["simulated"]
     if can_replay:
         modes.append("replay")
+    if presets:
+        modes.append("scenario")
 
     return {
         "lamina": twin.lamina_id,
@@ -841,7 +852,7 @@ def get_sources(lamina: Optional[str] = Query(
             if can_replay
             else None
         ),
-        "presets": [],
+        "presets": presets,
     }
 
 
@@ -1308,29 +1319,49 @@ def _validate_source_request(
     date: Optional[str],
     speed: int,
     path: Path,
+    preset: Optional[str] = None,
 ) -> Optional[tuple[dict, Optional[dict]]]:
     """
-    Check a requested feed before any session exists, returning its bundle.
+    Check a requested feed before any session exists, returning its input.
 
-    Raises ValueError (or whatever `load_bundle` raises) with a message a
-    client can act on.  Every check happens here, before `_open_streams` is
-    touched, so a malformed request costs a close frame and nothing else.
+    Raises ValueError (or whatever `load_bundle`/`load_preset` raises) with a
+    message a client can act on.  Every check happens here, before
+    `_open_streams` is touched, so a malformed request costs a close frame and
+    nothing else.
 
-    A fitted params.json is validated here too, on a throwaway twin: an
-    unknown coefficient or outcome id is a refused request, not a stream
-    that fails on its first minute.
+    A replay returns its bundle and fitted params.  A scenario returns its
+    preset and, when the preset names a subject with fitted params, that
+    params' coefficients.  Both are validated on a throwaway twin: an unknown
+    coefficient, outcome id or preset value is a refused request, not a stream
+    that fails on its first tick.
 
-    `signal_source.REPLAY_SPEEDS` is read through the module on every call:
-    a test or a deployment can change the offered speeds without reloading
-    this file.
+    `signal_source.REPLAY_SPEEDS` and `scenario_presets.PRESET_DIR` are read
+    through their modules on every call: a test or a deployment can change the
+    offered speeds or the presets without reloading this file.
     """
-    if source_mode == "scenario":
-        raise ValueError("scenario mode is not built yet")
-    if source_mode not in ("simulated", "replay"):
+    if source_mode not in ("simulated", "replay", "scenario"):
         raise ValueError(
             f"source={source_mode!r} is not a source this server offers; "
-            "use 'simulated' or 'replay'."
+            "use 'simulated', 'replay' or 'scenario'."
         )
+    if source_mode == "scenario":
+        if not preset:
+            raise ValueError(
+                "A scenario needs a preset, for example "
+                "?source=scenario&preset=walk."
+            )
+        twin = load_twin(path)
+        preset_dict = scenario_presets.load_preset(
+            twin.lamina_id, preset, scenario_presets.PRESET_DIR
+        )
+        coefficients = None
+        preset_subject = preset_dict.get("subject")
+        if preset_subject:
+            params = load_params(preset_subject)
+            if params:
+                coefficients = params["coefficients"]
+        ScenarioSource(twin, preset_dict, coefficients)
+        return preset_dict, coefficients
     # A simulated stream has no speed, so a stray `speed` on its URL must not
     # be what refuses it.
     if source_mode != "replay":
@@ -1375,7 +1406,8 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
                       source: str = "simulated",
                       subject: Optional[str] = None,
                       date: Optional[str] = None,
-                      speed: int = 60):
+                      speed: int = 60,
+                      preset: Optional[str] = None):
     """
     Stream the feedback loop to the browser over WebSocket.
 
@@ -1389,16 +1421,22 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
     a lamina nobody asked for.
 
     `source` selects the feed: "simulated" (the default, unchanged from
-    before) or "replay" (a recorded day).  A replay also takes `subject` and
-    `date` naming the bundle, and `speed` — data seconds per wall second —
-    which must be one of `signal_source.REPLAY_SPEEDS`; `tick_ms` is ignored
-    for a replay because each cycle consumes exactly one recorded minute.
-    Any other `source`, a replay missing its subject or date, an unavailable
-    bundle, an unsupported speed or a lamina with no replay fields is refused
-    with a 1008 close before the stream starts.
+    before), "replay" (a recorded day) or "scenario" (one described state).
+    A replay also takes `subject` and `date` naming the bundle, and `speed` —
+    data seconds per wall second — which must be one of
+    `signal_source.REPLAY_SPEEDS`; `tick_ms` is ignored for a replay because
+    each cycle consumes exactly one recorded minute.  A scenario takes
+    `preset`, the name of a preset for this lamina, and holds it steady at
+    `tick_ms` cadence; its observed measurements are omitted rather than
+    invented, so the model's prediction of them stays stale and null.  Any
+    other `source`, a replay missing its subject or date, a scenario missing
+    or naming an unknown/bad preset, an unavailable bundle or preset, an
+    unsupported speed or a lamina with no replay fields is refused with a
+    1008 close before the stream starts.
 
     Inbound control messages (JSON):
       {"type": "set_sensor",        "id": "HR",        "value": 110.0}
+      {"type": "set_preset",        "preset": "walk"}
       {"type": "pause"}
       {"type": "resume"}
       {"type": "reset"}
@@ -1406,15 +1444,21 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
       {"type": "keepalive"}
 
     During a replay, `set_sensor` on a SENSOR fed by the recording is refused
-    with a "measured_input" notice; a coefficient is still accepted.  A
-    `set_speed` outside a replay is refused with "not_replaying", and an
+    with a "measured_input" notice; a coefficient is still accepted.  During a
+    scenario, `set_sensor` on an observed SENSOR is refused with an
+    "observed_input" notice; every other input is accepted.  `set_preset`
+    outside a scenario is refused with "not_scenario", and a bad or unknown
+    preset with "unknown_preset" (the notice names the available presets).
+    A `set_speed` outside a replay is refused with "not_replaying", and an
     unsupported speed with "bad_speed".  `reset` rewinds the recording to its
-    first minute.
+    first minute, or reseeds a scenario at its preset.
 
     Outbound, beside the snapshots: {"type": "notice", "level": ...,
     "code": ..., "id": ..., "message": ...} when a command was not applied,
     and a "replay_end" notice once when the recorded day finishes.  Replay
-    snapshots and notices are never thinned.
+    snapshots and notices are never thinned; scenario snapshots are thinned by
+    `CARDIOTWIN_EMIT_EVERY` like simulated ones, because a scenario is a
+    continuous stream rather than a finite day.
 
     On disconnect: the ticker task is cancelled and the session is freed.
     One ticker task per connection — sessions are never shared.
@@ -1455,9 +1499,12 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
     # counted, for the same reason an unknown lamina is: a request the server
     # cannot serve is a policy refusal, not a stream that fails later.
     replaying = source == "replay"
+    scenarioing = source == "scenario"
     try:
-        validated = _validate_source_request(source, subject, date, speed, path)
-    except (ValueError, UnknownBundle) as e:
+        validated = _validate_source_request(
+            source, subject, date, speed, path, preset
+        )
+    except (ValueError, UnknownBundle, scenario_presets.UnknownPreset) as e:
         await websocket.close(code=1008, reason=str(e)[:120])
         print(f"[WS] /ws/feedback rejected  source={source!r}: {e}")
         return
@@ -1482,7 +1529,14 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
     emitted = {"n": 0}
     ended   = {"sent": False}
 
-    if replaying:
+    if scenarioing:
+        # `bundle` is the preset and `params` its fitted coefficients (or
+        # None).  Both were validated on a throwaway twin before this session
+        # existed, so a bad preset cannot leave a half-started stream.
+        feed = ScenarioSource(session.twin, bundle, params or None)
+        session.seed(feed.starting_state())
+        period_s = tick_ms / 1000.0
+    elif replaying:
         feed = ReplaySource(
             session.twin,
             bundle,
@@ -1511,12 +1565,13 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
     #
     # A replay has NO ingestion task: its minutes must arrive in order, and
     # the latest-wins mailbox would coalesce them.  The control cycle pulls
-    # one recorded row itself instead.
-    if replaying:
+    # one recorded row itself.  A scenario is the same: it holds a state and
+    # the control cycle samples it, rather than pushing through a mailbox.
+    if replaying or scenarioing:
         def _control(sample: dict | None):
             if flags["paused"]:
                 return None
-            if feed.exhausted:
+            if replaying and feed.exhausted:
                 # Say it once.  Every later cycle is silent, because a
                 # repeated "finished" notice would be a stream that never
                 # stops talking about having stopped.
@@ -1628,7 +1683,10 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
             raise
 
     runtime.start()
-    ingest_task = None if replaying else asyncio.create_task(_ingest())
+    ingest_task = (
+        None if (replaying or scenarioing)
+        else asyncio.create_task(_ingest())
+    )
 
     try:
         while True:
@@ -1685,6 +1743,21 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
             if msg_type == "set_sensor":
                 sensor_id = msg.get("id")
                 raw       = msg.get("value")
+                if scenarioing and isinstance(sensor_id, str):
+                    attr = session.twin.attributes.get(sensor_id)
+                    if (attr is not None and attr.source == SENSOR
+                            and attr.observed):
+                        await websocket.send_json({
+                            "type": "notice",
+                            "level": "warning",
+                            "code": "observed_input",
+                            "id": sensor_id,
+                            "message": (
+                                f"{sensor_id} is a measurement, and a "
+                                "scenario has none."
+                            ),
+                        })
+                        continue
                 if replaying and isinstance(sensor_id, str):
                     attr = session.twin.attributes.get(sensor_id)
                     if (attr is not None and attr.source == SENSOR
@@ -1709,6 +1782,47 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
                 sensor_id = str(sensor_id)
                 feed.set_baseline(sensor_id, value)
                 session.twin.set_sensor(sensor_id, value)
+
+            elif msg_type == "set_preset":
+                raw_preset = msg.get("preset")
+                if not scenarioing:
+                    await websocket.send_json({
+                        "type": "notice",
+                        "level": "warning",
+                        "code": "not_scenario",
+                        "id": None,
+                        "message": (
+                            "Presets only apply to a scenario; this stream is "
+                            "not holding one."
+                        ),
+                    })
+                    continue
+                try:
+                    feed.set_preset(scenario_presets.load_preset(
+                        session.twin.lamina_id,
+                        raw_preset,
+                        scenario_presets.PRESET_DIR,
+                    ))
+                except (ValueError, scenario_presets.UnknownPreset):
+                    available = [
+                        entry["name"]
+                        for entry in scenario_presets.list_presets(
+                            session.twin.lamina_id,
+                            scenario_presets.PRESET_DIR,
+                        )
+                    ]
+                    listing = ", ".join(available) if available else "(no presets)"
+                    await websocket.send_json({
+                        "type": "notice",
+                        "level": "warning",
+                        "code": "unknown_preset",
+                        "id": None,
+                        "message": (
+                            f"{_shown(raw_preset)} is not one of this "
+                            f"scenario's presets ({listing}), so the scenario "
+                            "was not changed."
+                        ),
+                    })
 
             elif msg_type == "set_speed":
                 raw_speed = msg.get("speed")
@@ -1755,6 +1869,8 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
                     feed.rewind()
                     session.seed(feed.starting_state())
                     ended["sent"] = False
+                elif scenarioing:
+                    session.seed(feed.starting_state())
 
             elif msg_type == "keepalive":
                 # The dashboard sends one every few minutes so a host that

@@ -12,7 +12,10 @@ import assert from 'node:assert/strict'
 import {
   datesNewestFirst,
   defaultReplayFeed,
+  defaultScenarioFeed,
+  parsePresets,
   parseSources,
+  scenarioStatusLine,
   statusLine,
 } from '../src/twin/sourceBar.ts'
 
@@ -106,6 +109,77 @@ assert.equal(parsed.replay?.default_speed, 60)
 assert.deepEqual(parsed.replay?.fitted, { s9: true })
 assert.deepEqual(parsed.presets, [])
 
+// ── Scenario presets ─────────────────────────────────────────────────────────
+
+const scenarioSources = {
+  lamina: 'wearable',
+  modes: ['simulated', 'scenario'],
+  replay: null,
+  presets: [
+    {
+      name: 'resting',
+      label: 'Resting',
+      description: 'Borrowed from a proxy cohort; the rule and its caveats.',
+      subject: 'demo',
+      order: 2,
+    },
+    {
+      name: 'walking',
+      label: 'Walking',
+      description: 'Borrowed from a proxy cohort; the rule and its caveats.',
+      subject: 'demo',
+      order: 1,
+    },
+  ],
+}
+
+// The first preset by order opens when there is no scenario yet.
+assert.deepEqual(defaultScenarioFeed(scenarioSources), {
+  source: 'scenario',
+  preset: 'walking',
+})
+
+// An existing preset is kept while the response still offers it.
+const existingScenario = { source: 'scenario', preset: 'resting' } as const
+assert.deepEqual(defaultScenarioFeed(scenarioSources, existingScenario), existingScenario)
+
+// A preset no longer offered is replaced rather than handed to the socket.
+assert.deepEqual(
+  defaultScenarioFeed(scenarioSources, { source: 'scenario', preset: 'running' }),
+  { source: 'scenario', preset: 'walking' },
+)
+
+// No presets, or no scenario mode, means no scenario option at all.
+assert.equal(defaultScenarioFeed({ ...scenarioSources, presets: [] }), null)
+assert.equal(defaultScenarioFeed({ ...scenarioSources, modes: ['simulated'] }), null)
+assert.equal(defaultScenarioFeed({ ...scenarioSources, modes: ['simulated'], presets: [] }), null)
+
+// GUARD: malformed shapes are no scenario, not an exception.
+for (const bad of [null, undefined, 42, 'x', {}, { presets: 5 }]) {
+  assert.equal(defaultScenarioFeed(bad), null)
+}
+
+// GUARD: incomplete or wrongly typed preset entries are dropped.
+const parsedPresets = parsePresets([
+  { name: 'resting', label: 'Resting', description: 'd', subject: 'demo', order: 2 },
+  { name: 'walking', label: 'Walking', description: 'd', subject: 'demo', order: 1 },
+  { name: 'Bad Name', label: 'Bad', description: 'd', subject: 'demo', order: 3 },
+  { name: 'Upper', label: 'Upper', description: 'd', subject: 'demo', order: 4 },
+  { name: 'missing_label', description: 'd', subject: 'demo', order: 5 },
+  { name: 'bad_order', label: 'Bad', description: 'd', subject: 'demo', order: '5' },
+  { name: 'resting', label: 'Duplicate', description: 'd', subject: 'demo', order: 6 },
+  null,
+  7,
+])
+assert.deepEqual(parsedPresets.map((preset) => preset.name), ['walking', 'resting'])
+assert.deepEqual(parsePresets('none'), [])
+
+const parsedScenarioSources = parseSources(scenarioSources)
+assert.deepEqual(
+  parsedScenarioSources.presets.map((preset) => preset.name),
+  ['walking', 'resting'],
+)
+
 // ── Status line ──────────────────────────────────────────────────────────────
 
 // The clock is the literal time part; the +10:30 offset is never applied.
@@ -149,6 +223,44 @@ assert.equal(
     coefficients: 7 as unknown as string,
   }),
   '',
+)
+
+// ── Scenario status line ─────────────────────────────────────────────────────
+
+assert.equal(
+  scenarioStatusLine({
+    kind: 'scenario',
+    detail: '',
+    preset: 'resting',
+    label: 'Resting',
+    coefficients: 'fitted',
+  }),
+  'Scenario · Resting · fitted coefficients',
+)
+
+assert.equal(
+  scenarioStatusLine({
+    kind: 'scenario',
+    detail: '',
+    preset: 'walking',
+    label: 'Walking',
+    coefficients: 'declared defaults',
+  }),
+  'Scenario · Walking · declared defaults',
+)
+
+// GUARD: a non-scenario tick has no scenario line, and malformed fields read
+// as nothing rather than being printed.
+assert.equal(scenarioStatusLine({ kind: 'replay', detail: '', label: 'Resting' }), '')
+assert.equal(scenarioStatusLine(undefined), '')
+assert.equal(
+  scenarioStatusLine({
+    kind: 'scenario',
+    detail: '',
+    label: 7 as unknown as string,
+    coefficients: 9 as unknown as string,
+  }),
+  'Scenario',
 )
 
 console.log('sourcebar-check ok')

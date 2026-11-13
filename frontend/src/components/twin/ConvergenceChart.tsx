@@ -36,6 +36,8 @@ interface Props {
   height?: number
   /** False for a lamina that declares no feedback loop: only the measured line. */
   loopActive?: boolean
+  /** What to say instead of "waiting" when no outcome can be judged at all. */
+  emptyText?: string | null
 }
 
 // Steps derived on the Oxygenated-Blue and warn hues.  DESIGN.md's own steps
@@ -46,7 +48,7 @@ const WITH_LOOP = '#00a5bb'
 const WITHOUT_LOOP = '#c8801f'
 const INK_DIM = 'rgba(216,227,251,0.55)'
 
-export function ConvergenceChart({ ticks, height = 150, loopActive = true }: Props) {
+export function ConvergenceChart({ ticks, height = 150, loopActive = true, emptyText = null }: Props) {
   // Ticks that arrived before the first outcome evaluation would otherwise
   // plot as a run of zeros, which reads as "perfectly on target".
   const data = ticks
@@ -75,7 +77,7 @@ export function ConvergenceChart({ ticks, height = 150, loopActive = true }: Pro
   if (!latest) {
     return (
       <p className="font-mono text-[11px] readout text-ink/40 py-8 text-center">
-        Waiting for the first outcome evaluation…
+        {emptyText ?? 'Waiting for the first outcome evaluation…'}
       </p>
     )
   }

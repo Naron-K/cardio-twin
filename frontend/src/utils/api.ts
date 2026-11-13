@@ -3,7 +3,7 @@ import type { LaminaSchema } from '../twin/schema'
 import { parseSources } from '../twin/sourceBar'
 import type { SourcesResponse } from '../twin/sourceBar'
 
-export type { ReplaySources, SourcesResponse } from '../twin/sourceBar'
+export type { PresetSource, ReplaySources, SourcesResponse } from '../twin/sourceBar'
 
 // The schema payload is described once, in twin/schema.ts, because the
 // dashboard is built entirely out of it and a second partial copy here is how

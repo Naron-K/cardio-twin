@@ -52,6 +52,33 @@ export interface OutcomeEvaluation {
   status?: string
 }
 
+/**
+ * Which feed to ask the backend for.  Replay is a recorded day, played back at
+ * a speed; simulated is the live generator the dashboard has always used.
+ */
+export type FeedRequest =
+  | { source: 'simulated' }
+  | { source: 'replay'; subject: string; date: string; speed: number }
+
+/**
+ * What is producing the readings.  The replay fields are optional because a
+ * simulated snapshot carries none of them, and a field is copied only when it
+ * arrived with the type the UI needs — never trusted just because it is there.
+ */
+export interface FeedStatus {
+  kind: string
+  detail: string
+  subject?: string
+  date?: string
+  synthetic?: boolean
+  dataTime?: string
+  positionS?: number
+  durationS?: number
+  speed?: number
+  ended?: boolean
+  coefficients?: string
+}
+
 /** One tick of streaming data extracted from a backend snapshot. */
 export interface StreamTick {
   tick: number          // cycle counter from cycle_report.cycle
@@ -136,7 +163,7 @@ export interface StreamTick {
    * screen full of convincingly wobbling numbers should say so rather than
    * leave a viewer to work it out.
    */
-  source: { kind: string; detail: string }
+  source: FeedStatus
 }
 
 /**
@@ -185,6 +212,8 @@ export type ControlMsg =
   | { type: 'pause' }
   | { type: 'resume' }
   | { type: 'reset' }
+  /** Changes playback speed without restarting the day. */
+  | { type: 'set_speed'; speed: number }
   /** Idle liveness frame — see KEEPALIVE_MS for why it exists. */
   | { type: 'keepalive' }
 
@@ -198,7 +227,7 @@ export type ControlMsg =
  * slider move left the control looking accepted while the model ignored it.
  */
 export interface ServerNotice {
-  level: 'warning' | 'error'
+  level: 'warning' | 'error' | 'info'
   code: string
   id: string | null
   message: string
@@ -217,6 +246,13 @@ export interface UseCardioStreamOptions {
    * present.
    */
   lamina?: string | null
+  /**
+   * Which feed to stream (default simulated).  Changing the source, subject or
+   * date reopens the socket and empties the buffer, because ticks from another
+   * feed are not history of this one.  Speed is not part of that identity: it
+   * changes over the open socket with `set_speed`.
+   */
+  feed?: FeedRequest
   /**
    * Whether the caller wants a stream at all (default true).  False closes the
    * socket and stops reconnecting — a caller switching the twin off is not a
@@ -303,7 +339,7 @@ type RawSnapshot = {
   absorption?: Record<string, Record<string, number>>
   outcomes?: Record<string, OutcomeEvaluation[]>
   warnings?: string[]
-  source?: { kind: string; detail: string }
+  source?: unknown
 }
 
 /** Attribute map over one half of the snapshot, picking one of the X columns. */
@@ -326,6 +362,35 @@ function staleOf(entries: Record<string, AttrEntry>): Record<string, string> {
       .filter(([, a]) => a.stale)
       .map(([id, a]) => [id, a.error ?? 'did not compute this cycle'])
   )
+}
+
+/**
+ * The source block, with only the optional replay fields that arrived with the
+ * right type.  A simulated tick is just kind/detail; a malformed replay field
+ * is dropped rather than passed on as a string where a number belongs.
+ */
+function parseFeedStatus(raw: unknown): FeedStatus {
+  if (!isRecord(raw)) return { kind: 'unknown', detail: '' }
+
+  const status: FeedStatus = {
+    kind: typeof raw.kind === 'string' ? raw.kind : 'unknown',
+    detail: typeof raw.detail === 'string' ? raw.detail : '',
+  }
+  if (typeof raw.subject === 'string') status.subject = raw.subject
+  if (typeof raw.date === 'string') status.date = raw.date
+  if (typeof raw.synthetic === 'boolean') status.synthetic = raw.synthetic
+  if (typeof raw.data_time === 'string') status.dataTime = raw.data_time
+  if (typeof raw.position_s === 'number' && Number.isFinite(raw.position_s)) {
+    status.positionS = raw.position_s
+  }
+  if (typeof raw.duration_s === 'number' && Number.isFinite(raw.duration_s)) {
+    status.durationS = raw.duration_s
+  }
+  if (typeof raw.speed === 'number' && Number.isFinite(raw.speed)) status.speed = raw.speed
+  if (typeof raw.ended === 'boolean') status.ended = raw.ended
+  if (typeof raw.coefficients === 'string') status.coefficients = raw.coefficients
+
+  return status
 }
 
 function parseSnapshot(raw: unknown): StreamTick | null {
@@ -358,7 +423,7 @@ function parseSnapshot(raw: unknown): StreamTick | null {
       absorption:    s.absorption                      ?? {},
       outcomes:      s.outcomes                        ?? {},
       warnings:      s.warnings                        ?? [],
-      source:        s.source ?? { kind: 'unknown', detail: '' },
+      source:        parseFeedStatus(s.source),
     }
   } catch {
     return null
@@ -382,7 +447,8 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 function parseNotice(raw: unknown): ServerNotice | null {
   if (!isRecord(raw) || raw.type !== 'notice') return null
   return {
-    level: raw.level === 'error' ? 'error' : 'warning',
+    level:
+      raw.level === 'error' ? 'error' : raw.level === 'info' ? 'info' : 'warning',
     code: typeof raw.code === 'string' ? raw.code : '',
     id: typeof raw.id === 'string' ? raw.id : null,
     message: typeof raw.message === 'string' ? raw.message : '',
@@ -407,17 +473,19 @@ export const STREAM_LIMIT_CLOSE = 4429
 const KEEPALIVE_MS = 4 * 60_000
 
 /**
- * Everything the socket has produced, and which lamina produced it.
+ * Everything the socket has produced, and which lamina and feed produced it.
  *
- * The three fields are one piece of state rather than three because they are
- * only meaningful together: a tick, when it arrived, and what it was a tick
- * *of*.  Tagging them with the lamina is also what makes switching safe without
- * clearing anything — a buffer whose tag no longer matches simply is not this
- * lamina's, and the empty one is read instead.  Ticks from the lamina you just
- * left are not history of the one you arrived at.
+ * The fields are one piece of state rather than several because they are only
+ * meaningful together: a tick, when it arrived, and what it was a tick *of*.
+ * Tagging them with the lamina and the feed is also what makes switching safe
+ * without clearing anything — a buffer whose tag no longer matches simply is
+ * not this feed's, and the empty one is read instead.  Ticks from the lamina or
+ * the day you just left are not history of the one you arrived at.
  */
 interface StreamBuffer {
   lamina: string | null
+  /** Source, subject and date — speed is not part of a feed's identity. */
+  feedKey: string
   ticks: StreamTick[]
   lastTickAt: number | null
   closeReason: string | null
@@ -433,8 +501,11 @@ interface StreamBuffer {
 }
 
 /** Stable identity, so a mismatched buffer does not re-render on every read. */
+const SIMULATED_FEED: FeedRequest = { source: 'simulated' }
+
 const EMPTY_BUFFER: StreamBuffer = {
   lamina: null,
+  feedKey: '',
   ticks: [],
   lastTickAt: null,
   closeReason: null,
@@ -446,11 +517,18 @@ export function useCardioStream({
   tickMs    = 100,
   bufferSize = 120,
   lamina    = null,
+  feed      = SIMULATED_FEED,
   enabled   = true,
   onNotice,
   onReconnect,
 }: UseCardioStreamOptions = {}): UseCardioStreamResult {
-  const [buffer, setBuffer] = useState<StreamBuffer>(() => ({ ...EMPTY_BUFFER, lamina }))
+  const feedKey = feed.source === 'replay' ? `replay:${feed.subject}:${feed.date}` : 'simulated'
+  const feedSource = feed.source
+  const feedSubject = feed.source === 'replay' ? feed.subject : ''
+  const feedDate = feed.source === 'replay' ? feed.date : ''
+  const feedSpeed = feed.source === 'replay' ? feed.speed : 60
+
+  const [buffer, setBuffer] = useState<StreamBuffer>(() => ({ ...EMPTY_BUFFER, lamina, feedKey }))
   const [status, setStatus] = useState<StreamStatus>(enabled ? 'connecting' : 'suspended')
   const [retryAt, setRetryAt] = useState<number | null>(null)
   const [attempts, setAttempts] = useState(0)
@@ -459,6 +537,10 @@ export function useCardioStream({
   // and a wrong value for one paint is less trouble than that.
   const [online, setOnline] = useState(true)
   const wsRef = useRef<WebSocket | null>(null)
+
+  // The speed a reconnect should ask for.  Kept apart from the feed identity so
+  // set_speed changes what the next URL says without reopening the socket.
+  const speedRef = useRef(feedSpeed)
 
   // Mirrors `status` for callbacks (retryNow, the online listener) that live
   // outside the effect owning the socket.  Kept in step by setPhase() inside
@@ -477,9 +559,10 @@ export function useCardioStream({
   // back to baseline while the rail still shows what they set.
   const replayRef = useRef<{
     lamina: string | null
+    feedKey: string
     sensors: Record<string, number>
     paused: boolean
-  }>({ lamina: null, sensors: {}, paused: false })
+  }>({ lamina: null, feedKey: '', sensors: {}, paused: false })
 
   // The online listener and retryNow reach the effect's connect() through this
   // ref.  A ref keeps retryNow stable and stops a re-created listener from
@@ -497,18 +580,25 @@ export function useCardioStream({
     onReconnectRef.current = onReconnect
   })
 
-  // Derived on read, not cleared on change: the moment `lamina` differs, the
-  // buffer built for the previous one stops being this hook's answer.  No
-  // render passes through holding another model's numbers.
-  const own = buffer.lamina === lamina ? buffer : EMPTY_BUFFER
+  // A change of day (or of live/replay) is fresh feed state, not a reconnect of
+  // the same one.  This runs before the socket effect so a fresh connect already
+  // asks for the speed that came with the new feed.
+  useEffect(() => {
+    if (feedSource === 'replay') speedRef.current = feedSpeed
+  }, [feedSource, feedSpeed])
+
+  // Derived on read, not cleared on change: the moment `lamina` or the feed
+  // differs, the buffer built for the previous one stops being this hook's
+  // answer.  No render passes through holding another model's numbers.
+  const own = buffer.lamina === lamina && buffer.feedKey === feedKey ? buffer : EMPTY_BUFFER
 
   useEffect(() => {
-    // A new lamina means none of the old lamina's controls mean anything on it,
-    // and its first open is not "again" for this lamina.  Compare against the
-    // ref's tag so a re-run for `enabled` or the tick settings keeps the replay
-    // and the reopen memory intact.
-    if (replayRef.current.lamina !== lamina) {
-      replayRef.current = { lamina, sensors: {}, paused: false }
+    // A new lamina or feed means none of the old controls mean anything on it,
+    // and its first open is not "again".  Compare against the ref's tag so a
+    // re-run for `enabled` or the tick settings keeps the replay and the reopen
+    // memory intact.
+    if (replayRef.current.lamina !== lamina || replayRef.current.feedKey !== feedKey) {
+      replayRef.current = { lamina, feedKey, sensors: {}, paused: false }
       everOpenedRef.current = false
     }
 
@@ -540,10 +630,17 @@ export function useCardioStream({
       }
     }
 
-    /** Write into this lamina's buffer, starting a fresh one if it is stale. */
+    /** Keep a whole 1,440-minute day when replaying; live history stays short. */
+    const capacity = feedSource === 'replay' ? Math.max(bufferSize, 1500) : bufferSize
+
+    /** Write into this lamina and feed's buffer, starting fresh if it is stale. */
     const record = (patch: (prev: StreamBuffer) => StreamBuffer) =>
       setBuffer((prev) =>
-        patch(prev.lamina === lamina ? prev : { ...EMPTY_BUFFER, lamina })
+        patch(
+          prev.lamina === lamina && prev.feedKey === feedKey
+            ? prev
+            : { ...EMPTY_BUFFER, lamina, feedKey }
+        )
       )
 
     const connect = () => {
@@ -556,6 +653,14 @@ export function useCardioStream({
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
       const query = new URLSearchParams({ tick_ms: String(tickMs) })
       if (lamina) query.set('lamina', lamina)
+      if (feedSource === 'replay') {
+        query.set('source', 'replay')
+        query.set('subject', feedSubject)
+        query.set('date', feedDate)
+        // Read from the ref: a set_speed changes what a reconnect asks for
+        // without being part of the identity that reopens the socket.
+        query.set('speed', String(speedRef.current))
+      }
       const url = `${protocol}//${window.location.host}/ws/feedback?${query}`
       const ws  = new WebSocket(url)
       wsRef.current = ws
@@ -617,11 +722,21 @@ export function useCardioStream({
           }
           const tick = parseSnapshot(frame)
           if (tick) {
-            record((prev) => ({
-              ...prev,
-              ticks: pushRing(prev.ticks, tick, bufferSize),
-              lastTickAt: Date.now(),
-            }))
+            record((prev) => {
+              const previous = prev.ticks[prev.ticks.length - 1]
+              // A replay going backwards is a fresh play of the day: a reset,
+              // or a reconnect that began at position 0.  Keeping the old ticks
+              // would draw the same day twice on one axis.
+              const restarted =
+                tick.source.positionS !== undefined &&
+                previous?.source.positionS !== undefined &&
+                tick.source.positionS < previous.source.positionS
+              return {
+                ...prev,
+                ticks: restarted ? [tick] : pushRing(prev.ticks, tick, capacity),
+                lastTickAt: Date.now(),
+              }
+            })
           }
         } catch { /* malformed frame — skip */ }
       }
@@ -679,7 +794,7 @@ export function useCardioStream({
       wsRef.current?.close()
       wsRef.current = null
     }
-  }, [tickMs, bufferSize, lamina, enabled])
+  }, [tickMs, bufferSize, lamina, enabled, feedKey, feedSource, feedSubject, feedDate])
 
   // Network reachability is a fact about the browser, not the socket, and a
   // 'closed' socket on an offline machine is not worth the same retry as a
@@ -706,6 +821,7 @@ export function useCardioStream({
     if (msg.type === 'set_sensor') replayRef.current.sensors[msg.id] = msg.value
     else if (msg.type === 'pause') replayRef.current.paused = true
     else if (msg.type === 'resume') replayRef.current.paused = false
+    else if (msg.type === 'set_speed') speedRef.current = msg.speed
 
     const ws = wsRef.current
     if (ws?.readyState !== WebSocket.OPEN) return false

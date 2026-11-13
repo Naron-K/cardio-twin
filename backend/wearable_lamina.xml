@@ -324,7 +324,7 @@
       <name>Target Heart Rate</name>
       <unit>bpm</unit>
       <source>PRELIMINARY</source>
-      <physio_min>35</physio_min>
+      <physio_min>30</physio_min>
       <physio_max>220</physio_max>
       <computed_by>hr_target</computed_by>
       <depends_on>HR_level, HR_circ, HR_thermal, HR_drive, HR_max</depends_on>
@@ -335,7 +335,7 @@
       <name>Modelled Heart Rate</name>
       <unit>bpm</unit>
       <source>PRELIMINARY</source>
-      <physio_min>35</physio_min>
+      <physio_min>30</physio_min>
       <physio_max>220</physio_max>
       <computed_by>hr_model</computed_by>
       <depends_on>HR_target, dt_s, tau_on, tau_off</depends_on>

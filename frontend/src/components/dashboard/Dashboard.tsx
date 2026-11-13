@@ -26,6 +26,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLaminaTwin } from '../../hooks/useLaminaTwin'
 import { STREAM_LIMIT_CLOSE } from '../../hooks/useCardioStream'
+import type { FeedRequest } from '../../hooks/useCardioStream'
 import { idleMinutesFromUrl, useIdle } from '../../hooks/useIdle'
 import { useWakeLock } from '../../hooks/useWakeLock'
 import { usePageViewing } from '../../hooks/usePageViewing'
@@ -42,6 +43,7 @@ import { withinByOutcome } from '../../twin/views'
 import { OutcomeTiles } from './OutcomeTiles'
 import { TrendGrid } from './TrendGrid'
 import { StateTable } from './StateTable'
+import { SourceBar } from './SourceBar'
 import { InspectDrawer } from './InspectDrawer'
 import { TWIN_FORMS } from './forms'
 import type { TwinForm } from './forms'
@@ -55,9 +57,14 @@ interface Props {
   onLamina: (id: string) => void
   form: TwinForm
   onForm: (form: TwinForm) => void
+  /** Which feed to stream; the URL owns it, not this screen. */
+  feed: FeedRequest
+  onFeed: (feed: FeedRequest) => void
+  /** False when the URL named no form, so a replay lamina may pick its own. */
+  formNamed: boolean
 }
 
-export function Dashboard({ lamina, onLamina, form, onForm }: Props) {
+export function Dashboard({ lamina, onLamina, form, onForm, feed, onFeed, formNamed }: Props) {
   const notices = useNotices()
   const streamHandlers = useStreamNoticeHandlers(notices)
   const [idleMinutes] = useState(() => idleMinutesFromUrl())
@@ -68,11 +75,25 @@ export function Dashboard({ lamina, onLamina, form, onForm }: Props) {
   const twin = useLaminaTwin({
     lamina,
     onLamina,
+    feed,
     enabled: !idle && viewing,
     onNotice: streamHandlers.onNotice,
     onReconnect: streamHandlers.onReconnect,
   })
   const { index, latest, ticks, status, stale, staleAge, stage, artwork, paused } = twin
+
+  // A lamina that can replay opens on the graph when the URL named no form:
+  // the day's shape is what a replay is for.  Once per lamina, so a presenter
+  // who then chooses animation is not overruled by a later render.
+  const autoFormRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (formNamed || !index) return
+    const id = index.schema.lamina_id
+    if (autoFormRef.current === id) return
+    if (!index.sensors.some((sensor) => Boolean(sensor.replay_field))) return
+    autoFormRef.current = id
+    onForm('graph')
+  }, [formNamed, index, onForm])
 
   // The reset action is kept in a ref because confirmReset is the other value
   // from this same call: the notice hook needs resetLoop, and resetLoop must
@@ -170,6 +191,12 @@ export function Dashboard({ lamina, onLamina, form, onForm }: Props) {
   } else {
     const dim = stale ? 'opacity-40 transition-opacity duration-500' : 'transition-opacity duration-500'
     const feed = latest?.source ?? { kind: 'unknown', detail: '' }
+    const replayParts = [
+      feed.subject,
+      feed.date,
+      typeof feed.speed === 'number' && Number.isFinite(feed.speed) ? `×${feed.speed}` : null,
+    ].filter((part): part is string => typeof part === 'string' && part.length > 0)
+    const replayLabel = replayParts.length > 0 ? `Replay · ${replayParts.join(' · ')}` : 'Replay'
     const outcomes = latest?.beforeAfter ?? {}
     const alert = anyOutOfBand(outcomes)
     const modelValues = latest?.computed ?? {}
@@ -223,6 +250,17 @@ export function Dashboard({ lamina, onLamina, form, onForm }: Props) {
               Simulated feed · no device connected
             </Chip>
           )}
+          {feed.kind === 'replay' &&
+            (feed.ended === true ? (
+              <Chip tone="neutral" title={feed.detail}>
+                Replay finished
+              </Chip>
+            ) : (
+              <Chip tone="oxy" title={feed.detail}>
+                {replayLabel}
+                {feed.synthetic === true ? ' · synthetic day' : ''}
+              </Chip>
+            ))}
 
           <div className="ml-auto flex items-center gap-3">
             <span className={`flex items-baseline gap-1.5 ${dim}`}>
@@ -263,6 +301,21 @@ export function Dashboard({ lamina, onLamina, form, onForm }: Props) {
             eyebrow="1 · Data sources"
             title="How measurements enter the twin"
           >
+            <SourceBar
+              lamina={index.schema.lamina_id}
+              feed={twin.feed}
+              onFeed={onFeed}
+              latest={twin.latest?.source}
+              paused={twin.paused}
+              onTogglePause={twin.togglePause}
+              onSpeed={(speed) => {
+                twin.setSpeed(speed)
+                if (twin.feed.source === 'replay') {
+                  onFeed({ ...twin.feed, speed })
+                }
+              }}
+              onRestart={twin.reset}
+            />
             <InputRail
               index={index}
               values={latest?.sensors ?? {}}
@@ -391,9 +444,17 @@ export function Dashboard({ lamina, onLamina, form, onForm }: Props) {
           <Panel
             className={`shrink-0 !p-5 ${dim}`}
             eyebrow="4 · Over time"
-            title="Distance from the targets, with and without the feedback loop"
+            title={
+              index.tags.length > 0
+                ? 'Distance from the targets, with and without the feedback loop'
+                : 'Distance from the targets'
+            }
           >
-            <ConvergenceChart ticks={twin.mismatch ? [] : ticks} height={150} />
+            <ConvergenceChart
+              ticks={twin.mismatch ? [] : ticks}
+              height={150}
+              loopActive={index.tags.length > 0}
+            />
           </Panel>
           </div>
         </div>

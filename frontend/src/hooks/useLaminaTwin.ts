@@ -21,7 +21,12 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useCardioStream } from './useCardioStream'
-import type { ServerNotice, StreamStatus, StreamTick } from './useCardioStream'
+import type {
+  FeedRequest,
+  ServerNotice,
+  StreamStatus,
+  StreamTick,
+} from './useCardioStream'
 import { fetchLaminae, fetchSchema } from '../utils/api'
 import type { LaminaOption } from '../utils/api'
 import { indexLamina } from '../twin/schema'
@@ -48,11 +53,15 @@ function responseStatus(error: unknown): number | null {
   return typeof status === 'number' ? status : null
 }
 
+const SIMULATED_FEED: FeedRequest = { source: 'simulated' }
+
 interface Options {
   /** Lamina id to open, or null for whatever the backend defaults to. */
   lamina: string | null
   /** Called with the lamina the socket is really sending, on a mismatch. */
   onLamina: (id: string) => void
+  /** Which feed to stream; absent means the simulated one. */
+  feed?: FeedRequest
   /** Ring-buffer length; 300 ticks at 10 Hz is about 30 s of history. */
   bufferSize?: number
   /** Whether the caller wants a stream at all (default true). */
@@ -75,6 +84,10 @@ export interface LaminaTwin {
   retrySchema: () => void
   /** What the backend can serve, for a lamina picker. */
   laminae: LaminaOption[]
+  /** The feed request in force, so a screen can say which day it is showing. */
+  feed: FeedRequest
+  /** Change replay speed without reopening the socket. */
+  setSpeed: (speed: number) => void
   ticks: StreamTick[]
   /** The newest tick, or null when there is none or it is from another lamina. */
   latest: StreamTick | null
@@ -111,11 +124,13 @@ export interface LaminaTwin {
 export function useLaminaTwin({
   lamina,
   onLamina,
+  feed: requestedFeed,
   bufferSize = 300,
   enabled = true,
   onNotice,
   onReconnect,
 }: Options): LaminaTwin {
+  const feed = requestedFeed ?? SIMULATED_FEED
   const {
     ticks,
     status,
@@ -132,6 +147,7 @@ export function useLaminaTwin({
     tickMs: 100,
     bufferSize,
     lamina,
+    feed,
     enabled,
     onNotice,
     onReconnect,
@@ -343,6 +359,11 @@ export function useLaminaTwin({
     [sendControl]
   )
 
+  const setSpeed = useCallback(
+    (speed: number) => sendControl({ type: 'set_speed', speed }),
+    [sendControl]
+  )
+
   return {
     index,
     schemaError,
@@ -350,6 +371,8 @@ export function useLaminaTwin({
     schemaAttempts,
     retrySchema,
     laminae,
+    feed,
+    setSpeed,
     ticks,
     latest,
     status,

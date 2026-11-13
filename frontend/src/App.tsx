@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Dashboard } from './components/dashboard/Dashboard'
 import { TWIN_FORMS } from './components/dashboard/forms'
 import type { TwinForm } from './components/dashboard/forms'
+import { feedFromSearch, feedToSearch } from './feed'
+import type { FeedRequest } from './hooks/useCardioStream'
 
 /**
  * The app is one screen. Where you are on it lives in the URL, so a link opens
@@ -13,29 +15,56 @@ import type { TwinForm } from './components/dashboard/forms'
  * hash, including the old #twin, #body, #stream and #analysis links, opens the
  * dashboard rather than an error.
  */
-function readHash(): { lamina: string | null; form: TwinForm } {
+function readHash(): { lamina: string | null; form: TwinForm; formNamed: boolean } {
   const [screen, lamina, form] = window.location.hash.replace('#', '').split('/')
-  if (screen !== 'dashboard') return { lamina: null, form: 'animation' }
+  if (screen !== 'dashboard') return { lamina: null, form: 'animation', formNamed: false }
+  const named = TWIN_FORMS.includes(form as TwinForm)
   return {
     lamina: lamina || null,
-    form: TWIN_FORMS.includes(form as TwinForm) ? (form as TwinForm) : 'animation',
+    form: named ? (form as TwinForm) : 'animation',
+    formNamed: named,
   }
 }
 
 export default function App() {
-  const [laminaId, setLaminaId] = useState<string | null>(() => readHash().lamina)
-  const [form, setForm] = useState<TwinForm>(() => readHash().form)
+  const [initial] = useState(() => readHash())
+  const [laminaId, setLaminaId] = useState<string | null>(initial.lamina)
+  const [form, setForm] = useState<TwinForm>(initial.form)
+  // Read once, like the hash: a reload may open a different day, but an
+  // already-open tab must not keep re-reading a URL it is itself rewriting.
+  const [feed, setFeed] = useState<FeedRequest>(() => feedFromSearch(window.location.search))
 
-  // Keep the URL in step with the screen so the current view is shareable.
+  // A different lamina is a different model, so a day recorded for the old one
+  // is not a feed for the new one.
+  const onLamina = useCallback((id: string) => {
+    setLaminaId(id)
+    setFeed({ source: 'simulated' })
+  }, [])
+
+  // Keep the URL in step with the screen and the feed so the current view is
+  // shareable.  Every unrelated parameter (scale, idle) and the hash survive.
   useEffect(() => {
     const target =
       laminaId || form !== 'animation'
         ? `#dashboard/${laminaId ?? ''}${form !== 'animation' ? `/${form}` : ''}`
         : ''
-    if (window.location.hash !== target) {
-      window.history.replaceState(null, '', target || window.location.pathname)
+    const search = feedToSearch(feed, window.location.search)
+    const current = `${window.location.pathname}${window.location.search}${window.location.hash}`
+    const next = `${window.location.pathname}${search}${target}`
+    if (current !== next) {
+      window.history.replaceState(null, '', next)
     }
-  }, [laminaId, form])
+  }, [laminaId, form, feed])
 
-  return <Dashboard lamina={laminaId} onLamina={setLaminaId} form={form} onForm={setForm} />
+  return (
+    <Dashboard
+      lamina={laminaId}
+      onLamina={onLamina}
+      form={form}
+      onForm={setForm}
+      feed={feed}
+      onFeed={setFeed}
+      formNamed={initial.formNamed}
+    />
+  )
 }

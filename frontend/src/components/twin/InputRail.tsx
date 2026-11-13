@@ -116,11 +116,46 @@ export function InputRail({
           <div className="space-y-2">
             {group.ids.map((id) => {
               const attr = index.attribute(id)!
+              // During a replay an input with a replay_field is fed by the
+              // recording, not by the reader, and the server refuses
+              // set_sensor on it. It is a readout, so it gets no slider.
+              if (sourceKind === 'replay' && attr.replay_field !== null) {
+                const reading: number | null | undefined = values[id]
+                const measured =
+                  reading !== null && reading !== undefined && Number.isFinite(reading)
+                return (
+                  <div key={id} className="block" title={attr.description}>
+                    <span className="flex items-baseline gap-1.5">
+                      <span className="font-mono text-[10px] font-bold readout text-ink/70">
+                        {id}
+                      </span>
+                      <span className="font-mono text-[9px] readout text-ink/25 truncate">
+                        {attr.name}
+                      </span>
+                      <span className="ml-auto font-mono text-[10px] tabular-nums text-ink shrink-0">
+                        {fmtValue(reading ?? undefined)}
+                        <span className="text-ink/30 text-[9px] ml-0.5">{attr.unit}</span>
+                      </span>
+                    </span>
+                    <span className="block mt-0.5 font-mono text-[9px] readout text-ink/30">
+                      {measured ? 'from the recording' : 'no reading this minute'}
+                    </span>
+                  </div>
+                )
+              }
               // The commanded value, falling back to what the lamina declares
               // it rests at, and only then to the middle of its range. Never
-              // the live reading: that is what made the control unusable.
+              // the live reading of a NOISY feed: that is what made the
+              // control unusable.  A replay adds no noise, and its coefficients
+              // may be a fitted params.json rather than the declared baseline,
+              // so there the value the server is using is the set point.
+              const replaySet =
+                sourceKind === 'replay' && Number.isFinite(values[id]) ? values[id] : undefined
               const set =
-                commanded[id] ?? attr.baseline ?? (attr.physio_min + attr.physio_max) / 2
+                commanded[id] ??
+                replaySet ??
+                attr.baseline ??
+                (attr.physio_min + attr.physio_max) / 2
               const reading = values[id]
               const span = attr.physio_max - attr.physio_min
               // Shown whenever the feed adds noise to this attribute, which is
@@ -265,6 +300,12 @@ export function InputRail({
           edit the XML and these controls move with it. Nothing here reaches the stage; the model
           digests it first.
         </p>
+        {sourceKind === 'replay' && (
+          <p className="font-mono text-[9px] readout text-ink/25 leading-snug">
+            Measured inputs replay the recorded day minute by minute. Coefficients can still be
+            changed.
+          </p>
+        )}
         {sourceKind === 'simulated' && (
           <p className="font-mono text-[9px] readout text-warn/60 leading-snug">
             Readings are generated, not measured — noise around the baseline the lamina declares.

@@ -59,6 +59,14 @@ function noticeTitle(code: string): string {
       return 'Not an input of this model'
     case 'bad_message':
       return 'Message not understood'
+    case 'replay_end':
+      return 'Recorded day finished'
+    case 'measured_input':
+      return 'Recorded input'
+    case 'not_replaying':
+      return 'Not replaying'
+    case 'bad_speed':
+      return 'Speed not available'
     default:
       return 'Change not applied'
   }
@@ -171,8 +179,8 @@ export function useStreamNoticeHandlers(api: NoticeApi): {
 
       push({
         key: `server:${code}:${id}`,
-        tone: 'warning',
-        ttlMs: code === 'usage_warning' ? 15_000 : 8000,
+        tone: record.level === 'info' ? 'info' : 'warning',
+        ttlMs: code === 'usage_warning' || code === 'replay_end' ? 15_000 : 8000,
         title: noticeTitle(code),
         body: message || 'The server did not apply the last change.',
       })

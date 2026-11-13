@@ -1,5 +1,9 @@
 import axios from 'axios'
 import type { LaminaSchema } from '../twin/schema'
+import { parseSources } from '../twin/sourceBar'
+import type { SourcesResponse } from '../twin/sourceBar'
+
+export type { ReplaySources, SourcesResponse } from '../twin/sourceBar'
 
 // The schema payload is described once, in twin/schema.ts, because the
 // dashboard is built entirely out of it and a second partial copy here is how
@@ -41,4 +45,16 @@ export async function fetchSchema(laminaId?: string | null): Promise<Schema> {
     params: laminaId ? { lamina: laminaId } : undefined,
   })
   return res.data
+}
+
+/**
+ * Which feeds one lamina can stream and which recorded days exist.  The body
+ * is checked field by field before it is returned, so a malformed response is
+ * an offer with nothing in it rather than a shape the bar reads blindly.
+ */
+export async function fetchSources(laminaId?: string | null): Promise<SourcesResponse> {
+  const res = await axios.get<unknown>('/api/sources', {
+    params: laminaId ? { lamina: laminaId } : undefined,
+  })
+  return parseSources(res.data)
 }

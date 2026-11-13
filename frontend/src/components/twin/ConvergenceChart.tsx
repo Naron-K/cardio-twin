@@ -34,6 +34,8 @@ import { totalDeviation } from '../../twin/outcomes'
 interface Props {
   ticks: StreamTick[]
   height?: number
+  /** False for a lamina that declares no feedback loop: only the measured line. */
+  loopActive?: boolean
 }
 
 // Steps derived on the Oxygenated-Blue and warn hues.  DESIGN.md's own steps
@@ -44,7 +46,7 @@ const WITH_LOOP = '#00a5bb'
 const WITHOUT_LOOP = '#c8801f'
 const INK_DIM = 'rgba(216,227,251,0.55)'
 
-export function ConvergenceChart({ ticks, height = 150 }: Props) {
+export function ConvergenceChart({ ticks, height = 150, loopActive = true }: Props) {
   // Ticks that arrived before the first outcome evaluation would otherwise
   // plot as a run of zeros, which reads as "perfectly on target".
   const data = ticks
@@ -84,13 +86,22 @@ export function ConvergenceChart({ ticks, height = 150 }: Props) {
         <p className="font-mono text-[11px] readout text-ink/40">
           D now <span className="text-ink text-[13px]">{latest.withLoop.toFixed(2)}</span>
         </p>
-        <p className="font-mono text-[11px] readout text-ink/40">
-          loop is closing <span className="text-ink text-[13px]">{closed.toFixed(2)}</span> bands
-        </p>
+        {loopActive && (
+          <p className="font-mono text-[11px] readout text-ink/40">
+            loop is closing <span className="text-ink text-[13px]">{closed.toFixed(2)}</span> bands
+          </p>
+        )}
         <p className="font-mono text-[11px] readout text-ink/25">
           across {outcomeCount} outcomes · lower is better
         </p>
       </div>
+
+      {!loopActive && (
+        <p className="font-mono text-[10px] readout text-ink/40 leading-snug mb-2">
+          This lamina has no feedback loop, so nothing acts on the outcomes; the line is the
+          distance from the targets as measured.
+        </p>
+      )}
 
       <ResponsiveContainer width="100%" height={height}>
         <ComposedChart data={data} margin={{ top: 4, right: 10, bottom: 0, left: -18 }}>
@@ -133,10 +144,12 @@ export function ConvergenceChart({ ticks, height = 150 }: Props) {
               return [`${Number(value).toFixed(3)} bands`, name]
             }}
           />
-          <Legend
-            wrapperStyle={{ fontSize: 10, paddingTop: 2 }}
-            formatter={(value) => <span style={{ color: INK_DIM }}>{value}</span>}
-          />
+          {loopActive && (
+            <Legend
+              wrapperStyle={{ fontSize: 10, paddingTop: 2 }}
+              formatter={(value) => <span style={{ color: INK_DIM }}>{value}</span>}
+            />
+          )}
 
           {/* Every outcome exactly on target. */}
           <ReferenceLine
@@ -152,31 +165,35 @@ export function ConvergenceChart({ ticks, height = 150 }: Props) {
           />
 
           {/* Drawn first so both lines sit on top of it. */}
-          <Area
-            type="monotone"
-            dataKey="contribution"
-            name="What the loop is closing"
-            stroke="none"
-            fill={WITH_LOOP}
-            fillOpacity={0.16}
-            isAnimationActive={false}
-            activeDot={false}
-          />
+          {loopActive && (
+            <Area
+              type="monotone"
+              dataKey="contribution"
+              name="What the loop is closing"
+              stroke="none"
+              fill={WITH_LOOP}
+              fillOpacity={0.16}
+              isAnimationActive={false}
+              activeDot={false}
+            />
+          )}
 
-          <Line
-            type="monotone"
-            dataKey="withoutLoop"
-            name="Without feedback loop"
-            stroke={WITHOUT_LOOP}
-            strokeWidth={2}
-            strokeDasharray="4 3"
-            dot={false}
-            isAnimationActive={false}
-          />
+          {loopActive && (
+            <Line
+              type="monotone"
+              dataKey="withoutLoop"
+              name="Without feedback loop"
+              stroke={WITHOUT_LOOP}
+              strokeWidth={2}
+              strokeDasharray="4 3"
+              dot={false}
+              isAnimationActive={false}
+            />
+          )}
           <Line
             type="monotone"
             dataKey="withLoop"
-            name="With feedback loop"
+            name={loopActive ? 'With feedback loop' : 'Distance from the targets'}
             stroke={WITH_LOOP}
             strokeWidth={2}
             dot={false}
@@ -188,7 +205,8 @@ export function ConvergenceChart({ ticks, height = 150 }: Props) {
       <p className="font-mono text-[10px] readout text-ink/30 leading-relaxed mt-1">
         D = Σ |actual − target| ÷ tolerance, over the model's behavioural outcomes.
         Counted in tolerance bands so mmHg, L/min, mL and mm can be summed at all.
-        Dashed = the same cycle recomputed with feedback zeroed; the shaded gap is the loop's work.
+        {loopActive &&
+          ' Dashed = the same cycle recomputed with feedback zeroed; the shaded gap is the loop\'s work.'}{' '}
         Which outcome contributes what — including any the model flags as unreliable — is broken
         out per row under Outcomes.
       </p>

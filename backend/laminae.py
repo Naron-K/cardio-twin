@@ -32,6 +32,7 @@ from typing import Type
 from circulatory_lamina import CirculatoryLamina
 from metabolic_lamina import MetabolicLamina
 from respiratory_lamina import RespiratoryLamina
+from wearable_lamina import WearableLamina
 from universal_twin import UniversalTwin
 
 # The default when nothing overrides it.
@@ -42,6 +43,7 @@ _IMPLEMENTATIONS: dict[str, Type[UniversalTwin]] = {
     "lamina_circulatory": CirculatoryLamina,
     "lamina_respiratory": RespiratoryLamina,
     "lamina_metabolic":   MetabolicLamina,
+    "lamina_wearable":    WearableLamina,
 }
 
 

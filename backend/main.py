@@ -24,6 +24,7 @@ import logging
 import math
 import os
 import re
+import signal_source
 import sys
 import xml.etree.ElementTree as ET
 from datetime import datetime
@@ -57,8 +58,9 @@ from feedback_controller import (
 )
 from organism import OrganismError, available_organisms, load_organism
 from session import OrganismSession, Session
-from signal_source import SimulatedSource
+from signal_source import ReplaySource, SimulatedSource
 from streaming_runtime import StreamingRuntime
+from bundles import UnknownBundle, list_bundles, load_bundle
 from usage_meter import UsageMeter
 from snapshot import (
     _KSTATE_SEP,
@@ -647,6 +649,9 @@ def get_schema(lamina: Optional[str] = Query(default=None,
             # declares nothing.
             "baseline": attr.baseline,
             "noise_sigma": attr.noise_sigma,
+            # Which recorded field feeds this input during a replay, so a
+            # control can show a readout instead of a slider for it.
+            "replay_field": attr.replay_field,
         }
 
     composites = {}
@@ -780,6 +785,58 @@ def get_schema(lamina: Optional[str] = Query(default=None,
             "solver":            sorted(twin._solver_registry.keys()),
             "adaptation_kernel": sorted(twin._adaptation_kernel_registry.keys()),
         },
+    }
+
+
+@app.get("/api/sources")
+def get_sources(lamina: Optional[str] = Query(
+        default=None,
+        description="Lamina id; omit for the process default.")):
+    """
+    Which feeds this lamina can stream, and the replay days on offer.
+
+    The list is derived, not typed in: "replay" is offered only when the
+    lamina declares at least one SENSOR with a `replay_field` and there is a
+    recorded day to read, because a mode the stream would refuse is not a
+    choice a caller can make.  `subjects` maps each subject to its available
+    dates, and `speeds` is read from `signal_source` at call time so a test
+    or a deployment can change it without rebuilding this module.
+    """
+    print(f"[LOG] GET /api/sources  lamina={lamina or '(default)'}")
+    path = _resolve_or_400(lamina)
+    try:
+        twin = load_twin(path)
+    except Exception as e:
+        print(f"[ERROR] Failed to load lamina for sources: {e}")
+        raise HTTPException(status_code=500, detail={
+            "error": str(e),
+            "type": type(e).__name__,
+            "timestamp": datetime.now().isoformat(),
+        })
+
+    subjects = list_bundles()
+    can_replay = bool(subjects) and any(
+        attr.source == SENSOR and attr.replay_field is not None
+        for attr in twin.attributes.values()
+    )
+
+    modes = ["simulated"]
+    if can_replay:
+        modes.append("replay")
+
+    return {
+        "lamina": twin.lamina_id,
+        "modes": modes,
+        "replay": (
+            {
+                "subjects": subjects,
+                "speeds": list(signal_source.REPLAY_SPEEDS),
+                "default_speed": 60,
+            }
+            if can_replay
+            else None
+        ),
+        "presets": [],
     }
 
 
@@ -1240,15 +1297,67 @@ def validate_sensor_command(
     return value, None
 
 
+def _validate_source_request(
+    source_mode: str,
+    subject: Optional[str],
+    date: Optional[str],
+    speed: int,
+    path: Path,
+) -> Optional[dict]:
+    """
+    Check a requested feed before any session exists, returning its bundle.
+
+    Raises ValueError (or whatever `load_bundle` raises) with a message a
+    client can act on.  Every check happens here, before `_open_streams` is
+    touched, so a malformed request costs a close frame and nothing else.
+
+    `signal_source.REPLAY_SPEEDS` is read through the module on every call:
+    a test or a deployment can change the offered speeds without reloading
+    this file.
+    """
+    if source_mode == "scenario":
+        raise ValueError("scenario mode is not built yet")
+    if source_mode not in ("simulated", "replay"):
+        raise ValueError(
+            f"source={source_mode!r} is not a source this server offers; "
+            "use 'simulated' or 'replay'."
+        )
+    # A simulated stream has no speed, so a stray `speed` on its URL must not
+    # be what refuses it.
+    if source_mode != "replay":
+        return None
+    if speed not in signal_source.REPLAY_SPEEDS:
+        raise ValueError(
+            f"speed={speed!r} is not one of "
+            f"{list(signal_source.REPLAY_SPEEDS)} data seconds per wall "
+            "second."
+        )
+    if not subject or not date:
+        raise ValueError(
+            "A replay needs both a subject and a date, for example "
+            "?source=replay&subject=demo&date=2025-06-01."
+        )
+
+    # load_bundle names the missing subject/date and what is available;
+    # ReplaySource refuses a lamina that cannot replay or a bundle whose
+    # declared fields it cannot resolve.  Both messages are the client's.
+    bundle = load_bundle(subject, date)
+    ReplaySource(load_twin(path), bundle, speed=speed)
+    return bundle
+
+
 @app.websocket("/ws/feedback")
 async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
-                      lamina: Optional[str] = None):
+                      lamina: Optional[str] = None,
+                      source: str = "simulated",
+                      subject: Optional[str] = None,
+                      date: Optional[str] = None,
+                      speed: int = 60):
     """
     Stream the feedback loop to the browser over WebSocket.
 
-    On connect: an isolated Session + SimulatedSource are created
-    and a background ticker fires every `tick_ms` milliseconds, sending
-    a simulation snapshot as JSON.
+    On connect: an isolated Session and a feed are created and a background
+    control cycle sends a simulation snapshot as JSON.
 
     `lamina` names which lamina this connection runs, resolved by the same id
     the schema endpoint takes, so a client can guarantee that the structure it
@@ -1256,15 +1365,33 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
     the process default.  An unknown id closes the socket rather than streaming
     a lamina nobody asked for.
 
+    `source` selects the feed: "simulated" (the default, unchanged from
+    before) or "replay" (a recorded day).  A replay also takes `subject` and
+    `date` naming the bundle, and `speed` — data seconds per wall second —
+    which must be one of `signal_source.REPLAY_SPEEDS`; `tick_ms` is ignored
+    for a replay because each cycle consumes exactly one recorded minute.
+    Any other `source`, a replay missing its subject or date, an unavailable
+    bundle, an unsupported speed or a lamina with no replay fields is refused
+    with a 1008 close before the stream starts.
+
     Inbound control messages (JSON):
       {"type": "set_sensor",        "id": "HR",        "value": 110.0}
       {"type": "pause"}
       {"type": "resume"}
       {"type": "reset"}
+      {"type": "set_speed",         "speed": 600}
       {"type": "keepalive"}
 
-    Outbound, beside the snapshots: {"type": "notice", "level": "warning",
-    "code": ..., "id": ..., "message": ...} when a command was not applied.
+    During a replay, `set_sensor` on a SENSOR fed by the recording is refused
+    with a "measured_input" notice; a coefficient is still accepted.  A
+    `set_speed` outside a replay is refused with "not_replaying", and an
+    unsupported speed with "bad_speed".  `reset` rewinds the recording to its
+    first minute.
+
+    Outbound, beside the snapshots: {"type": "notice", "level": ...,
+    "code": ..., "id": ..., "message": ...} when a command was not applied,
+    and a "replay_end" notice once when the recorded day finishes.  Replay
+    snapshots and notices are never thinned.
 
     On disconnect: the ticker task is cancelled and the session is freed.
     One ticker task per connection — sessions are never shared.
@@ -1301,6 +1428,17 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
         print("[WS] /ws/feedback refused: monthly data limit reached")
         return
 
+    # The feed request is checked before a Session is built or a stream is
+    # counted, for the same reason an unknown lamina is: a request the server
+    # cannot serve is a policy refusal, not a stream that fails later.
+    replaying = source == "replay"
+    try:
+        bundle = _validate_source_request(source, subject, date, speed, path)
+    except (ValueError, UnknownBundle) as e:
+        await websocket.close(code=1008, reason=str(e)[:120])
+        print(f"[WS] /ws/feedback rejected  source={source!r}: {e}")
+        return
+
     # One warning per connection.  If the month is already near the edge when
     # the page opens, say so at once rather than waiting for the first tick.
     warned = {"usage": False}
@@ -1309,17 +1447,26 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
         await _send_frame(websocket, _usage_notice())
 
     _open_streams += 1
-    print(f"[WS] /ws/feedback connected  tick_ms={tick_ms}  lamina={lamina or '(default)'}")
+    print(f"[WS] /ws/feedback connected  tick_ms={tick_ms}  "
+          f"lamina={lamina or '(default)'}  source={source!r}")
 
     # The feed is built from the loaded lamina's own sensor declarations, and
     # the session starts at the baselines that feed reports — so a lamina this
     # file has never heard of streams without a line of change here.
     session = Session(lamina=path)
-    source  = SimulatedSource(session.twin)
-    session.seed(source.starting_state())
-    print(f"[WS] feed: {source.describe()}")
     flags   = {"paused": False}
     emitted = {"n": 0}
+    ended   = {"sent": False}
+
+    if replaying:
+        feed = ReplaySource(session.twin, bundle, speed=speed)
+        session.seed(feed.starting_state())
+        period_s = 60.0 / speed      # one recorded minute per cycle
+    else:
+        feed = SimulatedSource(session.twin)
+        session.seed(feed.starting_state())
+        period_s = tick_ms / 1000.0
+    print(f"[WS] feed: {feed.describe()}")
 
     # ── Layer 1 streaming runtime ────────────────────────────────────
     # Ingestion and control run on two independent timescales (spec
@@ -1329,28 +1476,56 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
     # Overlapping readings coalesce in the mailbox, so a slow cycle can
     # never build a backlog.  The twin/session know nothing about any of
     # this — the runtime is purely domain-agnostic plumbing around tick().
-    period_s = tick_ms / 1000.0
+    #
+    # A replay has NO ingestion task: its minutes must arrive in order, and
+    # the latest-wins mailbox would coalesce them.  The control cycle pulls
+    # one recorded row itself instead.
+    if replaying:
+        def _control(sample: dict | None):
+            if flags["paused"]:
+                return None
+            if feed.exhausted:
+                # Say it once.  Every later cycle is silent, because a
+                # repeated "finished" notice would be a stream that never
+                # stops talking about having stopped.
+                if ended["sent"]:
+                    return None
+                ended["sent"] = True
+                return {
+                    "type": "notice",
+                    "level": "info",
+                    "code": "replay_end",
+                    "id": None,
+                    "message": (
+                        "The recorded day has finished. "
+                        "Reset to play it again."
+                    ),
+                }
+            snapshot = session.tick(feed.next())
+            snapshot["source"] = feed.status()
+            return snapshot
+    else:
+        def _control(sample: dict | None):
+            # Paused → emit nothing and do not advance the cycle.  A None
+            # sample (mailbox empty this period) still runs a cycle on the
+            # current state, matching physiological control that keeps
+            # regulating between fresh readings.
+            if flags["paused"]:
+                return None
+            snapshot = session.tick(sample or {})
+            # Say what is producing these readings.  Every number on this
+            # socket is generated — Gaussian noise around the baselines the
+            # lamina declares — and until now nothing on the wire said so,
+            # which left a screen full of convincingly wobbling values with
+            # no way to tell them from a patient.  The frontend reports
+            # whatever this says rather than assuming.
+            snapshot["source"] = {
+                "kind": feed.KIND,
+                "detail": feed.describe(),
+            }
+            return snapshot
 
-    def _control(sample: dict | None):
-        # Paused → emit nothing and do not advance the cycle.  A None
-        # sample (mailbox empty this period) still runs a cycle on the
-        # current state, matching physiological control that keeps
-        # regulating between fresh readings.
-        if flags["paused"]:
-            return None
-        snapshot = session.tick(sample or {})
-        # Say what is producing these readings.  Every number on this socket is
-        # generated — Gaussian noise around the baselines the lamina declares —
-        # and until now nothing on the wire said so, which left a screen full of
-        # convincingly wobbling values with no way to tell them from a patient.
-        # The frontend reports whatever this says rather than assuming.
-        snapshot["source"] = {
-            "kind": source.KIND,
-            "detail": source.describe(),
-        }
-        return snapshot
-
-    async def _send(snapshot: dict) -> None:
+    async def _send(result: dict) -> None:
         # The meter counts what actually left, so the limit is usually crossed
         # by a send that succeeded.  Stop the loop from here instead of awaiting
         # close(): the receive loop still holds the socket, and a separate close
@@ -1364,7 +1539,14 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
         emitted["n"] += 1
         # The model ran this cycle regardless; only the wire is thinned.  The
         # first snapshot always goes so a page is never blank while waiting.
-        send_snapshot = (emitted["n"] - 1) % STREAM_EMIT_EVERY == 0
+        # A replay sends every minute and every notice: a recording with
+        # minutes missing would be a different day from the one requested.
+        is_notice = result.get("type") == "notice"
+        send_snapshot = (
+            is_notice
+            or replaying
+            or (emitted["n"] - 1) % STREAM_EMIT_EVERY == 0
+        )
         send_notice = usage.near and not warned["usage"]
         # A notice is not a snapshot, so thinning must never drop one.
         if not send_snapshot and not send_notice:
@@ -1380,7 +1562,7 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
                 # A send that blocks past the timeout means the peer has stopped
                 # reading.  Left alone it parks the control loop forever and the
                 # stream outlives the page that asked for it.
-                await _send_frame(websocket, snapshot)
+                await _send_frame(websocket, result)
         except asyncio.TimeoutError:
             # End the stream from this side, but not by awaiting close()
             # here: the receive loop is still parked in receive_text() and
@@ -1408,12 +1590,12 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
         try:
             while True:
                 await asyncio.sleep(period_s)
-                runtime.submit(source.next())
+                runtime.submit(feed.next())
         except asyncio.CancelledError:
             raise
 
     runtime.start()
-    ingest_task = asyncio.create_task(_ingest())
+    ingest_task = None if replaying else asyncio.create_task(_ingest())
 
     try:
         while True:
@@ -1470,6 +1652,21 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
             if msg_type == "set_sensor":
                 sensor_id = msg.get("id")
                 raw       = msg.get("value")
+                if replaying and isinstance(sensor_id, str):
+                    attr = session.twin.attributes.get(sensor_id)
+                    if (attr is not None and attr.source == SENSOR
+                            and attr.replay_field is not None):
+                        await websocket.send_json({
+                            "type": "notice",
+                            "level": "warning",
+                            "code": "measured_input",
+                            "id": sensor_id,
+                            "message": (
+                                f"{sensor_id} comes from the recorded day "
+                                "during a replay, so it cannot be set."
+                            ),
+                        })
+                        continue
                 value, notice = validate_sensor_command(
                     session.twin, sensor_id, raw
                 )
@@ -1477,8 +1674,41 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
                     await websocket.send_json(notice)
                     continue
                 sensor_id = str(sensor_id)
-                source.set_baseline(sensor_id, value)
+                feed.set_baseline(sensor_id, value)
                 session.twin.set_sensor(sensor_id, value)
+
+            elif msg_type == "set_speed":
+                raw_speed = msg.get("speed")
+                if not replaying:
+                    await websocket.send_json({
+                        "type": "notice",
+                        "level": "warning",
+                        "code": "not_replaying",
+                        "id": None,
+                        "message": (
+                            "Speed only applies to a replay; this stream is "
+                            "not replaying a recorded day."
+                        ),
+                    })
+                elif (isinstance(raw_speed, bool)
+                      or not isinstance(raw_speed, int)
+                      or raw_speed not in signal_source.REPLAY_SPEEDS):
+                    await websocket.send_json({
+                        "type": "notice",
+                        "level": "warning",
+                        "code": "bad_speed",
+                        "id": None,
+                        "message": (
+                            f"Speed {_shown(raw_speed)} is not one of "
+                            f"{list(signal_source.REPLAY_SPEEDS)} data "
+                            "seconds per wall second, so the replay speed "
+                            "was not changed."
+                        ),
+                    })
+                else:
+                    feed.set_speed(raw_speed)
+                    runtime.period_s = 60.0 / raw_speed
+                    runtime.refractory_s = runtime.period_s * 0.5
 
             elif msg_type == "pause":
                 flags["paused"] = True
@@ -1488,6 +1718,10 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
 
             elif msg_type == "reset":
                 session.reset()
+                if replaying:
+                    feed.rewind()
+                    session.seed(feed.starting_state())
+                    ended["sent"] = False
 
             elif msg_type == "keepalive":
                 # The dashboard sends one every few minutes so a host that
@@ -1501,11 +1735,12 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
     except WebSocketDisconnect:
         pass
     finally:
-        ingest_task.cancel()
-        try:
-            await ingest_task
-        except asyncio.CancelledError:
-            pass
+        if ingest_task is not None:
+            ingest_task.cancel()
+            try:
+                await ingest_task
+            except asyncio.CancelledError:
+                pass
         await runtime.stop()
         _open_streams -= 1
         print("[WS] /ws/feedback disconnected")

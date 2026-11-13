@@ -15,6 +15,7 @@ Developers add new function models in child classes.
 
 import math
 import os
+import re
 import sys
 
 import numpy as np
@@ -65,6 +66,37 @@ def _opt_float(text: Optional[str]) -> Optional[float]:
     if text is None or not text.strip():
         return None
     return float(text)
+
+
+# `sample.<field>`, `day.<field>`, or one of the derived clock fields.
+_REPLAY_FIELD_RE = re.compile(r"^(sample|day)\.[a-z_][a-z0-9_]*$")
+REPLAY_CLOCK_FIELDS = frozenset({"clock.hour", "clock.dt_s"})
+
+
+def _replay_field(text: Optional[str], attr_id: str, source: str) -> Optional[str]:
+    """
+    Parse an optional <replay_field>, refusing one that could never resolve.
+
+    A misspelt field would replay as a missing value on every row — a gap
+    that looks like the data's fault — so the shape is checked at load time,
+    and only a SENSOR may carry one: nothing else is written from outside.
+    """
+    if text is None or not text.strip():
+        return None
+    value = text.strip()
+    if source != SENSOR:
+        raise ValueError(
+            f"Attribute '{attr_id}' is {source} but declares replay_field "
+            f"'{value}'. Only a SENSOR is fed from a recorded day; remove it "
+            f"or change the source."
+        )
+    if value not in REPLAY_CLOCK_FIELDS and not _REPLAY_FIELD_RE.match(value):
+        raise ValueError(
+            f"Attribute '{attr_id}' declares replay_field '{value}'. Use "
+            f"'sample.<field>', 'day.<field>' or one of "
+            f"{sorted(REPLAY_CLOCK_FIELDS)}."
+        )
+    return value
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -138,6 +170,13 @@ class Attribute:
     # → a small fraction of the declared range, which keeps a trace alive
     # without pretending to a measurement error anyone characterised.
     noise_sigma: Optional[float] = None
+    # Where a recorded day supplies this SENSOR when a stream replays one:
+    # `sample.<field>` (one row per grid step), `day.<field>` (one value for
+    # the day) or `clock.hour` / `clock.dt_s` (derived from the row's time).
+    # Declared in the XML so the mapping is a fact about the lamina, not a
+    # table in the replay code.  None → a replay leaves this input where the
+    # declared baseline or a slider put it, which is what a coefficient wants.
+    replay_field: Optional[str] = None
     value_external: Optional[float] = None  # X' — external/computed input
     value_feedback: float = 0.0             # X'' — feedback-loop delta
     normalised: Optional[float] = None  # value in [0, 1] vector space
@@ -1643,6 +1682,9 @@ class UniversalTwin:
                 description=attr_el.findtext("description", ""),
                 baseline=_opt_float(attr_el.findtext("baseline")),
                 noise_sigma=_opt_float(attr_el.findtext("noise_sigma")),
+                replay_field=_replay_field(
+                    attr_el.findtext("replay_field"), attr_id, source
+                ),
                 computed_by=attr_el.findtext("computed_by"),
                 depends_on=depends,
             )

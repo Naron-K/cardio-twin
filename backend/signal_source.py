@@ -23,9 +23,15 @@ a legal starting state, just not a characterised one, and `describe()` says so.
 """
 from __future__ import annotations
 
+import math
 import random
 from abc import ABC, abstractmethod
+from datetime import date as _date
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo
+
+from bundles import is_finite_number, validate_bundle
 
 if TYPE_CHECKING:  # pragma: no cover — import cycle at runtime, types only
     from universal_twin import UniversalTwin
@@ -34,6 +40,11 @@ if TYPE_CHECKING:  # pragma: no cover — import cycle at runtime, types only
 # percent of its declared span.  Enough that a trace is visibly live, small
 # enough that nobody reads it as a measurement error someone characterised.
 _FALLBACK_SIGMA_FRACTION = 0.002
+
+#: Data seconds replayed per wall-clock second.  Read at call time by
+#: ReplaySource so a test or the API can change the available set without
+#: rebuilding the class.
+REPLAY_SPEEDS = (60, 120, 600)
 
 
 class SignalSource(ABC):
@@ -163,3 +174,333 @@ class SimulatedSource(SignalSource):
             f"{total} sensors, {len(self._undeclared)} without a declared "
             f"baseline (using range midpoint): {', '.join(self._undeclared)}"
         )
+
+
+class ReplayExhausted(Exception):
+    """`next()` was called after the last recorded row had been emitted."""
+
+
+class ReplaySource(SignalSource):
+    """
+    A feed that replays one recorded day through a lamina.
+
+    The mapping is the lamina's, not this class's: a SENSOR's
+    `replay_field` says whether it comes from a row (`sample.<key>`), the
+    day (`day.<key>`), the clock (`clock.hour`, `clock.dt_s`), or nowhere.
+    A SENSOR with no `replay_field` is a coefficient: the replay leaves it
+    where the file or a caller put it.
+
+    Recorded readings are passed through exactly as recorded.  A null in
+    the file is a gap, not a zero: that attribute is omitted from the
+    tick and named in `last_missing`, so a consumer can tell "the watch
+    did not record this minute" from "the watch recorded a heart rate of
+    nothing".
+
+    `clock.hour` is local wall-clock time, not elapsed time: it is the
+    bundle's local midnight plus the row's elapsed seconds, done in UTC
+    and converted back, so a daylight-saving day actually jumps.
+    """
+
+    KIND = "replay"
+
+    def __init__(
+        self,
+        twin: "UniversalTwin",
+        bundle: dict,
+        params: dict | None = None,
+        speed: int = 60,
+    ) -> None:
+        if speed not in REPLAY_SPEEDS:
+            raise ValueError(
+                f"speed={speed!r} is not one of {REPLAY_SPEEDS} data seconds "
+                f"per wall second."
+            )
+        if not isinstance(bundle, dict):
+            raise ValueError(
+                f"A replay needs a day bundle object, got "
+                f"{type(bundle).__name__}."
+            )
+
+        label = f"bundle '{bundle.get('subject')}/{bundle.get('date')}'"
+        validate_bundle(bundle, label=label)
+
+        mapped: dict[str, str] = {}
+        coefficients: list[str] = []
+        for attr_id in twin.list_attributes("SENSOR"):
+            field = twin.attributes[attr_id].replay_field
+            if field is None:
+                coefficients.append(attr_id)
+            else:
+                mapped[attr_id] = field
+
+        if not mapped:
+            raise ValueError(
+                f"lamina {twin.lamina_id} declares no replay_field, so it "
+                f"cannot replay a recorded day."
+            )
+
+        day = bundle["day"]
+        samples = bundle["samples"]
+        for attr_id, field in mapped.items():
+            if field.startswith("day."):
+                key = field.split(".", 1)[1]
+                if key not in day:
+                    raise ValueError(
+                        f"Attribute '{attr_id}' replays '{field}', but the "
+                        f"bundle's day object has no key '{key}'. Available: "
+                        f"{sorted(day)}."
+                    )
+                value = day[key]
+                if value is not None and not is_finite_number(value):
+                    raise ValueError(
+                        f"Attribute '{attr_id}' replays '{field}', but the "
+                        f"bundle holds {value!r}, which is not a finite "
+                        f"number."
+                    )
+            elif field.startswith("sample."):
+                key = field.split(".", 1)[1]
+                for row_index, row in enumerate(samples):
+                    if key not in row:
+                        raise ValueError(
+                            f"Attribute '{attr_id}' replays '{field}', but "
+                            f"sample row {row_index} has no '{key}' field."
+                        )
+                    value = row[key]
+                    if value is not None and not is_finite_number(value):
+                        raise ValueError(
+                            f"Attribute '{attr_id}' replays '{field}', but "
+                            f"sample row {row_index} holds {value!r}, which "
+                            f"is not a finite number."
+                        )
+            elif field not in ("clock.hour", "clock.dt_s"):
+                raise ValueError(
+                    f"Attribute '{attr_id}' declares replay_field '{field}', "
+                    f"which a replay cannot resolve."
+                )
+
+        if params is not None and not isinstance(params, dict):
+            raise ValueError(
+                f"params must be a mapping of coefficient ids to finite "
+                f"values, got {type(params).__name__}."
+            )
+
+        coefficient_ids = set(coefficients)
+        overrides: dict[str, float] = {}
+        for attr_id, value in (params or {}).items():
+            if not isinstance(attr_id, str) or attr_id not in coefficient_ids:
+                if isinstance(attr_id, str) and attr_id in mapped:
+                    reason = "comes from the recorded day during a replay"
+                else:
+                    reason = (
+                        f"is not a coefficient SENSOR on lamina "
+                        f"{twin.lamina_id}"
+                    )
+                raise ValueError(
+                    f"params names '{attr_id}', which {reason}. Only a SENSOR "
+                    f"without a replay_field may be set for a replay."
+                )
+            if not is_finite_number(value):
+                raise ValueError(
+                    f"params['{attr_id}']={value!r} is not a finite number."
+                )
+            overrides[attr_id] = float(value)
+
+        self._twin = twin
+        self._bundle = bundle
+        self._mapped = mapped
+        self._samples = samples
+        self._day = day
+        self._grid_s = bundle["grid_s"]
+        self._subject = bundle["subject"]
+        self._date = bundle["date"]
+        self._synthetic = bundle["synthetic"]
+        self._tz = (
+            timezone.utc
+            if bundle["timezone"] == "UTC"
+            else ZoneInfo(bundle["timezone"])
+        )
+
+        local_day = _date.fromisoformat(self._date)
+        self._midnight = datetime(
+            local_day.year, local_day.month, local_day.day, tzinfo=self._tz
+        )
+
+        self._coefficients: dict[str, float] = {}
+        for attr_id in coefficients:
+            if attr_id in overrides:
+                value = overrides[attr_id]
+            else:
+                attr = twin.attributes[attr_id]
+                if attr.baseline is not None:
+                    value = float(attr.baseline)
+                else:
+                    value = (attr.physio_min + attr.physio_max) / 2.0
+            if not math.isfinite(value):
+                raise ValueError(
+                    f"Coefficient '{attr_id}' has no finite starting value "
+                    f"({value!r}). Declare a finite baseline or pass one in "
+                    f"params."
+                )
+            self._coefficients[attr_id] = value
+
+        self._speed = speed
+        self._index = 0
+        self._last_missing: list[str] = []
+
+    # ── Public API ────────────────────────────────────────────────────
+
+    def next(self) -> dict[str, float]:
+        """Emit the current row's readings, then advance to the next row."""
+        if self.exhausted:
+            self._last_missing = []
+            raise ReplayExhausted(
+                f"Replay of {self._subject} {self._date} has ended after "
+                f"{len(self._samples)} rows."
+            )
+
+        readings, missing = self._readings_at(self._index)
+        self._index += 1
+        self._last_missing = missing
+        return readings
+
+    def starting_state(self) -> dict[str, float]:
+        """The current row's readings, without advancing (for Session.seed)."""
+        if self.exhausted:
+            raise ReplayExhausted(
+                f"Replay of {self._subject} {self._date} has no current row; "
+                f"it ended after {len(self._samples)} rows."
+            )
+        readings, _ = self._readings_at(self._index)
+        return readings
+
+    def set_baseline(self, sensor_id: str, value: float) -> None:
+        """
+        Update a coefficient for later rows.
+
+        A mapped SENSOR is refused rather than ignored: its value is the
+        recording, and silently replacing a measurement with a slider
+        would make the replay lie about the day it is replaying.  Unknown
+        ids are ignored, as in SimulatedSource.
+        """
+        if not isinstance(sensor_id, str):
+            raise ValueError(
+                f"sensor id must be a string, got {type(sensor_id).__name__}."
+            )
+        if sensor_id in self._mapped:
+            raise ValueError(
+                f"'{sensor_id}' comes from the recorded day during a replay."
+            )
+        if sensor_id not in self._coefficients:
+            return
+        if not is_finite_number(value):
+            raise ValueError(
+                f"baseline for '{sensor_id}' must be a finite number, got "
+                f"{value!r}."
+            )
+        self._coefficients[sensor_id] = float(value)
+
+    def set_speed(self, speed: int) -> None:
+        """Change how much data time passes per wall second."""
+        if speed not in REPLAY_SPEEDS:
+            raise ValueError(
+                f"speed={speed!r} is not one of {REPLAY_SPEEDS} data seconds "
+                f"per wall second."
+            )
+        self._speed = speed
+
+    def rewind(self) -> None:
+        """Return to the first recorded row."""
+        self._index = 0
+        self._last_missing = []
+
+    def describe(self) -> str:
+        """One line naming the day and the speed it is replayed at."""
+        kind = "synthetic" if self._synthetic else "recorded"
+        return (
+            f"Replay · {self._subject} · {self._date} · {kind} day · "
+            f"x{self._speed}"
+        )
+
+    def status(self) -> dict:
+        """Where the replay is, in the same terms a consumer renders."""
+        row_index = self._index - 1 if self._index > 0 else 0
+        row = self._samples[row_index]
+        local = self._local_time_at(row["t"])
+        return {
+            "kind": self.KIND,
+            "detail": self.describe(),
+            "subject": self._subject,
+            "date": self._date,
+            "synthetic": self._synthetic,
+            "data_time": local.isoformat(),
+            "position_s": row["t"],
+            "duration_s": len(self._samples) * self._grid_s,
+            "speed": self._speed,
+            "ended": self.exhausted,
+        }
+
+    # ── Properties ────────────────────────────────────────────────────
+
+    @property
+    def exhausted(self) -> bool:
+        """True once every recorded row has been emitted."""
+        return self._index >= len(self._samples)
+
+    @property
+    def index(self) -> int:
+        """How many rows have been emitted so far."""
+        return self._index
+
+    @property
+    def speed(self) -> int:
+        """Data seconds per wall second."""
+        return self._speed
+
+    @property
+    def last_missing(self) -> list[str]:
+        """Mapped sensors that were null on the most recent next() call."""
+        return list(self._last_missing)
+
+    # ── Internal ──────────────────────────────────────────────────────
+
+    def _local_time_at(self, t_s: int) -> datetime:
+        """
+        Local wall-clock time for `t_s` elapsed seconds after local midnight.
+
+        The arithmetic happens in UTC and is converted back, so a DST
+        transition moves the clock rather than stretching the day's data.
+        """
+        utc_instant = self._midnight.astimezone(timezone.utc) + timedelta(
+            seconds=t_s
+        )
+        return utc_instant.astimezone(self._tz)
+
+    def _readings_at(self, index: int) -> tuple[dict[str, float], list[str]]:
+        """Build one row's readings; nulls are omitted and named."""
+        row = self._samples[index]
+        readings: dict[str, float] = {}
+        missing: list[str] = []
+
+        for attr_id, field in self._mapped.items():
+            if field == "clock.hour":
+                local = self._local_time_at(row["t"])
+                value = local.hour + local.minute / 60.0
+            elif field == "clock.dt_s":
+                value = self._grid_s
+            elif field.startswith("sample."):
+                value = row[field.split(".", 1)[1]]
+            elif field.startswith("day."):
+                value = self._day[field.split(".", 1)[1]]
+            else:  # pragma: no cover — constructor refuses these
+                raise ValueError(
+                    f"Attribute '{attr_id}' declares replay_field '{field}', "
+                    f"which a replay cannot resolve."
+                )
+
+            if value is None:
+                missing.append(attr_id)
+            else:
+                readings[attr_id] = value
+
+        readings.update(self._coefficients)
+        return readings, missing

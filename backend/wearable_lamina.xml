@@ -1,0 +1,474 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ==================================================================
+  WEARABLE LAMINA — daily activity, context, and a first heart-rate
+  model built from what a wrist-worn device can actually measure.
+
+  Level 1: it sits below every other lamina in this project.  A watch
+  knows how fast the heart is beating and how much energy the day is
+  spending; it does not know why.  This lamina states the reason it can
+  defend — resting level plus a circadian swing plus heat plus the
+  drive from activity — and reports what it cannot explain as a
+  residual.
+
+  The coefficients here are SEEDED DEFAULTS, not fitted values.  They
+  exist so the structure runs and so a wrong input fails loudly; a
+  fitted params.json is expected to replace them later.
+
+  ==================================================================
+  NO CORRECTION, AND NO GATES
+
+  This lamina monitors and corrects nothing — the same decision the
+  metabolic lamina made.  A measured heart rate above the model is an
+  observation about this person or about a missing term in the model,
+  not an error this lamina can steer away by moving a quantity it
+  owns.  Declaring a tag would give the model a loop that grinds
+  against its own clamps while the real cause sat outside it.
+
+  With no <tags> block there is nothing for a gate to protect, so the
+  file declares no gates either.  Its outcome is a target for reading,
+  not a lever.
+  ==================================================================
+-->
+<lamina id="lamina_wearable" name="Daily Activity" level="1">
+
+  <description>
+    Daily activity and context: what a wearable measures, the energy the
+    day is spending, and a first heart-rate model that separates resting
+    level, circadian rhythm, heat and activity drive.
+  </description>
+
+  <!-- Steady-state algebra, like every lamina below the feedback layer.
+       The chain is a straight line with no feedback onto its own inputs,
+       so one pass in step order resolves it. -->
+  <behaviour_solver type="algebraic_chain" dt="1.0" unit="second" />
+
+  <attributes>
+
+    <!-- ── What the wearable measures, and the context it arrives in ── -->
+    <attribute id="HR_obs">
+      <name>Measured Heart Rate</name>
+      <unit>bpm</unit>
+      <source>SENSOR</source>
+      <physio_min>30</physio_min>
+      <physio_max>220</physio_max>
+      <baseline>65</baseline>
+      <noise_sigma>2</noise_sigma>
+      <replay_field>sample.hr</replay_field>
+      <description>Mean measured heart rate in this minute. The one direct measurement of the quantity the rest of the chain models, so it is allowed to disagree with the model — that disagreement is what HR_residual reports.</description>
+    </attribute>
+
+    <attribute id="AE_rate">
+      <name>Active Energy Rate</name>
+      <unit>kcal/min</unit>
+      <source>SENSOR</source>
+      <physio_min>0</physio_min>
+      <physio_max>25</physio_max>
+      <baseline>0.3</baseline>
+      <noise_sigma>0.05</noise_sigma>
+      <replay_field>sample.ae_kcal_min</replay_field>
+      <description>Active energy rate: the energy the day is spending above rest. Zero is a person sitting still, not a broken sensor, which is why the range starts there.</description>
+    </attribute>
+
+    <attribute id="BE_rate">
+      <name>Basal Energy Rate</name>
+      <unit>kcal/min</unit>
+      <source>SENSOR</source>
+      <physio_min>0.5</physio_min>
+      <physio_max>2.5</physio_max>
+      <baseline>1.1</baseline>
+      <noise_sigma>0</noise_sigma>
+      <replay_field>sample.be_kcal_min</replay_field>
+      <description>Basal energy rate: what the body spends at rest. Declared separately from activity so the model can name both halves instead of lumping them into one total.</description>
+    </attribute>
+
+    <attribute id="step_rate">
+      <name>Step Rate</name>
+      <unit>steps/min</unit>
+      <source>SENSOR</source>
+      <physio_min>0</physio_min>
+      <physio_max>220</physio_max>
+      <baseline>0</baseline>
+      <noise_sigma>0</noise_sigma>
+      <replay_field>sample.steps_min</replay_field>
+      <description>Steps per minute. Shown as an input and used by no function yet: activity reaches the heart-rate model through AE_rate, and inventing a second path before the first is fitted would be putting arithmetic ahead of evidence.</description>
+    </attribute>
+
+    <attribute id="T_app">
+      <name>Apparent Temperature</name>
+      <unit>degC</unit>
+      <source>SENSOR</source>
+      <physio_min>-10</physio_min>
+      <physio_max>50</physio_max>
+      <baseline>20</baseline>
+      <noise_sigma>0</noise_sigma>
+      <replay_field>sample.t_app_c</replay_field>
+      <description>Outdoor apparent temperature, the temperature the person actually experiences rather than the one a weather station reports.</description>
+    </attribute>
+
+    <attribute id="hour_local">
+      <name>Local Clock Hour</name>
+      <unit>h</unit>
+      <source>SENSOR</source>
+      <physio_min>0</physio_min>
+      <physio_max>24</physio_max>
+      <baseline>12</baseline>
+      <noise_sigma>0</noise_sigma>
+      <replay_field>clock.hour</replay_field>
+      <description>Local clock hour, from 0 to 24. It drives the circadian term only; no function in this chain reads it as a date or a duration.</description>
+    </attribute>
+
+    <attribute id="dt_s">
+      <name>Tick Interval</name>
+      <unit>s</unit>
+      <source>SENSOR</source>
+      <physio_min>1</physio_min>
+      <physio_max>3600</physio_max>
+      <baseline>60</baseline>
+      <noise_sigma>0</noise_sigma>
+      <replay_field>clock.dt_s</replay_field>
+      <description>Data time since the previous tick. Declared now because a rate integrated over the wrong interval is a confidently wrong total; no function in this phase reads it yet.</description>
+    </attribute>
+
+    <attribute id="HR_level">
+      <name>Resting Heart Rate Level</name>
+      <unit>bpm</unit>
+      <source>SENSOR</source>
+      <physio_min>35</physio_min>
+      <physio_max>110</physio_max>
+      <baseline>60</baseline>
+      <noise_sigma>0</noise_sigma>
+      <replay_field>day.hr_level_rts</replay_field>
+      <description>The slow personal resting level for the day — where this person's heart rate sits between circadian and activity drives. A seeded default until a fitted params.json replaces it.</description>
+    </attribute>
+
+    <!-- ── The personal coefficients ───────────────────────────────── -->
+    <attribute id="HR_max">
+      <name>Maximum Heart Rate</name>
+      <unit>bpm</unit>
+      <source>SENSOR</source>
+      <physio_min>120</physio_min>
+      <physio_max>220</physio_max>
+      <baseline>185</baseline>
+      <noise_sigma>0</noise_sigma>
+      <description>Upper bound the model's target is clamped to. A seeded default until a fitted params.json replaces it.</description>
+    </attribute>
+
+    <attribute id="k_I">
+      <name>Activity Drive Gain</name>
+      <unit>bpm</unit>
+      <source>SENSOR</source>
+      <physio_min>0</physio_min>
+      <physio_max>60</physio_max>
+      <baseline>12</baseline>
+      <noise_sigma>0</noise_sigma>
+      <description>Gain on the activity drive, in bpm per unit of raised energy rate. A seeded default until a fitted params.json replaces it.</description>
+    </attribute>
+
+    <attribute id="p_I">
+      <name>Activity Drive Exponent</name>
+      <unit>1</unit>
+      <source>SENSOR</source>
+      <physio_min>0.2</physio_min>
+      <physio_max>1.5</physio_max>
+      <baseline>0.7</baseline>
+      <noise_sigma>0</noise_sigma>
+      <description>Exponent on the activity drive: below one, the first minutes of activity raise heart rate steeply and later minutes add less. A seeded default until a fitted params.json replaces it.</description>
+    </attribute>
+
+    <attribute id="A_circ">
+      <name>Circadian Amplitude</name>
+      <unit>bpm</unit>
+      <source>SENSOR</source>
+      <physio_min>0</physio_min>
+      <physio_max>20</physio_max>
+      <baseline>4</baseline>
+      <noise_sigma>0</noise_sigma>
+      <description>How far the circadian rhythm swings around the resting level. A seeded default until a fitted params.json replaces it.</description>
+    </attribute>
+
+    <attribute id="phi_circ">
+      <name>Circadian Peak Hour</name>
+      <unit>h</unit>
+      <source>SENSOR</source>
+      <physio_min>0</physio_min>
+      <physio_max>24</physio_max>
+      <baseline>15</baseline>
+      <noise_sigma>0</noise_sigma>
+      <description>Local clock hour at which the circadian term peaks. A seeded default until a fitted params.json replaces it.</description>
+    </attribute>
+
+    <attribute id="k_T">
+      <name>Heat Effect at Rest</name>
+      <unit>bpm/degC</unit>
+      <source>SENSOR</source>
+      <physio_min>0</physio_min>
+      <physio_max>2</physio_max>
+      <baseline>0.11</baseline>
+      <noise_sigma>0</noise_sigma>
+      <description>Heart-rate rise per degree of apparent temperature above T_ref, at rest. A seeded default until a fitted params.json replaces it.</description>
+    </attribute>
+
+    <attribute id="T_ref">
+      <name>Reference Temperature</name>
+      <unit>degC</unit>
+      <source>SENSOR</source>
+      <physio_min>0</physio_min>
+      <physio_max>40</physio_max>
+      <baseline>20</baseline>
+      <noise_sigma>0</noise_sigma>
+      <description>Temperature above which heat adds heart rate; below it the heat term is zero rather than negative, because mild cold is not modelled here. A seeded default until a fitted params.json replaces it.</description>
+    </attribute>
+
+    <!-- ── The chain ───────────────────────────────────────────────── -->
+    <attribute id="HR_measured">
+      <name>Measured Heart Rate</name>
+      <unit>bpm</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>30</physio_min>
+      <physio_max>220</physio_max>
+      <computed_by>measured_hr</computed_by>
+      <depends_on>HR_obs</depends_on>
+      <description>The measured heart rate carried into the chain. It refuses a missing or non-finite reading rather than passing it on, so the engine marks it stale instead of letting a confident-looking value downstream hide the gap.</description>
+    </attribute>
+
+    <attribute id="EE_total">
+      <name>Total Energy Expenditure Rate</name>
+      <unit>kcal/min</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0.5</physio_min>
+      <physio_max>30</physio_max>
+      <computed_by>energy_total</computed_by>
+      <depends_on>AE_rate, BE_rate</depends_on>
+      <description>Energy spent per minute: activity plus basal. The sum is deliberately simple — no thermic effect of food, no exercise efficiency term — because those are corrections to fit later, not structure to guess now.</description>
+    </attribute>
+
+    <attribute id="VO2_est">
+      <name>Estimated Oxygen Consumption</name>
+      <unit>mL/min</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>100</physio_min>
+      <physio_max>6000</physio_max>
+      <computed_by>vo2_estimate</computed_by>
+      <depends_on>EE_total</depends_on>
+      <description>Energy rate converted to oxygen consumption. The conversion uses 4.86 kcal per litre of oxygen, which is an approximation: the accepted range is 4.69 to 5.05 depending on substrate, and 4.86 is a single stand-in for that spread.</description>
+    </attribute>
+
+    <attribute id="HR_circ">
+      <name>Circadian Heart Rate Contribution</name>
+      <unit>bpm</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>-20</physio_min>
+      <physio_max>20</physio_max>
+      <computed_by>hr_circadian</computed_by>
+      <depends_on>A_circ, phi_circ, hour_local</depends_on>
+      <description>The circadian swing around the resting level: positive near the personal peak hour and negative half a day away from it.</description>
+    </attribute>
+
+    <attribute id="HR_thermal">
+      <name>Heat Heart Rate Contribution</name>
+      <unit>bpm</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0</physio_min>
+      <physio_max>30</physio_max>
+      <computed_by>hr_thermal</computed_by>
+      <depends_on>k_T, T_app, T_ref</depends_on>
+      <description>Heart rate added by heat above the reference temperature. Floored at zero: this model knows that heat raises heart rate and does not claim that cold lowers it.</description>
+    </attribute>
+
+    <attribute id="HR_drive">
+      <name>Activity Heart Rate Drive</name>
+      <unit>bpm</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0</physio_min>
+      <physio_max>150</physio_max>
+      <computed_by>hr_drive</computed_by>
+      <depends_on>k_I, AE_rate, p_I</depends_on>
+      <description>Heart rate the current activity calls for, before it is added to the resting level. The exponent makes the first minutes of activity count for more than later minutes at the same rate.</description>
+    </attribute>
+
+    <attribute id="HR_target">
+      <name>Target Heart Rate</name>
+      <unit>bpm</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>35</physio_min>
+      <physio_max>220</physio_max>
+      <computed_by>hr_target</computed_by>
+      <depends_on>HR_level, HR_circ, HR_thermal, HR_drive, HR_max</depends_on>
+      <description>The heart rate the model says this minute asks for: resting level plus circadian swing plus heat plus activity drive, clamped between 35 and the personal maximum.</description>
+    </attribute>
+
+    <attribute id="HR_model">
+      <name>Modelled Heart Rate</name>
+      <unit>bpm</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>35</physio_min>
+      <physio_max>220</physio_max>
+      <computed_by>hr_model</computed_by>
+      <depends_on>HR_target</depends_on>
+      <description>The target as the model finally reports it. The time lag is added in a later phase; until then the model has no lag.</description>
+    </attribute>
+
+    <attribute id="HR_residual">
+      <name>Heart Rate Residual</name>
+      <unit>bpm</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>-100</physio_min>
+      <physio_max>100</physio_max>
+      <computed_by>hr_residual</computed_by>
+      <depends_on>HR_measured, HR_model</depends_on>
+      <description>Measured heart rate minus modelled heart rate. Zero means the model explained the minute; a non-zero residual is the part of the day the declared drives do not account for, and the outcome this lamina reports.</description>
+    </attribute>
+
+  </attributes>
+
+  <functions>
+
+    <function id="measured_hr" step="1">
+      <name>Measured Heart Rate</name>
+      <formula>HR_measured = HR_obs</formula>
+      <inputs>HR_obs</inputs>
+      <output>HR_measured</output>
+      <description>Carries the measured reading into the chain. A missing or non-finite reading is refused rather than passed along, so the engine marks HR_measured stale and nothing downstream mistakes an absent measurement for a value.</description>
+    </function>
+
+    <function id="energy_total" step="2">
+      <name>Total Energy Expenditure Rate</name>
+      <formula>EE_total = AE_rate + BE_rate</formula>
+      <inputs>AE_rate, BE_rate</inputs>
+      <output>EE_total</output>
+      <description>Activity energy plus basal energy, in kcal/min. The simplest defensible total: the corrections belong in a fitted model, not in arithmetic invented here.</description>
+    </function>
+
+    <function id="vo2_estimate" step="3">
+      <name>Estimated Oxygen Consumption</name>
+      <formula>VO2_est = EE_total / 4.86 * 1000</formula>
+      <inputs>EE_total</inputs>
+      <output>VO2_est</output>
+      <description>Converts energy rate to oxygen consumption. 4.86 kcal per litre of oxygen is an approximation; the accepted range is 4.69 to 5.05, so this is an estimate whose error band is wider than the arithmetic suggests.</description>
+    </function>
+
+    <function id="hr_circadian" step="4">
+      <name>Circadian Heart Rate Contribution</name>
+      <formula>HR_circ = A_circ * cos(2*pi*(hour_local - phi_circ)/24)</formula>
+      <inputs>A_circ, phi_circ, hour_local</inputs>
+      <output>HR_circ</output>
+      <description>One cosine around the 24-hour clock, peaking at the personal peak hour. It can be negative, because half a day from the peak is a genuine trough rather than an absence of rhythm.</description>
+    </function>
+
+    <function id="hr_thermal" step="5">
+      <name>Heat Heart Rate Contribution</name>
+      <formula>HR_thermal = k_T * max(0, T_app - T_ref)</formula>
+      <inputs>k_T, T_app, T_ref</inputs>
+      <output>HR_thermal</output>
+      <description>Heat adds heart rate above the reference temperature and adds nothing below it. The floor is deliberate: this model does not claim a cooling effect it has not declared.</description>
+    </function>
+
+    <function id="hr_drive" step="6">
+      <name>Activity Heart Rate Drive</name>
+      <formula>HR_drive = k_I * AE_rate ^ p_I</formula>
+      <inputs>k_I, AE_rate, p_I</inputs>
+      <output>HR_drive</output>
+      <description>Activity energy turned into a heart-rate drive. A negative AE_rate is refused rather than exponentiated: it is a unit or wiring error, and a fractional power of a negative number is not a heart rate.</description>
+    </function>
+
+    <function id="hr_target" step="7">
+      <name>Target Heart Rate</name>
+      <formula>HR_target = clamp(HR_level + HR_circ + HR_thermal + HR_drive, 35, HR_max)</formula>
+      <inputs>HR_level, HR_circ, HR_thermal, HR_drive, HR_max</inputs>
+      <output>HR_target</output>
+      <description>Sums the four declared drives and clamps the result to the physiological floor and the personal maximum. The clamp is the model saying it can report a target no lower or higher than a heart can go, not a correction applied afterwards.</description>
+    </function>
+
+    <function id="hr_model" step="8">
+      <name>Modelled Heart Rate</name>
+      <formula>HR_model = HR_target</formula>
+      <inputs>HR_target</inputs>
+      <output>HR_model</output>
+      <description>Reports the target as the model's heart rate. The time lag is added in a later phase; until then the model has no lag.</description>
+    </function>
+
+    <function id="hr_residual" step="9">
+      <name>Heart Rate Residual</name>
+      <formula>HR_residual = HR_measured - HR_model</formula>
+      <inputs>HR_measured, HR_model</inputs>
+      <output>HR_residual</output>
+      <description>The measured value minus the modelled value. This is the lamina's outcome: it says how much of the minute the declared drives left unexplained, without pretending the model may correct the measurement.</description>
+    </function>
+
+  </functions>
+
+  <composites>
+
+    <!--
+      A grouping for reading, not a feedback address.  No tag points at
+      it: this lamina corrects nothing, so nothing may write X'' here.
+      Equal weights because nobody has measured which of the three best
+      represents "how the day is going", and inventing a ranking would
+      be a guess dressed as knowledge.
+    -->
+    <composite id="heart_rate_state">
+      <name>Heart Rate and Energy State</name>
+      <attributes>HR_measured, HR_model, EE_total</attributes>
+      <description>What was measured, what the model expected, and the energy the day is spending.</description>
+      <absorption_vector>
+        <weight attribute="HR_measured">0.3333</weight>
+        <weight attribute="HR_model">0.3333</weight>
+        <weight attribute="EE_total">0.3333</weight>
+      </absorption_vector>
+      <distribution_vector>
+        <weight attribute="HR_measured">0.3333</weight>
+        <weight attribute="HR_model">0.3333</weight>
+        <weight attribute="EE_total">0.3333</weight>
+      </distribution_vector>
+    </composite>
+
+  </composites>
+
+  <segments>
+
+    <segment name="Activity and Context" id="seg_activity">
+      <description>What the wearable measures, and the conditions the day arrives in</description>
+      <attributes>HR_obs, AE_rate, BE_rate, step_rate, T_app, hour_local, dt_s, HR_level</attributes>
+      <functions></functions>
+      <behavioural_outcomes>
+      </behavioural_outcomes>
+    </segment>
+
+    <segment name="Personal Coefficients" id="seg_coefficients">
+      <description>The seeded personal terms the heart-rate model reads. Defaults until a fitted params.json replaces them.</description>
+      <attributes>HR_max, k_I, p_I, A_circ, phi_circ, k_T, T_ref</attributes>
+      <functions></functions>
+      <behavioural_outcomes>
+      </behavioural_outcomes>
+    </segment>
+
+    <segment name="Heart Rate and Energy" id="seg_hr_energy">
+      <description>The chain from measurement and energy to a modelled heart rate and the residual it leaves</description>
+      <attributes>HR_measured, EE_total, VO2_est, HR_circ, HR_thermal, HR_drive, HR_target, HR_model, HR_residual</attributes>
+      <composites>heart_rate_state</composites>
+      <functions>measured_hr, energy_total, vo2_estimate, hr_circadian, hr_thermal, hr_drive, hr_target, hr_model, hr_residual</functions>
+      <behavioural_outcomes>
+        <outcome id="target_residual" attribute="HR_residual" target="0" tolerance="10"
+                 name="Target Heart Rate Residual" unit="bpm">
+          <description>The model is considered adequate while the measured and modelled heart rates sit within 10 bpm of each other. The band is wide on purpose: this is an unfitted first model, and a residual inside it says the declared drives are plausible, not that they are right.</description>
+        </outcome>
+      </behavioural_outcomes>
+    </segment>
+
+  </segments>
+
+  <!--
+    NO <tags> block, and that is a decision rather than an omission.
+
+    This lamina monitors and corrects nothing — the same decision the
+    metabolic lamina made.  A residual is an observation about the person
+    or about a term the model is missing; no quantity this lamina owns can
+    be moved to explain a measured heart rate, and a tag would only make
+    the model grind against its own clamps while the cause sat outside it.
+
+    With no tags there is also no <gates> block: a gate exists to protect
+    a correction, and there is no correction here to protect.
+  -->
+
+</lamina>

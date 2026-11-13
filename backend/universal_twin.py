@@ -2602,6 +2602,40 @@ class UniversalTwin:
             for seg_id in self.segments
         }
 
+    def set_outcome_tolerance(self, outcome_id: str, tolerance: float) -> None:
+        """
+        Replace one behavioural outcome's tolerance band.
+
+        The outcome may live in any segment; this names no attribute, so a
+        fitted band is a fact about the outcome rather than about a domain.
+        An unknown id is a caller error worth listing the known ids for, and
+        a tolerance that cannot describe a band is refused rather than
+        stored: zero has no scale and a non-finite value has no meaning.
+        """
+        if (
+            isinstance(tolerance, bool)
+            or not isinstance(tolerance, (int, float))
+            or not math.isfinite(tolerance)
+            or tolerance <= 0.0
+        ):
+            raise ValueError(
+                f"tolerance for outcome '{outcome_id}' must be a finite "
+                f"number greater than 0, got {tolerance!r}."
+            )
+
+        known: list[str] = []
+        for seg in self.segments.values():
+            for outcome in seg.behavioural_outcomes:
+                known.append(outcome.id)
+                if outcome.id == outcome_id:
+                    outcome.tolerance = float(tolerance)
+                    return
+
+        raise KeyError(
+            f"No behavioural outcome '{outcome_id}'. Known outcome ids: "
+            f"{sorted(known)}."
+        )
+
     def feedback_norm(self) -> float:
         """
         Aggregate norm of the feedback channel (D13).

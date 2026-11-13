@@ -314,6 +314,7 @@ class ReplaySource(SignalSource):
         self._subject = bundle["subject"]
         self._date = bundle["date"]
         self._synthetic = bundle["synthetic"]
+        self._fitted = params is not None
         self._tz = (
             timezone.utc
             if bundle["timezone"] == "UTC"
@@ -416,9 +417,10 @@ class ReplaySource(SignalSource):
     def describe(self) -> str:
         """One line naming the day and the speed it is replayed at."""
         kind = "synthetic" if self._synthetic else "recorded"
+        suffix = " · fitted" if self._fitted else ""
         return (
             f"Replay · {self._subject} · {self._date} · {kind} day · "
-            f"x{self._speed}"
+            f"x{self._speed}{suffix}"
         )
 
     def status(self) -> dict:
@@ -432,6 +434,9 @@ class ReplaySource(SignalSource):
             "subject": self._subject,
             "date": self._date,
             "synthetic": self._synthetic,
+            "coefficients": (
+                "fitted" if self._fitted else "declared defaults"
+            ),
             "data_time": local.isoformat(),
             "position_s": row["t"],
             "duration_s": len(self._samples) * self._grid_s,

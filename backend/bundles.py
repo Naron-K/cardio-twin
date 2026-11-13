@@ -134,6 +134,121 @@ def list_bundles() -> dict[str, list[str]]:
     return found
 
 
+def _validate_subject(subject: str) -> None:
+    """Refuse a subject that could name a path rather than a subject."""
+    if not isinstance(subject, str) or not _SUBJECT_PATTERN.match(subject):
+        raise ValueError(
+            f"Invalid subject {subject!r}: use 1-32 lowercase letters, digits "
+            f"or underscores (for example 's9' or 'demo')."
+        )
+
+
+def load_params(subject: str) -> dict | None:
+    """
+    Read and validate a subject's fitted ``params.json``, when it has one.
+
+    The file lives beside the subject's day bundles, so it is found by the
+    same subject discovery as `load_bundle`.  A subject without the file —
+    including the committed demo — simply has no fitted parameters and
+    returns None; the replay then runs on the lamina's declared defaults.
+
+    Only the file's own shape is checked here: which coefficient ids a
+    lamina accepts, and which outcome ids it knows, are facts about the
+    lamina and are enforced when the replay is built.
+    """
+    _validate_subject(subject)
+
+    roots = bundle_roots()
+    if subject not in roots:
+        return None
+
+    directory = roots[subject]
+    path = directory / "params.json"
+    resolved = path.resolve()
+    try:
+        resolved.relative_to(directory.resolve())
+    except ValueError as exc:
+        raise ValueError(
+            f"{resolved}: refusing to read params outside its subject "
+            f"directory {directory}."
+        ) from exc
+
+    if not resolved.is_file():
+        return None
+
+    try:
+        data = json.loads(resolved.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"{resolved}: cannot read params: {exc}") from exc
+
+    validate_params(data, label=str(resolved))
+    return data
+
+
+def validate_params(data: object, label: str = "<params>") -> dict:
+    """
+    Check a params file by hand and return it unchanged.
+
+    Every failure names the file and the key it is about: this file replaces
+    a patient's coefficients, so a typo must be refused before a replay
+    starts rather than become a plausible-looking fitted model.
+    """
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"{label}: params must be a JSON object, got "
+            f"{type(data).__name__}."
+        )
+
+    if "schema_version" not in data:
+        raise ValueError(f"{label}: missing required field 'schema_version'.")
+    if type(data["schema_version"]) is not int or data["schema_version"] != 1:
+        raise ValueError(
+            f"{label}: schema_version must be 1, got "
+            f"{data['schema_version']!r}."
+        )
+
+    if "coefficients" not in data:
+        raise ValueError(f"{label}: missing required field 'coefficients'.")
+    coefficients = data["coefficients"]
+    if not isinstance(coefficients, dict) or not coefficients:
+        raise ValueError(
+            f"{label}: coefficients must be a non-empty JSON object of "
+            f"coefficient id to finite number, got {coefficients!r}."
+        )
+    for key, value in coefficients.items():
+        if not isinstance(key, str) or not key:
+            raise ValueError(
+                f"{label}: coefficient key {key!r} must be a non-empty string."
+            )
+        if not is_finite_number(value):
+            raise ValueError(
+                f"{label}: coefficients['{key}']={value!r} is not a finite "
+                f"number."
+            )
+
+    if "outcome_tolerance" in data:
+        tolerances = data["outcome_tolerance"]
+        if not isinstance(tolerances, dict):
+            raise ValueError(
+                f"{label}: outcome_tolerance must be a JSON object of outcome "
+                f"id to positive finite number, got "
+                f"{type(tolerances).__name__}."
+            )
+        for key, value in tolerances.items():
+            if not isinstance(key, str) or not key:
+                raise ValueError(
+                    f"{label}: outcome_tolerance key {key!r} must be a "
+                    f"non-empty string."
+                )
+            if not is_finite_number(value) or value <= 0:
+                raise ValueError(
+                    f"{label}: outcome_tolerance['{key}']={value!r} must be a "
+                    f"finite number greater than 0."
+                )
+
+    return data
+
+
 def load_bundle(subject: str, date: str) -> dict:
     """
     Read, validate and return one day bundle.
@@ -145,11 +260,7 @@ def load_bundle(subject: str, date: str) -> dict:
     refused at the boundary that reads the file, not only at the one that
     names it.
     """
-    if not isinstance(subject, str) or not _SUBJECT_PATTERN.match(subject):
-        raise ValueError(
-            f"Invalid subject {subject!r}: use 1-32 lowercase letters, digits "
-            f"or underscores (for example 's9' or 'demo')."
-        )
+    _validate_subject(subject)
     if not _is_calendar_date(date):
         raise ValueError(
             f"Invalid date {date!r}: expected a real calendar date in "

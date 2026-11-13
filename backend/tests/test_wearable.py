@@ -39,7 +39,7 @@ ALL_ATTRIBUTES = {
     "HR_obs", "AE_rate", "BE_rate", "step_rate", "T_app", "hour_local",
     "dt_s", "HR_level",
     # Personal coefficients
-    "HR_max", "k_I", "p_I", "A_circ", "phi_circ", "k_T", "T_ref",
+    "HR_offset", "HR_max", "k_I", "p_I", "A_circ", "phi_circ", "k_T", "T_ref",
     # Heart rate and energy
     "HR_measured", "EE_total", "VO2_est", "HR_circ", "HR_thermal",
     "HR_drive", "HR_target", "HR_model", "HR_residual",
@@ -163,7 +163,7 @@ def test_every_registered_function_refuses_an_unusable_input(twin, bad):
         "hr_circadian":  [4.0, 15.0, 12.0],
         "hr_thermal":    [0.11, 20.0, 20.0],
         "hr_drive":      [12.0, 0.3, 0.7],
-        "hr_target":     [60.0, 2.828, 0.0, 5.166, 185.0],
+        "hr_target":     [60.0, 0.0, 2.828, 0.0, 5.166, 185.0],
         "hr_model":      [67.994, 60.0, 30.0, 90.0, None],
         "hr_residual":   [65.0, 67.994],
     }
@@ -190,7 +190,7 @@ def test_hr_target_always_lies_between_35_and_hr_max(twin):
                 hr_circ = circ([4.0, 15.0, hour_local])
                 hr_thermal = thermal([0.11, t_app, 20.0])
                 hr_drive = drive([12.0, ae_rate, 0.7])
-                value = target([60.0, hr_circ, hr_thermal, hr_drive, hr_max])
+                value = target([60.0, 0.0, hr_circ, hr_thermal, hr_drive, hr_max])
                 assert 35.0 <= value <= hr_max, (ae_rate, t_app, hour_local)
 
 

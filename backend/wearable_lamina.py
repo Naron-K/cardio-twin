@@ -219,23 +219,22 @@ class WearableLamina(UniversalTwin):
 
     def _calc_hr_target(self, inputs: list) -> float:
         """
-        HR_target = clamp(HR_level + HR_circ + HR_thermal + HR_drive,
-                          35, HR_max)   (bpm)
+        HR_target = clamp(HR_level + HR_offset + HR_circ + HR_thermal
+                          + HR_drive, 35, HR_max)   (bpm)
 
-        Sums the four declared drives and clamps the result to the
-        physiological floor and the personal maximum.  The clamp is the
-        model saying it will not report a target outside what a heart can
-        do, not a correction applied after the fact.
-        inputs: [HR_level, HR_circ, HR_thermal, HR_drive, HR_max]
+        Sums the resting level, its fitted offset and the three declared
+        drives, and clamps the result to the physiological floor and the
+        personal maximum.  The clamp is the model saying it will not report
+        a target outside what a heart can do, not a correction applied
+        after the fact.
+        inputs: [HR_level, HR_offset, HR_circ, HR_thermal, HR_drive, HR_max]
         """
-        _arity(inputs, 5,
-               "HR_level, HR_circ, HR_thermal, HR_drive, HR_max")
-        level, circadian, thermal, drive, hr_max = (
-            inputs[0], inputs[1], inputs[2], inputs[3], inputs[4]
-        )
-        _require(HR_level=level, HR_circ=circadian, HR_thermal=thermal,
-                 HR_drive=drive, HR_max=hr_max)
-        total = level + circadian + thermal + drive
+        _arity(inputs, 6,
+               "HR_level, HR_offset, HR_circ, HR_thermal, HR_drive, HR_max")
+        level, offset, circadian, thermal, drive, hr_max = inputs
+        _require(HR_level=level, HR_offset=offset, HR_circ=circadian,
+                 HR_thermal=thermal, HR_drive=drive, HR_max=hr_max)
+        total = level + offset + circadian + thermal + drive
         return max(35.0, min(hr_max, total))
 
     def _calc_hr_model(self, inputs: list) -> float:

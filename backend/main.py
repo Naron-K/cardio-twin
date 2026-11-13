@@ -60,7 +60,7 @@ from organism import OrganismError, available_organisms, load_organism
 from session import OrganismSession, Session
 from signal_source import ReplaySource, SimulatedSource
 from streaming_runtime import StreamingRuntime
-from bundles import UnknownBundle, list_bundles, load_bundle
+from bundles import UnknownBundle, list_bundles, load_bundle, load_params
 from usage_meter import UsageMeter
 from snapshot import (
     _KSTATE_SEP,
@@ -831,6 +831,10 @@ def get_sources(lamina: Optional[str] = Query(
         "replay": (
             {
                 "subjects": subjects,
+                "fitted": {
+                    subject: load_params(subject) is not None
+                    for subject in subjects
+                },
                 "speeds": list(signal_source.REPLAY_SPEEDS),
                 "default_speed": 60,
             }
@@ -1304,13 +1308,17 @@ def _validate_source_request(
     date: Optional[str],
     speed: int,
     path: Path,
-) -> Optional[dict]:
+) -> Optional[tuple[dict, Optional[dict]]]:
     """
     Check a requested feed before any session exists, returning its bundle.
 
     Raises ValueError (or whatever `load_bundle` raises) with a message a
     client can act on.  Every check happens here, before `_open_streams` is
     touched, so a malformed request costs a close frame and nothing else.
+
+    A fitted params.json is validated here too, on a throwaway twin: an
+    unknown coefficient or outcome id is a refused request, not a stream
+    that fails on its first minute.
 
     `signal_source.REPLAY_SPEEDS` is read through the module on every call:
     a test or a deployment can change the offered speeds without reloading
@@ -1340,11 +1348,25 @@ def _validate_source_request(
         )
 
     # load_bundle names the missing subject/date and what is available;
-    # ReplaySource refuses a lamina that cannot replay or a bundle whose
-    # declared fields it cannot resolve.  Both messages are the client's.
+    # load_params names the malformed file and key; ReplaySource refuses a
+    # lamina that cannot replay or a bundle whose declared fields it cannot
+    # resolve.  All messages are the client's.
     bundle = load_bundle(subject, date)
-    ReplaySource(load_twin(path), bundle, speed=speed)
-    return bundle
+    params = load_params(subject)
+    twin = load_twin(path)
+    ReplaySource(
+        twin,
+        bundle,
+        params=params["coefficients"] if params else None,
+        speed=speed,
+    )
+    if params:
+        try:
+            for outcome_id, tolerance in params.get("outcome_tolerance", {}).items():
+                twin.set_outcome_tolerance(outcome_id, tolerance)
+        except KeyError as exc:
+            raise ValueError(str(exc)) from exc
+    return bundle, params
 
 
 @app.websocket("/ws/feedback")
@@ -1434,11 +1456,12 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
     # cannot serve is a policy refusal, not a stream that fails later.
     replaying = source == "replay"
     try:
-        bundle = _validate_source_request(source, subject, date, speed, path)
+        validated = _validate_source_request(source, subject, date, speed, path)
     except (ValueError, UnknownBundle) as e:
         await websocket.close(code=1008, reason=str(e)[:120])
         print(f"[WS] /ws/feedback rejected  source={source!r}: {e}")
         return
+    bundle, params = validated if validated is not None else (None, None)
 
     # One warning per connection.  If the month is already near the edge when
     # the page opens, say so at once rather than waiting for the first tick.
@@ -1460,7 +1483,15 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
     ended   = {"sent": False}
 
     if replaying:
-        feed = ReplaySource(session.twin, bundle, speed=speed)
+        feed = ReplaySource(
+            session.twin,
+            bundle,
+            params=params["coefficients"] if params else None,
+            speed=speed,
+        )
+        if params:
+            for outcome_id, tolerance in params.get("outcome_tolerance", {}).items():
+                session.twin.set_outcome_tolerance(outcome_id, tolerance)
         session.seed(feed.starting_state())
         period_s = 60.0 / speed      # one recorded minute per cycle
     else:

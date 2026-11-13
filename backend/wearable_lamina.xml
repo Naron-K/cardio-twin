@@ -143,6 +143,17 @@
     </attribute>
 
     <!-- ── The personal coefficients ───────────────────────────────── -->
+    <attribute id="HR_offset">
+      <name>Resting Level Offset</name>
+      <unit>bpm</unit>
+      <source>SENSOR</source>
+      <physio_min>-40</physio_min>
+      <physio_max>40</physio_max>
+      <baseline>0</baseline>
+      <noise_sigma>0</noise_sigma>
+      <description>A constant this person's quiet heart rate sits away from HR_level. HR_level is the daily level of a resting marker computed elsewhere (for s2 about 76 bpm while measured heart rate reaches 44), so it is kept as given and not refitted; the offset is fitted instead, on quiet minutes outside workouts. Zero until a fitted params.json replaces it.</description>
+    </attribute>
+
     <attribute id="HR_max">
       <name>Maximum Heart Rate</name>
       <unit>bpm</unit>
@@ -407,10 +418,10 @@
 
     <function id="hr_target" step="7">
       <name>Target Heart Rate</name>
-      <formula>HR_target = clamp(HR_level + HR_circ + HR_thermal + HR_drive, 35, HR_max)</formula>
-      <inputs>HR_level, HR_circ, HR_thermal, HR_drive, HR_max</inputs>
+      <formula>HR_target = clamp(HR_level + HR_offset + HR_circ + HR_thermal + HR_drive, 35, HR_max)</formula>
+      <inputs>HR_level, HR_offset, HR_circ, HR_thermal, HR_drive, HR_max</inputs>
       <output>HR_target</output>
-      <description>Sums the four declared drives and clamps the result to the physiological floor and the personal maximum. The clamp is the model saying it can report a target no lower or higher than a heart can go, not a correction applied afterwards.</description>
+      <description>Sums the personal resting level, its fitted offset and the three declared drives, and clamps the result to the physiological floor and the personal maximum. The clamp is the model saying it can report a target no lower or higher than a heart can go, not a correction applied afterwards.</description>
     </function>
 
     <function id="hr_model" step="8">
@@ -480,7 +491,7 @@
 
     <segment name="Personal Coefficients" id="seg_coefficients">
       <description>The seeded personal terms the heart-rate model reads. Defaults until a fitted params.json replaces them.</description>
-      <attributes>HR_max, k_I, p_I, A_circ, phi_circ, k_T, T_ref, tau_on, tau_off</attributes>
+      <attributes>HR_offset, HR_max, k_I, p_I, A_circ, phi_circ, k_T, T_ref, tau_on, tau_off</attributes>
       <functions></functions>
       <behavioural_outcomes>
       </behavioural_outcomes>

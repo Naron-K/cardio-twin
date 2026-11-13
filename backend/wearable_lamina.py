@@ -20,9 +20,15 @@ reported as HR_residual rather than corrected away.
 
 The coefficients are seeded defaults, not fitted values.  They exist so the
 structure runs and so a wrong input fails loudly; a fitted params.json is
-expected to replace them later.  That is also why step_rate and dt_s are
-declared but unused: activity reaches the heart-rate model through AE_rate,
-and adding a second path before the first is fitted would be guessing.
+expected to replace them later.  That is also why step_rate is declared but
+unused: activity reaches the heart-rate model through AE_rate, and adding a
+second path before the first is fitted would be guessing.
+
+The lamina is no longer lag-free.  HR_model approaches its target with the
+heart rate's own first-order lag, and kcal_active_cum accumulates the day's
+active energy, so both carry state from one minute to the next.  That state
+is committed by the engine once per tick, after every compute_all() pass in
+the tick has read the same value; it is never advanced inside a function.
 
 NO CORRECTION
 -------------
@@ -62,10 +68,13 @@ class WearableLamina(UniversalTwin):
         A_circ, phi_circ, hour_local ──▶ HR_circ ──┐        │
         k_T, T_app, T_ref ──▶ HR_thermal ──────────┼─▶ HR_target ──▶ HR_model
         k_I, AE_rate, p_I ──▶ HR_drive ────────────┘
+        AE_rate, dt_s, hour_local ──▶ kcal_active_cum
 
-    The whole chain is a straight line in one operating point.  It states
+    The forward chain is a straight line in one operating point.  It states
     what the measured heart rate is and what the declared drives expect;
     the gap between them is the outcome, not something this lamina steers.
+    HR_model lags its target and kcal_active_cum accumulates the day, so the
+    engine commits their state once per tick rather than on every pass.
     """
 
     def _register_functions(self):
@@ -79,6 +88,7 @@ class WearableLamina(UniversalTwin):
         self._function_registry["hr_target"] = self._calc_hr_target
         self._function_registry["hr_model"] = self._calc_hr_model
         self._function_registry["hr_residual"] = self._calc_hr_residual
+        self._function_registry["kcal_cumulative"] = self._calc_kcal_cumulative
 
     # ── The chain ────────────────────────────────────────────────────
 
@@ -230,18 +240,49 @@ class WearableLamina(UniversalTwin):
 
     def _calc_hr_model(self, inputs: list) -> float:
         """
-        HR_model = HR_target   (bpm)
+        HR_model = prev + (1 - exp(-dt_s / tau)) * (HR_target - prev)   (bpm)
 
-        Reports the target as the model's heart rate.  The time lag is
-        added in a later phase; until then the model has no lag, which the
-        XML and this docstring both say rather than leaving a reader to
-        assume a lag that is not there.
-        inputs: [HR_target]
+        Approaches the target with the heart rate's own first-order lag:
+        tau_on while the target is above the previous value, tau_off while
+        it is below.  On the first tick, and after a gap, prev is None and
+        the model restarts at HR_target rather than carrying a stale value
+        forward.  A tau of zero means no lag at all, so the answer is the
+        target itself.
+
+        The state is the engine's: prev is the value committed by end_tick()
+        at the end of the previous tick, never a value this function writes.
+        Every pass inside one tick therefore sees the same prev.
+        inputs: [HR_target, dt_s, tau_on, tau_off, prev]
         """
-        _arity(inputs, 1, "HR_target")
-        target = inputs[0]
-        _require(HR_target=target)
-        return target
+        _arity(inputs, 5, "HR_target, dt_s, tau_on, tau_off, prev")
+        target, dt_s, tau_on, tau_off, prev = (
+            inputs[0], inputs[1], inputs[2], inputs[3], inputs[4]
+        )
+        _require(HR_target=target, dt_s=dt_s, tau_on=tau_on, tau_off=tau_off)
+        if prev is not None and not math.isfinite(prev):
+            raise ValueError(
+                f"HR_model's previous value prev={prev!r} is not a finite "
+                f"number. The committed state must be a real heart rate or "
+                f"None; a NaN or infinity here would poison every later tick."
+            )
+        if dt_s <= 0.0:
+            raise ValueError(
+                f"dt_s={dt_s} is not a positive interval. A lag needs a "
+                f"positive elapsed time; zero or negative would divide the "
+                f"time constant by nothing meaningful."
+            )
+        if tau_on < 0.0 or tau_off < 0.0:
+            raise ValueError(
+                f"tau_on={tau_on} and tau_off={tau_off} must be "
+                f"non-negative time constants. A negative tau would run the "
+                f"lag backwards, which is a unit or wiring error."
+            )
+        if prev is None:
+            return target
+        tau = tau_on if target > prev else tau_off
+        if tau == 0.0:
+            return target
+        return prev + (1.0 - math.exp(-dt_s / tau)) * (target - prev)
 
     def _calc_hr_residual(self, inputs: list) -> float:
         """
@@ -258,3 +299,46 @@ class WearableLamina(UniversalTwin):
         measured, model = inputs[0], inputs[1]
         _require(HR_measured=measured, HR_model=model)
         return measured - model
+
+    def _calc_kcal_cumulative(self, inputs: list) -> float:
+        """
+        kcal_active_cum = prev + AE_rate * dt_s / 60   (kcal)
+
+        Adds this minute's active energy to the running total.  The first
+        minute of a local day — prev None, or hour_local * 3600 < dt_s —
+        starts the total rather than adding to yesterday's.
+
+        The state is committed by end_tick() once per tick, so a minute with
+        no active-energy record holds the previous total instead of
+        inventing energy for a minute nobody recorded.  This function never
+        writes that state itself.
+        inputs: [AE_rate, dt_s, hour_local, prev]
+        """
+        _arity(inputs, 4, "AE_rate, dt_s, hour_local, prev")
+        ae_rate, dt_s, hour_local, prev = (
+            inputs[0], inputs[1], inputs[2], inputs[3]
+        )
+        _require(AE_rate=ae_rate, dt_s=dt_s, hour_local=hour_local)
+        if prev is not None and not math.isfinite(prev):
+            raise ValueError(
+                f"kcal_active_cum's previous value prev={prev!r} is not a "
+                f"finite number. The committed total must be a real energy "
+                f"or None; a NaN or infinity here would poison every later "
+                f"tick."
+            )
+        if ae_rate < 0.0:
+            raise ValueError(
+                f"AE_rate={ae_rate} is negative. Active energy expenditure "
+                f"does not run backwards, and subtracting it would make the "
+                f"day's total shrink."
+            )
+        if dt_s <= 0.0:
+            raise ValueError(
+                f"dt_s={dt_s} is not a positive interval. Energy is a rate "
+                f"integrated over time; zero or negative would add a "
+                f"meaningless amount."
+            )
+        increment = ae_rate * dt_s / 60.0
+        if prev is None or hour_local * 3600.0 < dt_s:
+            return increment
+        return prev + increment

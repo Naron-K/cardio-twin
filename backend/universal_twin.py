@@ -361,6 +361,10 @@ class FunctionDef:
     inputs: list             # list of input attribute ids
     output: str              # output attribute id
     description: str = ""
+    # How this function's committed state survives a tick in which its
+    # output did not compute: "reseed" forgets it, "hold" keeps it.  None
+    # means the function is stateless and receives no extra input.
+    state_after_gap: Optional[str] = None
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -1042,6 +1046,12 @@ class UniversalTwin:
         # that resolve is just as capable of failing.
         self.failed_attributes: dict[str, str] = {}
 
+        # Committed value per stateful function id (None = no value yet).
+        # Read during _resolve(); written only by end_tick() at the end of
+        # a tick, so a tick's four compute_all() passes all see the same
+        # state and a stateful function advances exactly once per tick.
+        self._function_state: dict[str, Optional[float]] = {}
+
         # ── Feedback loop registries (Phase A scaffolding) ───────────
         #
         # Five pluggable extension points per FEEDBACK_LOOP_PLAN.md §3.1.
@@ -1713,6 +1723,17 @@ class UniversalTwin:
             inputs_text = func_el.findtext("inputs", "")
             inputs = [i.strip() for i in inputs_text.split(",") if i.strip()]
 
+            state_el = func_el.find("state")
+            state_after_gap = None
+            if state_el is not None:
+                state_after_gap = state_el.get("after_gap")
+                if state_after_gap not in ("reseed", "hold"):
+                    raise ValueError(
+                        f"Function '{func_id}' declares state after_gap="
+                        f"'{state_after_gap}'. Allowed values: 'reseed', "
+                        f"'hold'."
+                    )
+
             self.functions[func_id] = FunctionDef(
                 id=func_id,
                 name=func_el.findtext("n", func_el.findtext("name", func_id)),
@@ -1721,6 +1742,7 @@ class UniversalTwin:
                 inputs=inputs,
                 output=func_el.findtext("o", func_el.findtext("output", "")),
                 description=func_el.findtext("description", ""),
+                state_after_gap=state_after_gap,
             )
 
         # Parse composites
@@ -2085,6 +2107,28 @@ class UniversalTwin:
         attr.set_value(value, confidence)
         self._log(f"SENSOR SET: {attr_id} = {value} {attr.unit}")
 
+    def clear_sensor(self, attr_id: str) -> None:
+        """
+        Remove a sensor reading, leaving the attribute with no value.
+
+        A missing reading is a fact about the measurement, not a zero, and
+        downstream functions must see it as missing rather than compute
+        from a stale number that still looks live.
+        """
+        if attr_id not in self.attributes:
+            raise KeyError(f"Attribute '{attr_id}' not defined in XML")
+        attr = self.attributes[attr_id]
+        if attr.source != SENSOR:
+            raise ValueError(
+                f"'{attr_id}' is {attr.source}, not SENSOR. Cannot clear "
+                f"directly."
+                + (" Inter-lamina values arrive through set_inter_lamina()."
+                   if attr.source == INTER_LAMINA else "")
+            )
+        attr.value_external = None
+        attr.normalised = None
+        self._log(f"SENSOR CLEARED: {attr_id}")
+
     def set_inter_lamina(self, attr_id: str, value: float,
                          confidence: float = 1.0,
                          provenance: Optional[dict] = None):
@@ -2170,8 +2214,40 @@ class UniversalTwin:
         # Now compute using the registered function
         func_id = attr.computed_by
         if func_id in self._function_registry:
+            func_def = self.functions.get(func_id)
+            # A value computed from a stale input used to read as live: the
+            # function would happily consume last cycle's number (or treat
+            # None as a missing reading it could ignore) and produce a fresh
+            # value with no trace of the gap.  Refuse the call instead and
+            # mark this output stale for the same reason a raising function
+            # does, so the gap propagates down the chain rather than ending
+            # at the input.
+            #
+            # "Missing" means a reading from OUTSIDE the chain that is absent
+            # (a SENSOR or INTER_LAMINA with no value), or an input that
+            # failed on this pass.  A PRELIMINARY input that is merely not
+            # computed yet is not missing: on a cycle the later half is None
+            # on the first pass by construction, and the fixed-point solver
+            # starts from exactly that (tests/test_solver.py).
+            if func_def is not None:
+                for input_id in func_def.inputs:
+                    input_attr = self.attributes.get(input_id)
+                    if (input_attr is None
+                            or (input_attr.value is None
+                                and input_attr.source in EXTERNAL_SOURCES)
+                            or input_id in self.failed_attributes):
+                        self.failed_attributes[attr_id] = (
+                            f"input {input_id} not available"
+                        )
+                        self._log(
+                            f"STALE: {attr_id} (input {input_id} not "
+                            f"available)"
+                        )
+                        return
             try:
                 inputs = self._resolve_inputs(func_id)
+                if func_def is not None and func_def.state_after_gap is not None:
+                    inputs.append(self._function_state.get(func_id))
                 result = self._function_registry[func_id](inputs)
                 attr.set_value(result, confidence=0.9)
                 self.failed_attributes.pop(attr_id, None)
@@ -2214,6 +2290,35 @@ class UniversalTwin:
         # Run gate validation
         self.validate_gates()
         self._log("=== Computation Complete ===")
+
+    def end_tick(self) -> None:
+        """
+        Commit every stateful function's value once, at the end of a tick.
+
+        compute_all() is called several times inside one tick (the chain, the
+        feedback step, and the before/after shadow passes), so a function that
+        advanced its own state on every call would move three extra times.
+        _resolve() therefore reads the committed value and never writes it;
+        this is the one writer.
+        """
+        for func_def in self.functions.values():
+            if func_def.state_after_gap is None:
+                continue
+            attr = self.attributes.get(func_def.output)
+            computed = (
+                func_def.output not in self.failed_attributes
+                and attr is not None
+                and attr.value_external is not None
+            )
+            if computed:
+                self._function_state[func_def.id] = attr.value_external
+            elif func_def.state_after_gap == "reseed":
+                self._function_state[func_def.id] = None
+            # "hold" deliberately leaves the previous value in place.
+
+    def reset_state(self) -> None:
+        """Forget every committed stateful-function value."""
+        self._function_state.clear()
 
     def validate_gates(self) -> list[str]:
         """

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from laminae import load_twin
 from feedback_controller import (
@@ -76,17 +76,22 @@ class Session:
 
     # ── Public API ────────────────────────────────────────────────────
 
-    def tick(self, sensor_update: dict[str, float]) -> dict[str, Any]:
+    def tick(self, sensor_update: dict[str, float],
+             missing: Iterable[str] = ()) -> dict[str, Any]:
         """
         Run one streaming tick.
 
-        Writes sensor values into X', syncs PRELIMINARY so the outcome
-        evaluation in step() sees the new readings (not the previous
-        tick's chain), then runs one feedback cycle.
+        Readings in `missing` are cleared before the new sensor values are
+        written, so a sensor absent from this tick's update is a gap rather
+        than a stale number.  Writes sensor values into X', syncs PRELIMINARY
+        so the outcome evaluation in step() sees the new readings (not the
+        previous tick's chain), then runs one feedback cycle.
 
         Returns a simulation snapshot merged with the cycle_report so
         the WebSocket layer has a single JSON blob per tick.
         """
+        for attr_id in missing:
+            self.twin.clear_sensor(attr_id)
         for attr_id, value in sensor_update.items():
             self.twin.set_sensor(attr_id, value)
         # Sync PRELIMINARY with updated sensors before step() evaluates
@@ -99,11 +104,15 @@ class Session:
         # panel.  Runs after step() so "after" reflects this tick's
         # correction; restores twin state before returning.
         snapshot["before_after"] = before_after_outcomes(self.twin)
+        # Stateful functions commit once, after every compute_all() pass in
+        # this tick has read the same committed value.
+        self.twin.end_tick()
         return snapshot
 
     def reset(self) -> None:
         """Zero-fill feedback state and restart the cycle counter."""
         self.controller.reset_kernel_state()
+        self.twin.reset_state()
 
     # ── Internal ──────────────────────────────────────────────────────
 
@@ -182,6 +191,8 @@ class OrganismSession:
             lamina_snapshot["before_after"] = before_after_outcomes(
                 self.organism.twins[lamina_id]
             )
+        for twin in self.organism.twins.values():
+            twin.end_tick()
         return snapshot
 
     def set_sensor(self, lamina_id: str, attr_id: str, value: float) -> None:
@@ -207,3 +218,5 @@ class OrganismSession:
     def reset(self) -> None:
         """Zero every lamina's feedback state, every gate's, and the breaker."""
         self.organism.reset()
+        for twin in self.organism.twins.values():
+            twin.reset_state()

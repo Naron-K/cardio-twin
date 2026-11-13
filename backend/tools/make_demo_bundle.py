@@ -7,11 +7,12 @@ number here is made up from the schedule declared below, and no real person's
 data is involved.
 
 The heart-rate signal comes from the wearable lamina's HR_target.  The
-first-order lag and the measurement noise that turn that target into
-something a wrist-worn watch would actually record live HERE, in this script,
-and not in the lamina: the lamina is a model with no lag, and it stays that
-way.  The lag constants and the RNG seed are arguments to make_demo_bundle so
-a caller can reproduce a day exactly.
+measurement noise that turns that target into something a wrist-worn watch
+would actually record lives HERE, in this script, and not in the lamina.  The
+lamina now models the same first-order lag this generator applies, with the
+same constants it uses (tau_on 30 s, tau_off 90 s), so the two describe the
+same day.  The lag constants and the RNG seed are arguments to
+make_demo_bundle so a caller can reproduce a day exactly.
 
 Run from the repository root:
 

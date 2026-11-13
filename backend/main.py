@@ -677,6 +677,7 @@ def get_schema(lamina: Optional[str] = Query(default=None,
             "inputs": f.inputs,
             "output": f.output,
             "description": f.description,
+            "state": f.state_after_gap,
         }
         for f in sorted(twin.functions.values(), key=lambda fn: fn.step)
     ]
@@ -1501,7 +1502,8 @@ async def ws_feedback(websocket: WebSocket, tick_ms: int = 100,
                         "Reset to play it again."
                     ),
                 }
-            snapshot = session.tick(feed.next())
+            readings = feed.next()
+            snapshot = session.tick(readings, missing=feed.last_missing)
             snapshot["source"] = feed.status()
             return snapshot
     else:

@@ -164,7 +164,7 @@ def test_every_registered_function_refuses_an_unusable_input(twin, bad):
         "hr_thermal":    [0.11, 20.0, 20.0],
         "hr_drive":      [12.0, 0.3, 0.7],
         "hr_target":     [60.0, 2.828, 0.0, 5.166, 185.0],
-        "hr_model":      [67.994],
+        "hr_model":      [67.994, 60.0, 30.0, 90.0, None],
         "hr_residual":   [65.0, 67.994],
     }
     for name, args in orders.items():

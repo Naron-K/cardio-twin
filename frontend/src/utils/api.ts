@@ -66,9 +66,24 @@ function dayMessage(data: unknown): string | null {
 }
 
 /**
+ * A refused day.  `notFound` is a 404 (no such day, or no readings on it),
+ * which retrying cannot change; anything else may be transient.
+ */
+export class DayError extends Error {
+  readonly notFound: boolean
+
+  constructor(message: string, notFound: boolean) {
+    super(message)
+    this.name = 'DayError'
+    this.notFound = notFound
+  }
+}
+
+/**
  * One recorded day, replayed by the server and checked field by field.  A
  * 400 (the lamina has no day view, or a bad parameter) and a 404 (no such
- * day) become an Error carrying the server's message.
+ * day, or nothing measured on it) become a DayError carrying the server's
+ * message.
  */
 export async function fetchDay(
   lamina: string,
@@ -85,7 +100,10 @@ export async function fetchDay(
       const status = error.response?.status
       if (status === 400 || status === 404) {
         const message = dayMessage(error.response?.data)
-        throw new Error(message ?? `The day could not be loaded (${status}).`)
+        throw new DayError(
+          message ?? `The day could not be loaded (${status}).`,
+          status === 404,
+        )
       }
     }
     throw error

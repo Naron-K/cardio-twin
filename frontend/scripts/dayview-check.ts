@@ -10,12 +10,17 @@
  */
 import assert from 'node:assert/strict'
 import {
+  PLAY_SPEEDS,
+  advanceMinute,
   binSums,
   clock,
   groupColourIndex,
   measuredRuns,
   modelledDisplay,
   parseDaySummary,
+  sessionAt,
+  totalTo,
+  valueAt,
   verdictText,
 } from '../src/twin/dayView.ts'
 
@@ -245,5 +250,52 @@ const wrongRateLength = sampleDay()
 const rates = wrongRateLength.rates as Record<string, unknown>[]
 ;(rates[0].values as unknown[]).pop()
 assert.throws(() => parseDaySummary(wrongRateLength), /rates\[0\]\.values/)
+
+// ── Playback ─────────────────────────────────────────────────────────────────
+
+// x60 is one minute of the day a second; the cursor stops at the end.
+assert.deepEqual([...PLAY_SPEEDS], [60, 600, 3600])
+assert.equal(advanceMinute(0, 60, 1000, 1440), 1)
+assert.equal(advanceMinute(100, 600, 500, 1440), 105)
+assert.equal(advanceMinute(1439, 3600, 1000, 1440), 1440)
+// GUARD: junk input leaves the cursor where it was, inside the day.
+assert.equal(advanceMinute(100, 0, 1000, 1440), 100)
+assert.equal(advanceMinute(100, 600, -5, 1440), 100)
+assert.equal(advanceMinute(100, Number.NaN, 1000, 1440), 100)
+assert.equal(advanceMinute(Number.NaN, 60, 1000, 1440), 1)
+assert.equal(advanceMinute(-50, 60, 0, 1440), 0)
+assert.equal(advanceMinute(5000, 60, 0, 1440), 1440)
+
+// The latest reading within the look-back, never one from the future.
+const sparse = [null, 70, null, null, null, null, null, 90, null]
+assert.equal(valueAt(sparse, 1), 70)
+assert.equal(valueAt(sparse, 4), 70)
+assert.equal(valueAt(sparse, 6), 70)
+assert.equal(valueAt(sparse, 7), 90)
+assert.equal(valueAt(sparse, 6, 2), null)
+assert.equal(valueAt(sparse, 0), null)
+assert.equal(valueAt(sparse, 99), 90)
+assert.equal(valueAt(sparse, Number.NaN), null)
+
+// Running totals count only what has happened by the cursor.
+const energy = [1, null, 2.5, 3]
+assert.equal(totalTo(energy, 0), 1)
+assert.equal(totalTo(energy, 2), 3.5)
+assert.equal(totalTo(energy, 50), 6.5)
+assert.equal(totalTo([null, null], 1), null)
+assert.equal(totalTo(energy, -1), null)
+
+// The enlarged session follows the cursor: inside one, else the last passed.
+const playSessions = [
+  { start: 100, end: 130 },
+  { start: 600, end: 640 },
+]
+assert.equal(sessionAt(playSessions, 50), -1)
+assert.equal(sessionAt(playSessions, 100), 0)
+assert.equal(sessionAt(playSessions, 129.5), 0)
+assert.equal(sessionAt(playSessions, 300), 0)
+assert.equal(sessionAt(playSessions, 610), 1)
+assert.equal(sessionAt(playSessions, 1439), 1)
+assert.equal(sessionAt([], 300), -1)
 
 console.log('dayview-check ok')

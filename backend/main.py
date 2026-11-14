@@ -62,7 +62,7 @@ from session import OrganismSession, Session
 from signal_source import ReplaySource, ScenarioSource, SimulatedSource
 from streaming_runtime import StreamingRuntime
 from bundles import UnknownBundle, list_bundles, load_bundle, load_params
-from day_summary import day_summary
+from day_summary import NoReadings, day_summary, days_without_readings
 from usage_meter import UsageMeter
 from snapshot import (
     _KSTATE_SEP,
@@ -850,6 +850,12 @@ def get_sources(lamina: Optional[str] = Query(
                 },
                 "speeds": list(signal_source.REPLAY_SPEEDS),
                 "default_speed": 60,
+                # Days on which nothing observed was measured: a day view
+                # has nothing to draw, so a picker can leave them out.
+                "no_readings": (
+                    days_without_readings(twin.lamina_id)
+                    if twin.day_view else {}
+                ),
             }
             if can_replay
             else None
@@ -894,6 +900,16 @@ def get_day(
             "subject": e.subject,
             "date": e.date,
             "available": e.available,
+            "timestamp": datetime.now().isoformat(),
+        })
+    except NoReadings as e:
+        # The file exists but holds nothing to draw: not found, not a fault.
+        print(f"[WARN] /api/day no readings: {e}")
+        raise HTTPException(status_code=404, detail={
+            "error": str(e),
+            "subject": subject,
+            "date": date,
+            "no_readings": True,
             "timestamp": datetime.now().isoformat(),
         })
     except ValueError as e:

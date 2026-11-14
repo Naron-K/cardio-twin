@@ -630,3 +630,84 @@ export function groupColourIndex(
     (event) => event != null && event.group === group,
   )
 }
+
+// ── Playback ─────────────────────────────────────────────────────────────────
+// The whole day is already on the page; playing it only moves a cursor across
+// it, so nothing here asks the server for anything.
+
+/** Playback speeds, as on a replay: ×60 is one minute of the day a second. */
+export const PLAY_SPEEDS = [60, 600, 3600] as const
+
+/**
+ * The cursor `dtMs` later at `speed`, held inside [0, n].  A non-finite or
+ * negative input leaves the cursor where it was.
+ */
+export function advanceMinute(
+  minute: number,
+  speed: number,
+  dtMs: number,
+  n: number,
+): number {
+  const end = Number.isFinite(n) && n > 0 ? n : 0
+  const start = Number.isFinite(minute) ? Math.min(end, Math.max(0, minute)) : 0
+  if (!Number.isFinite(speed) || speed <= 0) return start
+  if (!Number.isFinite(dtMs) || dtMs <= 0) return start
+  return Math.min(end, start + (speed / 60) * (dtMs / 1000))
+}
+
+/**
+ * The latest value at or before `minute`, looking back at most `lookback`
+ * minutes, so a reading a moment old still shows while an hour-old one
+ * does not.  Null when there is none.
+ */
+export function valueAt(
+  values: readonly (number | null)[],
+  minute: number,
+  lookback = 5,
+): number | null {
+  if (!Array.isArray(values) || !Number.isFinite(minute)) return null
+  const at = Math.min(values.length - 1, Math.floor(minute))
+  const stop = Math.max(0, at - Math.max(0, Math.floor(lookback)))
+  for (let index = at; index >= stop; index -= 1) {
+    const value = values[index]
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+  }
+  return null
+}
+
+/** The running total of `values` up to and including `minute`; null if none. */
+export function totalTo(
+  values: readonly (number | null)[],
+  minute: number,
+): number | null {
+  if (!Array.isArray(values) || !Number.isFinite(minute) || minute < 0) return null
+  const at = Math.min(values.length - 1, Math.floor(minute))
+  let total = 0
+  let seen = false
+  for (let index = 0; index <= at; index += 1) {
+    const value = values[index]
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      total += value
+      seen = true
+    }
+  }
+  return seen ? total : null
+}
+
+/**
+ * The session the cursor is in, else the last one it has passed, else -1:
+ * what the enlarged chart follows while the day plays.
+ */
+export function sessionAt(
+  sessions: readonly Pick<DaySession, 'start' | 'end'>[],
+  minute: number,
+): number {
+  if (!Array.isArray(sessions) || !Number.isFinite(minute)) return -1
+  let passed = -1
+  for (let index = 0; index < sessions.length; index += 1) {
+    const session = sessions[index]
+    if (minute >= session.start && minute < session.end) return index
+    if (session.start <= minute) passed = index
+  }
+  return passed
+}

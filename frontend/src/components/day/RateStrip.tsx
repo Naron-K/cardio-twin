@@ -7,6 +7,8 @@ interface Props {
   to?: number
   /** Drawing width in SVG units; match DayChart's so the axes line up. */
   width?: number
+  /** While the day plays: bars after this minute are not drawn yet. */
+  until?: number | null
 }
 
 const DEFAULT_WIDTH = 1000
@@ -33,7 +35,7 @@ function isFiniteNumber(value: number | null | undefined): value is number {
   return typeof value === 'number' && Number.isFinite(value)
 }
 
-export function RateStrip({ day, from, to, width = DEFAULT_WIDTH }: Props) {
+export function RateStrip({ day, from, to, width = DEFAULT_WIDTH, until = null }: Props) {
   const W = Number.isFinite(width) && width >= 300 ? width : DEFAULT_WIDTH
   let lo = isFiniteNumber(from) ? from : 0
   let hi = isFiniteNumber(to) ? to : day.n_minutes
@@ -49,6 +51,8 @@ export function RateStrip({ day, from, to, width = DEFAULT_WIDTH }: Props) {
     hi = day.n_minutes
   }
   const span = Math.max(1, hi - lo)
+  const cursor = isFiniteNumber(until) ? Math.max(0, until) : null
+  const drawTo = cursor === null ? hi : Math.min(hi, cursor)
 
   if (day.rates.length === 0) {
     return (
@@ -77,7 +81,7 @@ export function RateStrip({ day, from, to, width = DEFAULT_WIDTH }: Props) {
     >
       {day.gaps.map(([start, end], index) => {
         const a = Math.max(start, lo)
-        const b = Math.min(end, hi)
+        const b = Math.min(end, drawTo)
         if (b <= a) return null
         return (
           <rect
@@ -100,7 +104,7 @@ export function RateStrip({ day, from, to, width = DEFAULT_WIDTH }: Props) {
         const labelY = up ? laneTop + 12 : laneBottom - 6
 
         const sums = binSums(rate.values, BIN)
-        const bars: { x: number; width: number; value: number }[] = []
+        const bars: { shown: boolean; x: number; width: number; value: number }[] = []
         for (let bin = 0; bin < sums.length; bin += 1) {
           const value = sums[bin]
           if (!isFiniteNumber(value) || value <= 0) continue
@@ -110,6 +114,9 @@ export function RateStrip({ day, from, to, width = DEFAULT_WIDTH }: Props) {
           const b = Math.min(end, hi)
           if (b <= a) continue
           bars.push({
+            // Scaled with the whole day's bars, so heights hold still while
+            // the cursor reveals them.
+            shown: start <= drawTo,
             x: x(a),
             width: Math.max(1, x(b) - x(a) - 1.5),
             value,
@@ -133,6 +140,7 @@ export function RateStrip({ day, from, to, width = DEFAULT_WIDTH }: Props) {
         return (
           <g key={`rate-${index}`}>
             {bars.map((bar, barIndex) => {
+              if (!bar.shown) return null
               const barHeight = (bar.value / maxValue) * maxHeight
               return (
                 <rect
@@ -171,6 +179,19 @@ export function RateStrip({ day, from, to, width = DEFAULT_WIDTH }: Props) {
           {clock(minute)}
         </text>
       ))}
+
+      {cursor !== null && cursor >= lo && cursor <= hi && (
+        <line
+          x1={x(cursor)}
+          x2={x(cursor)}
+          y1={0}
+          y2={H - BOTTOM}
+          className="stroke-ink"
+          strokeOpacity={0.85}
+          strokeWidth={1.5}
+          vectorEffect="non-scaling-stroke"
+        />
+      )}
     </svg>
   )
 }

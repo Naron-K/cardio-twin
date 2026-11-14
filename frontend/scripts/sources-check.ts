@@ -64,6 +64,27 @@ for (const bad of [null, undefined, 42, 'x', [], { replay: 5 }]) {
   assert.equal(result.replay === null || Object.keys(result.replay.subjects).length === 0, true)
 }
 
+// Days with no readings are left out; a subject left with none goes too.
+const withEmpty = parseSources({
+  lamina: 'wearable',
+  replay: {
+    subjects: { demo: ['2025-06-01'], s2: ['2025-01-02', '2025-04-03', '2025-04-21'], s5: ['2025-03-01'] },
+    fitted: {},
+    no_readings: { s2: ['2025-01-02', '2025-04-21'], s5: ['2025-03-01'], ghost: ['2025-01-01'] },
+  },
+})
+assert.deepEqual(withEmpty.replay?.subjects, { demo: ['2025-06-01'], s2: ['2025-04-03'] })
+// GUARD: a malformed no_readings field leaves nothing out rather than throwing.
+for (const bad of [null, 5, 'x', ['2025-06-01'], { demo: 'all' }]) {
+  const result = parseSources({ replay: { subjects: { demo: ['2025-06-01'] }, no_readings: bad } })
+  assert.deepEqual(result.replay?.subjects, { demo: ['2025-06-01'] })
+}
+// The picker then never opens an empty day, even when the URL names one.
+assert.deepEqual(pickDay(withEmpty, { subject: 's2', date: '2025-01-02' }), {
+  subject: 's2',
+  date: '2025-04-03',
+})
+
 // ── The day the URL names ────────────────────────────────────────────────────
 
 assert.deepEqual(routeFromSearch('?subject=s9&date=2025-01-02'), {

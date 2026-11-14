@@ -56,11 +56,16 @@ export function datesNewestFirst(dates: unknown): string[] {
 function parseReplay(raw: unknown): ReplaySources | null {
   if (!isRecord(raw)) return null
 
+  // Days on which nothing observed was measured have nothing to draw, so
+  // they are left out of the picker; a subject left with no day goes too.
+  const empty = isRecord(raw.no_readings) ? raw.no_readings : {}
+
   const subjects: Record<string, string[]> = {}
   if (isRecord(raw.subjects)) {
     for (const [subject, dates] of Object.entries(raw.subjects)) {
       if (!SUBJECT_RE.test(subject)) continue
-      const clean = datesNewestFirst(dates)
+      const skip = new Set(datesNewestFirst(empty[subject]))
+      const clean = datesNewestFirst(dates).filter((date) => !skip.has(date))
       if (clean.length > 0) subjects[subject] = clean
     }
   }

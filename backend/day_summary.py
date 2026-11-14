@@ -20,14 +20,22 @@ missing value; a KPI with no data behind it reports ``None`` and says so.
 from __future__ import annotations
 
 import functools
+import json
 import math
 import re
 import statistics
 from datetime import date as _date
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from bundles import bundle_roots, load_bundle, load_params
+from bundles import (
+    bundle_roots,
+    is_finite_number,
+    list_bundles,
+    load_bundle,
+    load_params,
+)
 from laminae import load_twin, resolve_lamina
 from session import Session
 from signal_source import ReplayExhausted, ReplaySource
@@ -75,6 +83,75 @@ def _file_mtimes(subject: str, date: str) -> tuple[float, float]:
             return 0.0
 
     return mtime(directory / f"{date}.json"), mtime(directory / "params.json")
+
+
+class NoReadings(ValueError):
+    """A recorded day on which nothing the day view draws was measured."""
+
+
+def _observed_fields(twin) -> tuple[str, ...]:
+    """The bundle sample fields the lamina's observed attributes read."""
+    fields = []
+    for attr in twin.attributes.values():
+        if not attr.observed or not attr.replay_field:
+            continue
+        path, _labels = parse_replay_field(attr.replay_field)
+        if path.startswith("sample."):
+            fields.append(path[len("sample."):])
+    return tuple(sorted(set(fields)))
+
+
+@functools.lru_cache(maxsize=4096)
+def _has_observed(path: str, mtime: float, fields: tuple[str, ...]) -> bool:
+    """True when any sample row holds a number in one of ``fields``."""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        # An unreadable file is the loader's error to report, not "empty".
+        return True
+    rows = data.get("samples") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return True
+    return any(
+        isinstance(row, dict) and is_finite_number(row.get(field))
+        for row in rows
+        for field in fields
+    )
+
+
+def days_without_readings(lamina_id: str) -> dict[str, list[str]]:
+    """
+    Subject -> recorded days on which the lamina's observed attributes never
+    have a reading.
+
+    Without a measured value there is nothing to set the model against, and
+    on s2's days without one the model has no resting level to run from
+    either, so such a day has nothing to show.  A lamina with no observed
+    attribute judges no day empty.  Each file is read once per modification
+    time.
+    """
+    twin = load_twin(resolve_lamina(lamina_id))
+    fields = _observed_fields(twin)
+    if not fields:
+        return {}
+    empty: dict[str, list[str]] = {}
+    roots = bundle_roots()
+    for subject, dates in list_bundles().items():
+        directory = roots.get(subject)
+        if directory is None:
+            continue
+        missing = []
+        for date in dates:
+            path = directory / f"{date}.json"
+            try:
+                mtime = path.stat().st_mtime
+            except OSError:
+                continue
+            if not _has_observed(str(path), mtime, fields):
+                missing.append(date)
+        if missing:
+            empty[subject] = missing
+    return empty
 
 
 def _clock_label(minute: int, bundle: dict) -> str:
@@ -248,13 +325,12 @@ def _build(lamina_id: str, subject: str, date: str) -> dict:
         worn_present.append(worn_id not in missing)
         index += 1
 
-    if not measured or not any(v is not None for v in measured) and not any(
-        v is not None for v in modelled
-    ):
-        raise ValueError(
-            f"day {subject}/{date} has no readings at all for lamina "
-            f"{twin.lamina_id}: every minute is missing, so there is nothing "
-            f"to summarise. Check the bundle's sample rows."
+    # Without one measured value there is nothing to set the model against,
+    # whatever the model drew; the same rule as days_without_readings.
+    if not any(v is not None for v in measured):
+        raise NoReadings(
+            f"No readings on {date}: {subject}'s watch recorded nothing the "
+            f"model can be set against that day."
         )
 
     n_minutes = len(measured)

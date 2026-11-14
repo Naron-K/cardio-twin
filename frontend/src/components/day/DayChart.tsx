@@ -14,6 +14,11 @@ interface Props {
    * shrink with it.  Roughly the panel's pixel width.
    */
   width?: number
+  /**
+   * While the day plays: the cursor, in minutes.  Nothing after it is drawn
+   * and a line marks it; null or absent draws the whole day.
+   */
+  until?: number | null
 }
 
 const DEFAULT_WIDTH = 1000
@@ -73,9 +78,11 @@ export function DayChart({
   width = DEFAULT_WIDTH,
   labels = true,
   selected = null,
+  until = null,
 }: Props) {
   const H = height
   const W = Number.isFinite(width) && width >= 300 ? width : DEFAULT_WIDTH
+  const cursor = isFiniteNumber(until) ? Math.max(0, until) : null
 
   let lo = isFiniteNumber(from) ? from : 0
   let hi = isFiniteNumber(to) ? to : day.n_minutes
@@ -141,12 +148,15 @@ export function DayChart({
     xTicks.push(minute)
   }
 
+  // The axes are set from the whole day above, so they hold still while the
+  // cursor moves; only what is drawn stops at it.
+  const drawTo = cursor === null ? hi : Math.min(hi, cursor)
   const modelRuns = clipPoints(
     modelledDisplay(day.pair.modelled, day.sessions),
     lo,
-    hi,
+    drawTo,
   )
-  const measured = clipPoints(measuredRuns(day.pair.measured), lo, hi)
+  const measured = clipPoints(measuredRuns(day.pair.measured), lo, drawTo)
   const dotRadius = span > 720 ? 2.2 : 3.2
   const plotWidth = W - L - R
 
@@ -161,7 +171,7 @@ export function DayChart({
     >
       {day.gaps.map(([start, end], index) => {
         const a = Math.max(start, lo)
-        const b = Math.min(end, hi)
+        const b = Math.min(end, drawTo)
         if (b <= a) return null
         const xa = x(a)
         const xb = x(b)
@@ -187,7 +197,7 @@ export function DayChart({
 
       {day.sessions.map((session, index) => {
         const a = Math.max(session.start, lo)
-        const b = Math.min(session.end, hi)
+        const b = Math.min(session.end, drawTo)
         if (b <= a) return null
         const xa = x(a)
         const width = Math.max(2, x(b) - xa)
@@ -314,6 +324,31 @@ export function DayChart({
           ))}
         </g>
       ))}
+
+      {cursor !== null && cursor >= lo && cursor <= hi && (
+        <g>
+          <line
+            x1={x(cursor)}
+            x2={x(cursor)}
+            y1={T - 6}
+            y2={H - B}
+            className="stroke-ink"
+            strokeOpacity={0.85}
+            strokeWidth={1.5}
+            vectorEffect="non-scaling-stroke"
+          />
+          <text
+            x={x(cursor)}
+            y={T - 10}
+            textAnchor={x(cursor) > W - R - 40 ? 'end' : 'middle'}
+            fontSize={13}
+            fontWeight={700}
+            className="fill-ink"
+          >
+            {clock(Math.floor(cursor))}
+          </text>
+        </g>
+      )}
     </svg>
   )
 }

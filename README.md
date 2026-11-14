@@ -20,7 +20,9 @@ The page shows one person's day:
 - **Selected session**: the session enlarged, with mean, model, Δ measured − model (in the unit and in SDs), peak and the session's energy and steps.
 - **Sessions**: every session with its mean and Δ, coloured by how far it is from the model.
 
-Pick the subject and the day at the top right; the URL (`?subject=…&date=…`) reopens the same day. Which attribute plays which part is declared in the lamina's `<day_view>` block, so the page names no attribute of its own. The model's numbers are estimates, and fitted coefficients apply only to the person they were fitted on.
+**Play** moves a cursor across the day at ×60, ×600 or ×3600 (minutes of the day per minute): both lines, the bars and the enlarged session stop at the cursor, and a readout gives the time, measured and model values, Δ, and energy and steps so far. Drag the slider to jump; pick a session to jump to it. It runs in the browser on the day already loaded, so it adds no traffic.
+
+Pick the subject and the day at the top right; the URL (`?subject=…&date=…`) reopens the same day. Days on which the observed attribute (heart rate) was never measured are left out of the picker: there is nothing to set the model against. Which attribute plays which part is declared in the lamina's `<day_view>` block, so the page names no attribute of its own. The model's numbers are estimates, and fitted coefficients apply only to the person they were fitted on.
 
 ---
 

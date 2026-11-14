@@ -222,4 +222,8 @@ def test_sources_reports_which_subjects_are_fitted(tmp_path, monkeypatch):
     with TestClient(app) as client:
         body = client.get("/api/sources?lamina=lamina_wearable").json()
 
-    assert body["replay"]["fitted"] == {"demo": False, "s9": True}
+    # Subjects committed to the repository are offered too; only the two this
+    # test controls are pinned.
+    fitted = body["replay"]["fitted"]
+    assert fitted["demo"] is False
+    assert fitted["s9"] is True

@@ -8,9 +8,10 @@ dependency.
 
 Two jobs, kept apart:
 
-  * discovery — which subjects and dates exist.  The committed demo day is
-    always offered; a deployment may point `CARDIOTWIN_BUNDLE_DIR` at a
-    directory of per-subject folders to add recorded subjects.
+  * discovery — which subjects and dates exist.  Every subject folder
+    committed under `bundles/` is offered; a deployment may point
+    `CARDIOTWIN_BUNDLE_DIR` at a directory of per-subject folders to add or
+    replace recorded subjects.
   * validation — a bundle that does not hold what it claims is refused by
     name and row rather than replayed as a day that never happened.
 
@@ -103,13 +104,19 @@ def bundle_roots() -> dict[str, Path]:
     """
     Subject name -> directory holding that subject's `<date>.json` files.
 
-    The committed demo always comes from this repository, even when
-    `CARDIOTWIN_BUNDLE_DIR` also has a `demo` folder: a demo whose numbers
-    change with the deployment's environment is not a reproducible demo.
-    Every other immediate subdirectory is a subject.  The environment variable
-    is read on every call so a test or a deployment can change it at runtime.
+    Every subject folder committed under `bundles/` is offered (the demo, and
+    any real subject published with its owner's approval).  A folder of the
+    same name under `CARDIOTWIN_BUNDLE_DIR` replaces a committed one, so a
+    local export can be newer than what was published, except for the demo:
+    a demo whose numbers change with the deployment's environment is not a
+    reproducible demo.  The environment variable is read on every call so a
+    test or a deployment can change it at runtime.
     """
     roots: dict[str, Path] = {"demo": BUNDLE_DIR / "demo"}
+    if BUNDLE_DIR.is_dir():
+        for child in sorted(BUNDLE_DIR.iterdir()):
+            if child.is_dir() and _SUBJECT_PATTERN.match(child.name):
+                roots.setdefault(child.name, child)
 
     configured = os.environ.get("CARDIOTWIN_BUNDLE_DIR")
     if configured:

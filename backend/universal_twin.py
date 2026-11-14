@@ -71,6 +71,44 @@ def _opt_float(text: Optional[str]) -> Optional[float]:
 # `sample.<field>`, `day.<field>`, or one of the derived clock fields.
 _REPLAY_FIELD_RE = re.compile(r"^(sample|day)\.[a-z_][a-z0-9_]*$")
 REPLAY_CLOCK_FIELDS = frozenset({"clock.hour", "clock.dt_s"})
+# `sample.<field> in A, B, C`: 1 when the recorded label is one of the listed
+# categories, 0 otherwise.  The categories are the lamina's to name, so a
+# recording's text labels become a number without the replay code naming any.
+_REPLAY_MEMBERSHIP_RE = re.compile(
+    r"^((?:sample|day)\.[a-z_][a-z0-9_]*)\s+in\s+(.+)$"
+)
+_REPLAY_LABEL_RE = re.compile(r"^[A-Za-z0-9_]+$")
+
+
+def parse_replay_field(text: str) -> tuple[str, Optional[frozenset]]:
+    """
+    Split a replay field into the recorded path and, for a membership field,
+    the set of labels that count.
+
+    "sample.hr"                      -> ("sample.hr", None)
+    "sample.workout in Walking, Run" -> ("sample.workout", {"Walking", "Run"})
+
+    Raises ValueError for a membership field with an empty, malformed or
+    repeated label; a plain field comes back unchanged and is checked by the
+    caller.
+    """
+    match = _REPLAY_MEMBERSHIP_RE.match(text.strip())
+    if match is None:
+        return text.strip(), None
+    path, rest = match.group(1), match.group(2)
+    labels = [label.strip() for label in rest.split(",")]
+    for label in labels:
+        if not _REPLAY_LABEL_RE.match(label):
+            raise ValueError(
+                f"replay_field '{text.strip()}' lists the label {label!r}; "
+                f"labels are letters, digits or underscores, separated by "
+                f"commas."
+            )
+    if len(set(labels)) != len(labels):
+        raise ValueError(
+            f"replay_field '{text.strip()}' lists a label twice."
+        )
+    return path, frozenset(labels)
 
 
 def _replay_field(text: Optional[str], attr_id: str, source: str) -> Optional[str]:
@@ -90,11 +128,20 @@ def _replay_field(text: Optional[str], attr_id: str, source: str) -> Optional[st
             f"'{value}'. Only a SENSOR is fed from a recorded day; remove it "
             f"or change the source."
         )
-    if value not in REPLAY_CLOCK_FIELDS and not _REPLAY_FIELD_RE.match(value):
+    try:
+        path, _labels = parse_replay_field(value)
+    except ValueError as exc:
+        raise ValueError(f"Attribute '{attr_id}': {exc}") from exc
+    if path not in REPLAY_CLOCK_FIELDS and not _REPLAY_FIELD_RE.match(path):
         raise ValueError(
             f"Attribute '{attr_id}' declares replay_field '{value}'. Use "
-            f"'sample.<field>', 'day.<field>' or one of "
+            f"'sample.<field>', 'day.<field>', "
+            f"'sample.<field> in Label1, Label2' or one of "
             f"{sorted(REPLAY_CLOCK_FIELDS)}."
+        )
+    if _labels is not None and path in REPLAY_CLOCK_FIELDS:  # pragma: no cover
+        raise ValueError(  # the membership pattern cannot match clock.*
+            f"Attribute '{attr_id}': a clock field has no labels to test."
         )
     return value
 

@@ -12,5 +12,6 @@
     <step_rate>58</step_rate>
     <hour_local>18.5</hour_local>
     <HR_level>77.2</HR_level>
+    <is_cardio>1</is_cardio>
   </sensor_data>
 </patient>

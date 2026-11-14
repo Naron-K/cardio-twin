@@ -12,5 +12,6 @@
     <step_rate>107</step_rate>
     <hour_local>17.2</hour_local>
     <HR_level>77.2</HR_level>
+    <is_walk>1</is_walk>
   </sensor_data>
 </patient>

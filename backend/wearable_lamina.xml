@@ -143,6 +143,42 @@
       <description>The slow personal resting level for the day — where this person's heart rate sits between circadian and activity drives. A seeded default until a fitted params.json replaces it.</description>
     </attribute>
 
+    <attribute id="is_walk">
+      <name>Walking Workout Indicator</name>
+      <unit>1</unit>
+      <source>SENSOR</source>
+      <physio_min>0</physio_min>
+      <physio_max>1</physio_max>
+      <baseline>0</baseline>
+      <noise_sigma>0</noise_sigma>
+      <replay_field>sample.workout in Walking</replay_field>
+      <description>1 during a minute the recording labels as Walking; 0 otherwise. In a scenario a preset or a slider sets it.</description>
+    </attribute>
+
+    <attribute id="is_strength">
+      <name>Strength Workout Indicator</name>
+      <unit>1</unit>
+      <source>SENSOR</source>
+      <physio_min>0</physio_min>
+      <physio_max>1</physio_max>
+      <baseline>0</baseline>
+      <noise_sigma>0</noise_sigma>
+      <replay_field>sample.workout in TraditionalStrengthTraining, FunctionalStrengthTraining, CoreTraining</replay_field>
+      <description>1 during a minute the recording labels as a strength workout; 0 otherwise. In a scenario a preset or a slider sets it.</description>
+    </attribute>
+
+    <attribute id="is_cardio">
+      <name>Cardio Workout Indicator</name>
+      <unit>1</unit>
+      <source>SENSOR</source>
+      <physio_min>0</physio_min>
+      <physio_max>1</physio_max>
+      <baseline>0</baseline>
+      <noise_sigma>0</noise_sigma>
+      <replay_field>sample.workout in StairClimbing, Elliptical, Running, Cycling, HighIntensityIntervalTraining, Rowing</replay_field>
+      <description>1 during a minute the recording labels as a cardio workout; 0 otherwise. In a scenario a preset or a slider sets it.</description>
+    </attribute>
+
     <!-- ── The personal coefficients ───────────────────────────────── -->
     <attribute id="HR_offset">
       <name>Resting Level Offset</name>
@@ -186,6 +222,39 @@
       <baseline>0.7</baseline>
       <noise_sigma>0</noise_sigma>
       <description>Exponent on the activity drive: below one, the first minutes of activity raise heart rate steeply and later minutes add less. A seeded default until a fitted params.json replaces it.</description>
+    </attribute>
+
+    <attribute id="g_walk">
+      <name>Walking Activity Gain</name>
+      <unit>1</unit>
+      <source>SENSOR</source>
+      <physio_min>0.2</physio_min>
+      <physio_max>3.0</physio_max>
+      <baseline>1.0</baseline>
+      <noise_sigma>0</noise_sigma>
+      <description>Multiplies the activity drive during a Walking workout; 1 means no different from any other activity. The baseline is a generic default; a fitted value belongs to ONE person and lives in that person's params.json beside their recordings, never in this file.</description>
+    </attribute>
+
+    <attribute id="g_strength">
+      <name>Strength Activity Gain</name>
+      <unit>1</unit>
+      <source>SENSOR</source>
+      <physio_min>0.2</physio_min>
+      <physio_max>3.0</physio_max>
+      <baseline>1.0</baseline>
+      <noise_sigma>0</noise_sigma>
+      <description>Multiplies the activity drive during a strength workout; 1 means no different from any other activity. The baseline is a generic default; a fitted value belongs to ONE person and lives in that person's params.json beside their recordings, never in this file.</description>
+    </attribute>
+
+    <attribute id="g_cardio">
+      <name>Cardio Activity Gain</name>
+      <unit>1</unit>
+      <source>SENSOR</source>
+      <physio_min>0.2</physio_min>
+      <physio_max>3.0</physio_max>
+      <baseline>1.0</baseline>
+      <noise_sigma>0</noise_sigma>
+      <description>Multiplies the activity drive during a cardio workout; 1 means no different from any other activity. The baseline is a generic default; a fitted value belongs to ONE person and lives in that person's params.json beside their recordings, never in this file.</description>
     </attribute>
 
     <attribute id="A_circ">
@@ -310,6 +379,17 @@
       <description>Heart rate added by heat above the reference temperature. Floored at zero: this model knows that heat raises heart rate and does not claim that cold lowers it.</description>
     </attribute>
 
+    <attribute id="g_activity">
+      <name>Activity Gain</name>
+      <unit>1</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0.2</physio_min>
+      <physio_max>3.0</physio_max>
+      <computed_by>activity_gain</computed_by>
+      <depends_on>is_walk, is_strength, is_cardio, g_walk, g_strength, g_cardio</depends_on>
+      <description>How much this minute's activity drive is scaled for the kind of workout it is. One means the workout kind makes no difference; a value away from one is this person's fitted response, selected by the indicator the recording set.</description>
+    </attribute>
+
     <attribute id="HR_drive">
       <name>Activity Heart Rate Drive</name>
       <unit>bpm</unit>
@@ -317,8 +397,8 @@
       <physio_min>0</physio_min>
       <physio_max>150</physio_max>
       <computed_by>hr_drive</computed_by>
-      <depends_on>k_I, AE_rate, p_I</depends_on>
-      <description>Heart rate the current activity calls for, before it is added to the resting level. The exponent makes the first minutes of activity count for more than later minutes at the same rate.</description>
+      <depends_on>k_I, AE_rate, p_I, g_activity</depends_on>
+      <description>Heart rate the current activity calls for, before it is added to the resting level, after the activity gain for the workout kind. The exponent makes the first minutes of activity count for more than later minutes at the same rate.</description>
     </attribute>
 
     <attribute id="HR_target">
@@ -409,12 +489,20 @@
       <description>Heat adds heart rate above the reference temperature and adds nothing below it. The floor is deliberate: this model does not claim a cooling effect it has not declared.</description>
     </function>
 
+    <function id="activity_gain" step="5a">
+      <name>Activity Gain</name>
+      <formula>g_activity = 1 + (g_walk - 1)*is_walk + (g_strength - 1)*is_strength + (g_cardio - 1)*is_cardio</formula>
+      <inputs>is_walk, is_strength, is_cardio, g_walk, g_strength, g_cardio</inputs>
+      <output>g_activity</output>
+      <description>Selects this person's gain for the kind of workout the minute is in. With no workout all three indicators are zero and the gain is one, so a minute that is not a workout is unchanged; a minute labelled as two kinds at once is refused rather than added.</description>
+    </function>
+
     <function id="hr_drive" step="6">
       <name>Activity Heart Rate Drive</name>
-      <formula>HR_drive = k_I * AE_rate ^ p_I</formula>
-      <inputs>k_I, AE_rate, p_I</inputs>
+      <formula>HR_drive = k_I * g_activity * AE_rate ^ p_I</formula>
+      <inputs>k_I, AE_rate, p_I, g_activity</inputs>
       <output>HR_drive</output>
-      <description>Activity energy turned into a heart-rate drive. A negative AE_rate is refused rather than exponentiated: it is a unit or wiring error, and a fractional power of a negative number is not a heart rate.</description>
+      <description>Activity energy turned into a heart-rate drive, scaled by the gain for this minute's workout kind. A negative AE_rate is refused rather than exponentiated: it is a unit or wiring error, and a fractional power of a negative number is not a heart rate. A gain of zero or less is refused for the same reason: it would report that activity drives the heart backwards or not at all.</description>
     </function>
 
     <function id="hr_target" step="7">
@@ -484,7 +572,7 @@
 
     <segment name="Activity and Context" id="seg_activity">
       <description>What the wearable measures, and the conditions the day arrives in</description>
-      <attributes>HR_obs, AE_rate, BE_rate, step_rate, T_app, hour_local, dt_s, HR_level</attributes>
+      <attributes>HR_obs, AE_rate, BE_rate, step_rate, T_app, hour_local, dt_s, HR_level, is_walk, is_strength, is_cardio</attributes>
       <functions></functions>
       <behavioural_outcomes>
       </behavioural_outcomes>
@@ -492,7 +580,7 @@
 
     <segment name="Personal Coefficients" id="seg_coefficients">
       <description>The seeded personal terms the heart-rate model reads. Defaults until a fitted params.json replaces them.</description>
-      <attributes>HR_offset, HR_max, k_I, p_I, A_circ, phi_circ, k_T, T_ref, tau_on, tau_off</attributes>
+      <attributes>HR_offset, HR_max, k_I, p_I, g_walk, g_strength, g_cardio, A_circ, phi_circ, k_T, T_ref, tau_on, tau_off</attributes>
       <functions></functions>
       <behavioural_outcomes>
       </behavioural_outcomes>
@@ -500,9 +588,9 @@
 
     <segment name="Heart Rate and Energy" id="seg_hr_energy">
       <description>The chain from measurement and energy to a modelled heart rate and the residual it leaves</description>
-      <attributes>HR_measured, EE_total, VO2_est, HR_circ, HR_thermal, HR_drive, HR_target, HR_model, HR_residual, kcal_active_cum</attributes>
+      <attributes>HR_measured, EE_total, VO2_est, HR_circ, HR_thermal, g_activity, HR_drive, HR_target, HR_model, HR_residual, kcal_active_cum</attributes>
       <composites>heart_rate_state</composites>
-      <functions>measured_hr, energy_total, vo2_estimate, hr_circadian, hr_thermal, hr_drive, hr_target, hr_model, hr_residual, kcal_cumulative</functions>
+      <functions>measured_hr, energy_total, vo2_estimate, hr_circadian, hr_thermal, activity_gain, hr_drive, hr_target, hr_model, hr_residual, kcal_cumulative</functions>
       <behavioural_outcomes>
         <outcome id="target_residual" attribute="HR_residual" target="0" tolerance="10"
                  name="Target Heart Rate Residual" unit="bpm">

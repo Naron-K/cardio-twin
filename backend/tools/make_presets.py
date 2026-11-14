@@ -109,6 +109,10 @@ RULE_TEXT = {
 }
 
 WALK_LABEL = "Walking"
+# The kind of workout each workout-derived state is, as the lamina's 0/1
+# indicator: a scenario then applies that kind's activity gain, as a
+# replay of the same minutes would.  Rest states set none (all 0).
+STATE_INDICATOR = {"walk": "is_walk", "vigorous": "is_cardio"}
 VIGOROUS_LABELS = frozenset({
     "Running",
     "HighIntensityIntervalTraining",
@@ -402,6 +406,10 @@ def write_presets(
             ET.SubElement(sensor_data, "HR_level").text = _format_number(
                 summary["hr_level"], HOUR_DECIMALS
             )
+        indicator = STATE_INDICATOR.get(summary["name"])
+        if indicator is not None:
+            ET.SubElement(sensor_data, indicator).text = "1"
+
 
         ET.indent(root, space="  ")
         text = ET.tostring(root, encoding="unicode", xml_declaration=True)

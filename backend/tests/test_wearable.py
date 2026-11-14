@@ -37,12 +37,13 @@ LAMINA_ID = "lamina_wearable"
 ALL_ATTRIBUTES = {
     # Activity and context
     "HR_obs", "AE_rate", "BE_rate", "step_rate", "T_app", "hour_local",
-    "dt_s", "HR_level",
+    "dt_s", "HR_level", "is_walk", "is_strength", "is_cardio",
     # Personal coefficients
-    "HR_offset", "HR_max", "k_I", "p_I", "A_circ", "phi_circ", "k_T", "T_ref",
+    "HR_offset", "HR_max", "k_I", "p_I", "g_walk", "g_strength", "g_cardio",
+    "A_circ", "phi_circ", "k_T", "T_ref",
     # Heart rate and energy
     "HR_measured", "EE_total", "VO2_est", "HR_circ", "HR_thermal",
-    "HR_drive", "HR_target", "HR_model", "HR_residual",
+    "g_activity", "HR_drive", "HR_target", "HR_model", "HR_residual",
 }
 
 
@@ -86,12 +87,14 @@ def test_available_laminae_lists_it_as_implemented():
 
 def test_the_declared_sources_and_coefficients_are_present(twin):
     for attr_id in ("HR_obs", "AE_rate", "BE_rate", "step_rate", "T_app",
-                    "hour_local", "dt_s", "HR_level", "HR_max", "k_I",
-                    "p_I", "A_circ", "phi_circ", "k_T", "T_ref"):
+                    "hour_local", "dt_s", "HR_level", "is_walk",
+                    "is_strength", "is_cardio", "HR_max", "k_I", "p_I",
+                    "g_walk", "g_strength", "g_cardio", "A_circ", "phi_circ",
+                    "k_T", "T_ref"):
         assert twin.attributes[attr_id].source == SENSOR
     for attr_id in ("HR_measured", "EE_total", "VO2_est", "HR_circ",
-                    "HR_thermal", "HR_drive", "HR_target", "HR_model",
-                    "HR_residual"):
+                    "HR_thermal", "g_activity", "HR_drive", "HR_target",
+                    "HR_model", "HR_residual"):
         assert twin.attributes[attr_id].source == PRELIMINARY
 
 
@@ -145,7 +148,7 @@ def test_a_bad_heart_rate_reading_marks_the_attribute_stale(bad):
 
 def test_a_negative_activity_rate_is_refused_by_hr_drive(twin):
     with pytest.raises(ValueError) as exc:
-        _fn(twin, "hr_drive")([12.0, -1.0, 0.7])
+        _fn(twin, "hr_drive")([12.0, -1.0, 0.7, 1.0])
     assert "AE_rate" in str(exc.value)
 
 
@@ -162,7 +165,8 @@ def test_every_registered_function_refuses_an_unusable_input(twin, bad):
         "vo2_estimate":  [1.4],
         "hr_circadian":  [4.0, 15.0, 12.0],
         "hr_thermal":    [0.11, 20.0, 20.0],
-        "hr_drive":      [12.0, 0.3, 0.7],
+        "activity_gain": [0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        "hr_drive":      [12.0, 0.3, 0.7, 1.0],
         "hr_target":     [60.0, 0.0, 2.828, 0.0, 5.166, 185.0],
         "hr_model":      [67.994, 60.0, 30.0, 90.0, None],
         "hr_residual":   [65.0, 67.994],
@@ -189,7 +193,7 @@ def test_hr_target_always_lies_between_35_and_hr_max(twin):
             for hour_local in (0.0, 6.0, 12.0, 18.0, 24.0):
                 hr_circ = circ([4.0, 15.0, hour_local])
                 hr_thermal = thermal([0.11, t_app, 20.0])
-                hr_drive = drive([12.0, ae_rate, 0.7])
+                hr_drive = drive([12.0, ae_rate, 0.7, 1.0])
                 value = target([60.0, 0.0, hr_circ, hr_thermal, hr_drive, hr_max])
                 assert 35.0 <= value <= hr_max, (ae_rate, t_app, hour_local)
 

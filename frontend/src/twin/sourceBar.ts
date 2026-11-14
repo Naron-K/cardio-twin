@@ -12,6 +12,13 @@ import type { FeedRequest, FeedStatus } from '../hooks/useCardioStream'
 import { formatClock } from './trendWindow.ts'
 
 /** One subject's available days, newest first, and whether they are fitted. */
+/** "s2's fitted coefficients", or the plain phrase when no subject is known. */
+function fittedLabel(subject: unknown): string {
+  return typeof subject === 'string' && subject.length > 0
+    ? `${subject}'s fitted coefficients`
+    : 'fitted coefficients'
+}
+
 export interface ReplaySources {
   subjects: Record<string, string[]>
   speeds: number[]
@@ -231,7 +238,9 @@ export function statusLine(latest?: FeedStatus | null): string {
   else if (clock) parts.push(clock)
   else if (percent) parts.push(percent)
 
-  if (latest.coefficients === 'fitted') parts.push('fitted coefficients')
+  // Fitted coefficients belong to one person; say whose, so nobody reads
+  // them as values for people in general.
+  if (latest.coefficients === 'fitted') parts.push(fittedLabel(latest.subject))
   else if (latest.coefficients === 'declared defaults') parts.push('declared defaults')
 
   if (latest.synthetic === true) parts.push('synthetic day')
@@ -251,7 +260,9 @@ export function scenarioStatusLine(latest?: FeedStatus | null): string {
   if (typeof latest.label === 'string' && latest.label.length > 0) {
     parts.push(latest.label)
   }
-  if (latest.coefficients === 'fitted') parts.push('fitted coefficients')
+  // Fitted coefficients belong to one person; say whose, so nobody reads
+  // them as values for people in general.
+  if (latest.coefficients === 'fitted') parts.push(fittedLabel(latest.subject))
   else if (latest.coefficients === 'declared defaults') parts.push('declared defaults')
 
   return parts.join(' · ')

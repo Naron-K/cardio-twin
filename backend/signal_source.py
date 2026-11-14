@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from bundles import is_finite_number, validate_bundle
+from universal_twin import parse_replay_field
 
 if TYPE_CHECKING:  # pragma: no cover — import cycle at runtime, types only
     from universal_twin import UniversalTwin
@@ -286,7 +287,28 @@ class ReplaySource(SignalSource):
 
         day = bundle["day"]
         samples = bundle["samples"]
-        for attr_id, field in mapped.items():
+        for attr_id, declared in mapped.items():
+            field, labels = parse_replay_field(declared)
+            if labels is not None:
+                # A membership field reads a text label, not a number: the
+                # recording only has to hold the key, with a label or null.
+                source, key = field.split(".", 1)
+                holders = [day] if source == "day" else samples
+                for position, holder in enumerate(holders):
+                    if key not in holder:
+                        raise ValueError(
+                            f"Attribute '{attr_id}' replays '{declared}', but "
+                            f"{'the day object' if source == 'day' else f'sample row {position}'} "
+                            f"has no '{key}' field."
+                        )
+                    label = holder[key]
+                    if label is not None and not isinstance(label, str):
+                        raise ValueError(
+                            f"Attribute '{attr_id}' replays '{declared}', but "
+                            f"the recording holds {label!r} where a text label "
+                            f"or null belongs."
+                        )
+                continue
             if field.startswith("day."):
                 key = field.split(".", 1)[1]
                 if key not in day:
@@ -515,7 +537,15 @@ class ReplaySource(SignalSource):
         readings: dict[str, float] = {}
         missing: list[str] = []
 
-        for attr_id, field in self._mapped.items():
+        for attr_id, declared in self._mapped.items():
+            field, labels = parse_replay_field(declared)
+            if labels is not None:
+                # 1 when this minute's label is one the lamina lists, else 0.
+                # No label (no workout, say) is information, not a gap.
+                source, key = field.split(".", 1)
+                raw = (row if source == "sample" else self._day)[key]
+                readings[attr_id] = 1.0 if raw in labels else 0.0
+                continue
             if field == "clock.hour":
                 local = self._local_time_at(row["t"])
                 value = local.hour + local.minute / 60.0

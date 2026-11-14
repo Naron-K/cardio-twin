@@ -225,6 +225,31 @@ assert.equal(
   '',
 )
 
+// Fitted coefficients name their owner when the tick says whose they are.
+assert.equal(
+  statusLine({
+    kind: 'replay',
+    detail: '',
+    subject: 's2',
+    dataTime: '2025-04-03T08:15:00+10:30',
+    positionS: 29700,
+    durationS: 86400,
+    coefficients: 'fitted',
+  }),
+  "08:15 · 34% of the day · s2's fitted coefficients",
+)
+assert.equal(
+  scenarioStatusLine({
+    kind: 'scenario',
+    detail: '',
+    preset: 'walk',
+    label: 'Walk',
+    subject: 's2',
+    coefficients: 'fitted',
+  }),
+  "Scenario · Walk · s2's fitted coefficients",
+)
+
 // ── Scenario status line ─────────────────────────────────────────────────────
 
 assert.equal(

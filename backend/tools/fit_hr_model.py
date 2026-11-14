@@ -7,7 +7,10 @@ the wearable lamina sees, and fits the coefficients of
     HR_target = clamp(HR_level + HR_offset
                       + A_circ*cos(2*pi*(hour_local - phi_circ)/24)
                       + k_T*max(0, T_app - T_ref)
-                      + k_I*AE_rate**p_I, 35, HR_max)
+                      + k_I*g_activity*AE_rate**p_I, 35, HR_max)
+
+    g_activity = 1 + (g_walk - 1)*is_walk + (g_strength - 1)*is_strength
+                   + (g_cardio - 1)*is_cardio
 
     HR_model  = first-order lag of HR_target, tau_on when rising and tau_off
                 when falling, seeded with HR_target on the first minute and
@@ -34,8 +37,16 @@ particular subject):
   * LAG_RULE_BPM = 1.0.  The lagged model is shipped only when its TEST MAE
     over workout windows is at least 1.0 bpm lower than the no-lag model's.
     Otherwise the no-lag fit ships with tau_on = tau_off = 0.
+  * GAIN_RULE_BPM = 1.0.  The per-workout-kind gains are kept only when the
+    TEST MAE over workout windows of the fit with the gains held at 1.0 is at
+    least 1.0 bpm higher than the fit with the gains free.  The lag rule above
+    is then evaluated inside whichever gain setting this rule selects.
   * MAX_ROUNDS = 4, CONVERGENCE_FRACTION = 0.01.  Stage A and Stage B alternate
     until no free parameter moves by more than 1% of its bound span.
+
+Every fitted number in a params.json belongs to the subject it was fitted on.
+It is that person's own measured response, not a population or transferable
+value; the file names the subject in "applies_to".
 
 Run from the repository root:
 
@@ -77,6 +88,7 @@ QUIET_MARGIN_MIN = 30
 FIT_FRACTION = 0.70
 
 LAG_RULE_BPM = 1.0
+GAIN_RULE_BPM = 1.0
 MAX_ROUNDS = 4
 CONVERGENCE_FRACTION = 0.01
 
@@ -97,7 +109,12 @@ COEFFICIENT_NAMES = (
     "tau_on",
     "tau_off",
     "HR_max",
+    "g_walk",
+    "g_strength",
+    "g_cardio",
 )
+
+GAIN_NAMES = ("g_walk", "g_strength", "g_cardio")
 
 STAGE_A_FREE = ("HR_offset", "A_circ", "phi_circ", "k_T", "T_ref")
 STAGE_A_BOUNDS = {
@@ -115,9 +132,13 @@ STAGE_B_BOUNDS = {
     "p_I": (0.2, 1.5),
     "tau_on": (0.0, 600.0),
     "tau_off": (0.0, 900.0),
+    "g_walk": (0.2, 3.0),
+    "g_strength": (0.2, 3.0),
+    "g_cardio": (0.2, 3.0),
 }
 
 _INPUT_FIELDS = ("hour_local", "dt_s", "HR_level", "AE_rate", "T_app")
+_INDICATOR_FIELDS = ("is_walk", "is_strength", "is_cardio")
 
 
 # ── Loading and rebuilding the lamina's inputs ───────────────────────────────
@@ -185,6 +206,8 @@ def day_inputs(bundle: dict) -> dict[str, np.ndarray]:
     arrays: dict[str, np.ndarray] = {
         field: np.full(n, np.nan, dtype=float) for field in _INPUT_FIELDS
     }
+    for field in _INDICATOR_FIELDS:
+        arrays[field] = np.zeros(n, dtype=float)
     arrays["hr"] = np.full(n, np.nan, dtype=float)
     arrays["hr_n"] = np.zeros(n, dtype=float)
     arrays["workout"] = np.empty(n, dtype=object)
@@ -198,6 +221,9 @@ def day_inputs(bundle: dict) -> dict[str, np.ndarray]:
         missing = set(feed.last_missing)
         for field in _INPUT_FIELDS:
             if field in readings and field not in missing:
+                arrays[field][index] = float(readings[field])
+        for field in _INDICATOR_FIELDS:
+            if field in readings:
                 arrays[field][index] = float(readings[field])
         row = bundle["samples"][index]
         if row["hr"] is not None:
@@ -229,13 +255,29 @@ def simulate_day(inputs: dict, coef: dict) -> tuple[np.ndarray, np.ndarray]:
     level = np.asarray(inputs["HR_level"], dtype=float)
     ae_rate = np.asarray(inputs["AE_rate"], dtype=float)
     t_app = np.asarray(inputs["T_app"], dtype=float)
+    is_walk = np.asarray(
+        inputs.get("is_walk", np.zeros_like(ae_rate)), dtype=float
+    )
+    is_strength = np.asarray(
+        inputs.get("is_strength", np.zeros_like(ae_rate)), dtype=float
+    )
+    is_cardio = np.asarray(
+        inputs.get("is_cardio", np.zeros_like(ae_rate)), dtype=float
+    )
+
+    gain = (
+        1.0
+        + (coef.get("g_walk", 1.0) - 1.0) * is_walk
+        + (coef.get("g_strength", 1.0) - 1.0) * is_strength
+        + (coef.get("g_cardio", 1.0) - 1.0) * is_cardio
+    )
 
     with np.errstate(invalid="ignore", over="ignore", divide="ignore"):
         circadian = coef["A_circ"] * np.cos(
             2.0 * math.pi * (hour - coef["phi_circ"]) / 24.0
         )
         thermal = coef["k_T"] * np.maximum(0.0, t_app - coef["T_ref"])
-        drive = coef["k_I"] * np.power(ae_rate, coef["p_I"])
+        drive = coef["k_I"] * gain * np.power(ae_rate, coef["p_I"])
         total = level + coef["HR_offset"] + circadian + thermal + drive
         target = np.clip(total, HR_TARGET_FLOOR, coef["HR_max"])
 
@@ -457,12 +499,18 @@ def _fit_stage_b(prepared: list[dict], coef: dict,
 
 
 def _fit_model(prepared: list[dict], seed: dict, fit_days: list[dict],
-               fit_window_days: list[dict], no_lag: bool) -> tuple[dict, int]:
+               fit_window_days: list[dict], no_lag: bool,
+               gains_free: bool) -> tuple[dict, int]:
     coef = dict(seed)
+    if not gains_free:
+        for name in GAIN_NAMES:
+            coef[name] = 1.0
     if no_lag:
         coef["tau_on"] = 0.0
         coef["tau_off"] = 0.0
     free_b = STAGE_B_FREE_NO_LAG if no_lag else STAGE_B_FREE
+    if gains_free:
+        free_b = free_b + GAIN_NAMES
 
     rounds = 0
     for _ in range(MAX_ROUNDS):
@@ -470,6 +518,9 @@ def _fit_model(prepared: list[dict], seed: dict, fit_days: list[dict],
         before = dict(coef)
 
         coef = _fit_stage_a(prepared, coef, fit_days)
+        if not gains_free:
+            for name in GAIN_NAMES:
+                coef[name] = 1.0
         if no_lag:
             coef["tau_on"] = 0.0
             coef["tau_off"] = 0.0
@@ -477,6 +528,9 @@ def _fit_model(prepared: list[dict], seed: dict, fit_days: list[dict],
         coef = _fit_stage_b(
             prepared, coef, fit_window_days, free_b, no_lag=no_lag
         )
+        if not gains_free:
+            for name in GAIN_NAMES:
+                coef[name] = 1.0
 
         moved = False
         for name in STAGE_A_FREE:
@@ -490,6 +544,7 @@ def _fit_model(prepared: list[dict], seed: dict, fit_days: list[dict],
         if not moved:
             break
 
+    _check_gain_bounds(coef, "fitted model")
     return coef, rounds
 
 
@@ -511,12 +566,14 @@ def _day_models(prepared: list[dict], coef: dict) -> dict[str, np.ndarray]:
     }
 
 
-def _window_metrics(prepared: list[dict], lagged: dict, no_lag: dict,
+def _window_metrics(prepared: list[dict], models: dict[str, dict],
                     test_workouts: list[tuple[dict, dict]]) -> tuple[dict,
                                                                    dict,
                                                                    dict]:
-    lagged_models = _day_models(prepared, lagged)
-    no_lag_models = _day_models(prepared, no_lag)
+    model_predictions = {
+        name: _day_models(prepared, coef) for name, coef in models.items()
+    }
+    model_names = tuple(models)
 
     windows: list[dict] = []
     fallbacks = 0
@@ -543,34 +600,37 @@ def _window_metrics(prepared: list[dict], lagged: dict, no_lag: dict,
 
         keep = np.arange(*window.indices(n))
         valid = np.isfinite(observed)
-        lag_prediction = lagged_models[day["date"]][keep]
-        no_lag_prediction = no_lag_models[day["date"]][keep]
-
-        windows.append({
+        record = {
             "label": segment["label"],
-            "lagged": _mae(lag_prediction, observed, valid),
-            "no_lag": _mae(no_lag_prediction, observed, valid),
             "hold_pre": _mae(np.full(observed.shape, hold), observed, valid),
-        })
+        }
+        for name in model_names:
+            prediction = model_predictions[name][day["date"]][keep]
+            record[name] = _mae(prediction, observed, valid)
+        windows.append(record)
 
     def summarise(items: list[dict]) -> dict:
         if not items:
-            return {"n": 0, "lagged": float("nan"),
-                    "no_lag": float("nan"), "hold_pre": float("nan")}
-        return {
-            "n": len(items),
-            "lagged": float(np.mean([item["lagged"] for item in items])),
-            "no_lag": float(np.mean([item["no_lag"] for item in items])),
-            "hold_pre": float(np.mean([item["hold_pre"] for item in items])),
-        }
+            out = {"n": 0, "hold_pre": float("nan")}
+            out.update({name: float("nan") for name in model_names})
+            return out
+        out = {"n": len(items)}
+        for name in model_names:
+            out[name] = float(np.mean([item[name] for item in items]))
+        out["hold_pre"] = float(
+            np.mean([item["hold_pre"] for item in items])
+        )
+        return out
 
     overall = summarise(windows)
     overall["hold_pre_fallback_windows"] = fallbacks
     median_per_window = {
-        "lagged": float(np.median([item["lagged"] for item in windows])),
-        "no_lag": float(np.median([item["no_lag"] for item in windows])),
-        "hold_pre": float(np.median([item["hold_pre"] for item in windows])),
+        name: float(np.median([item[name] for item in windows]))
+        for name in model_names
     }
+    median_per_window["hold_pre"] = float(
+        np.median([item["hold_pre"] for item in windows])
+    )
 
     by_type: dict[str, list[dict]] = {}
     for item in windows:
@@ -634,6 +694,51 @@ def _check_seed(seed_coef: dict) -> None:
         )
 
 
+def _complete_seed(seed_coef: dict) -> dict:
+    """
+    Fill missing gain seeds from the lamina's declared baselines.
+
+    The gains were added after callers had already built seed mappings, so a
+    seed without them is an old caller, not an error.  Every other coefficient
+    must still be supplied.
+    """
+    if not isinstance(seed_coef, dict):
+        raise ValueError(
+            f"seed_coef must be a mapping of coefficient names to values, got "
+            f"{type(seed_coef).__name__}."
+        )
+    seed = dict(seed_coef)
+    twin = load_twin(WEARABLE_XML)
+    for name in GAIN_NAMES:
+        if name not in seed:
+            attr = twin.attributes.get(name)
+            if attr is None or attr.baseline is None:
+                raise ValueError(
+                    f"Lamina {twin.lamina_id} declares no baseline for "
+                    f"coefficient '{name}', so a seed that omits it cannot be "
+                    f"completed."
+                )
+            seed[name] = float(attr.baseline)
+    _check_seed(seed)
+    return seed
+
+
+def _check_gain_bounds(coefficients: dict, where: str) -> None:
+    for name in GAIN_NAMES:
+        value = float(coefficients[name])
+        lower, upper = STAGE_B_BOUNDS[name]
+        if not math.isfinite(value):
+            raise ValueError(
+                f"Refusing to use {where}: gain {name} is non-finite "
+                f"({value!r})."
+            )
+        if value < lower or value > upper:
+            raise ValueError(
+                f"Refusing to use {where}: gain {name}={value!r} is outside "
+                f"its bounds [{lower}, {upper}]."
+            )
+
+
 def _compute_hr_max(prepared: list[dict], seed: dict) -> float:
     hrs = [
         day["inputs"]["hr"][np.isfinite(day["inputs"]["hr"])]
@@ -673,9 +778,44 @@ def _assert_finite(value, where: str) -> None:
         )
 
 
-def fit(days: list[dict], seed_coef: dict) -> dict:
-    """Fit both models on `days` and return the params dict."""
-    _check_seed(seed_coef)
+POST_HOC_CHOICES = ("full",)
+
+
+def _all_minutes_mae(day_list: list[dict], coef: dict) -> float:
+    """MAE over every minute of these days with both a reading and a model."""
+    errors = []
+    for day in day_list:
+        _, model = simulate_day(day["inputs"], coef)
+        hr = day["inputs"]["hr"]
+        keep = np.isfinite(hr) & np.isfinite(model)
+        errors.append(np.abs(hr[keep] - model[keep]))
+    joined = np.concatenate(errors) if errors else np.empty(0)
+    return float(joined.mean()) if joined.size else float("nan")
+
+
+def fit(days: list[dict], seed_coef: dict, post_hoc: str | None = None,
+        post_hoc_reason: str | None = None) -> dict:
+    """
+    Fit the four models and return the params dict.
+
+    `post_hoc="full"` ships the full model (lag and gains free) whatever the
+    two rules chose, and records that a person overrode them after seeing the
+    TEST results, with the reason and both models' scores.  The rules' own
+    verdicts stay in params.json untouched: an override is written beside a
+    pre-registered result, never over it.
+    """
+    if post_hoc is not None and post_hoc not in POST_HOC_CHOICES:
+        raise ValueError(
+            f"post_hoc={post_hoc!r} is not a choice this fitter knows; use "
+            f"one of {list(POST_HOC_CHOICES)} or leave it unset."
+        )
+    if post_hoc is not None and not (post_hoc_reason or "").strip():
+        raise ValueError(
+            "A post-hoc choice needs a reason: it overrides a pre-registered "
+            "rule, and params.json must say why."
+        )
+    """Fit the four models on `days` and return the params dict."""
+    seed_coef = _complete_seed(seed_coef)
     if not days:
         raise ValueError(
             "not enough data to fit: no day bundles were supplied."
@@ -729,31 +869,113 @@ def fit(days: list[dict], seed_coef: dict) -> dict:
     seed = dict(seed_coef)
     seed["HR_max"] = _compute_hr_max(prepared, seed)
 
-    lagged, lagged_rounds = _fit_model(
-        prepared, seed, fit_days, fit_window_days, no_lag=False
+    full, full_rounds = _fit_model(
+        prepared, seed, fit_days, fit_window_days,
+        no_lag=False, gains_free=True
+    )
+    no_gain, no_gain_rounds = _fit_model(
+        prepared, seed, fit_days, fit_window_days,
+        no_lag=False, gains_free=False
     )
     no_lag, no_lag_rounds = _fit_model(
-        prepared, seed, fit_days, fit_window_days, no_lag=True
+        prepared, seed, fit_days, fit_window_days,
+        no_lag=True, gains_free=True
+    )
+    neither, neither_rounds = _fit_model(
+        prepared, seed, fit_days, fit_window_days,
+        no_lag=True, gains_free=False
     )
 
-    lagged = _rounded(lagged)
+    full = _rounded(full)
+    no_gain = _rounded(no_gain)
     no_lag = _rounded(no_lag)
+    neither = _rounded(neither)
     no_lag["tau_on"] = 0.0
     no_lag["tau_off"] = 0.0
+    neither["tau_on"] = 0.0
+    neither["tau_off"] = 0.0
+    for coef in (full, no_gain, no_lag, neither):
+        _check_gain_bounds(coef, "rounded fitted model")
 
-    overall, median_per_window, per_type = _window_metrics(
-        prepared, lagged, no_lag, test_workouts
+    full_overall, _, _ = _window_metrics(
+        prepared, {"full": full}, test_workouts
+    )
+    no_gain_overall, no_gain_median, no_gain_per_type = _window_metrics(
+        prepared, {"no_gain": no_gain}, test_workouts
+    )
+    with_gains_mae = full_overall["full"]
+    without_gains_mae = no_gain_overall["no_gain"]
+    if not (math.isfinite(with_gains_mae)
+            and math.isfinite(without_gains_mae)):
+        raise ValueError(
+            "Refusing to write params.json: the TEST workout MAE is "
+            "non-finite, so the gain rule cannot be evaluated."
+        )
+    gains_passed = (
+        (without_gains_mae - with_gains_mae) >= GAIN_RULE_BPM
     )
 
-    lagged_mae = overall["lagged"]
-    no_lag_mae = overall["no_lag"]
+    if gains_passed:
+        lagged_candidate = full
+        no_lag_candidate = no_lag
+        lagged_candidate_rounds = full_rounds
+        no_lag_candidate_rounds = no_lag_rounds
+        gain_setting = "with_gains"
+    else:
+        lagged_candidate = no_gain
+        no_lag_candidate = neither
+        lagged_candidate_rounds = no_gain_rounds
+        no_lag_candidate_rounds = neither_rounds
+        gain_setting = "without_gains"
+
+    pair_overall, _, _ = _window_metrics(
+        prepared,
+        {"lagged": lagged_candidate, "no_lag": no_lag_candidate},
+        test_workouts,
+    )
+    lagged_mae = pair_overall["lagged"]
+    no_lag_mae = pair_overall["no_lag"]
     if not (math.isfinite(lagged_mae) and math.isfinite(no_lag_mae)):
         raise ValueError(
             "Refusing to write params.json: the TEST workout MAE is "
             "non-finite, so the lag rule cannot be evaluated."
         )
-    passed = (no_lag_mae - lagged_mae) >= LAG_RULE_BPM
-    shipped = lagged if passed else no_lag
+    lag_passed = (no_lag_mae - lagged_mae) >= LAG_RULE_BPM
+    shipped = lagged_candidate if lag_passed else no_lag_candidate
+    shipped_rounds = (
+        lagged_candidate_rounds if lag_passed else no_lag_candidate_rounds
+    )
+
+    post_hoc_record = None
+    if post_hoc == "full":
+        rules_choice = shipped
+        post_hoc_record = {
+            "shipped": "full (lag free, gains free)",
+            "rules_chose": (
+                f"{gain_setting}, {'lagged' if lag_passed else 'no_lag'}"
+            ),
+            "reason": post_hoc_reason.strip(),
+            "decided": (
+                "by a person after seeing the TEST results, so this is not a "
+                "pre-registered choice"
+            ),
+            "decided_at": datetime.now(timezone.utc).date().isoformat(),
+            "all_test_minutes_mae": {
+                "rules_choice": _all_minutes_mae(test_days, rules_choice),
+                "full": _all_minutes_mae(test_days, full),
+            },
+            "test_window_mae": {
+                "rules_choice": lagged_mae if lag_passed else no_lag_mae,
+                "full": with_gains_mae,
+            },
+            "rules_choice_coefficients": rules_choice,
+        }
+        shipped = full
+        shipped_rounds = full_rounds
+
+    shipped_overall, shipped_median, shipped_per_type = _window_metrics(
+        prepared, {"shipped": shipped}, test_workouts
+    )
 
     test_quiet = np.zeros(
         int(sum(day["inputs"]["hr"].size for day in test_days)), dtype=bool
@@ -780,6 +1002,7 @@ def fit(days: list[dict], seed_coef: dict) -> dict:
 
     residual_sd = _residual_sd(prepared, shipped)
 
+    subject = days[0]["subject"]
     basal_sources: dict[str, int] = {}
     for day in days:
         source = day["day"].get("basal_source", "unknown")
@@ -787,19 +1010,35 @@ def fit(days: list[dict], seed_coef: dict) -> dict:
 
     params = {
         "schema_version": SCHEMA_VERSION,
-        "subject": days[0]["subject"],
+        "subject": subject,
+        "applies_to": (
+            f"{subject} only: fitted on {subject}'s recordings; not a "
+            f"population value"
+        ),
         "fitted_at": datetime.now(timezone.utc).isoformat(),
         "lamina": LAMINA_ID,
         "coefficients": shipped,
         "residual_sd": residual_sd,
         "outcome_tolerance": {"target_residual": 2.0 * residual_sd},
+        "gain_rule": {
+            "threshold_bpm": GAIN_RULE_BPM,
+            "with_gains_test_mae": with_gains_mae,
+            "without_gains_test_mae": without_gains_mae,
+            "passed": bool(gains_passed),
+            # What the gain-free-to-move model actually found, whatever was
+            # shipped: a rejected gain is still a finding worth reading.
+            "gains_fitted": {
+                name: full[name] for name in GAIN_NAMES
+            },
+        },
         "lag_rule": {
             "threshold_bpm": LAG_RULE_BPM,
+            "gain_setting": gain_setting,
             "lagged_test_mae": lagged_mae,
             "no_lag_test_mae": no_lag_mae,
-            "passed": bool(passed),
-            "shipped": "lagged" if passed else "no_lag",
-            "lagged_coefficients": lagged,
+            "passed": bool(lag_passed),
+            "shipped": "lagged" if lag_passed else "no_lag",
+            "lagged_coefficients": lagged_candidate,
         },
         "data": {
             "days": len(days),
@@ -818,31 +1057,59 @@ def fit(days: list[dict], seed_coef: dict) -> dict:
                 "hr_level_mae": stage_a_level,
             },
             "stage_b": {
-                "overall": overall,
-                "median_per_window": median_per_window,
-                "per_type": per_type,
+                "overall": shipped_overall,
+                "median_per_window": shipped_median,
+                "per_type": shipped_per_type,
+                "shipped": {
+                    "overall": shipped_overall,
+                    "median_per_window": shipped_median,
+                    "per_type": shipped_per_type,
+                },
+                "no_gain": {
+                    "overall": no_gain_overall,
+                    "median_per_window": no_gain_median,
+                    "per_type": no_gain_per_type,
+                },
             },
-            "rounds": lagged_rounds if passed else no_lag_rounds,
+            "rounds": shipped_rounds,
+            # Every TEST minute, not only workout windows: the rules above see
+            # the windows, and a model can win there while losing at rest.
+            "all_test_minutes_mae": _all_minutes_mae(test_days, shipped),
         },
+        "post_hoc": post_hoc_record,
     }
 
     _assert_finite(params["coefficients"], "coefficients")
     _assert_finite(params["residual_sd"], "residual_sd")
     _assert_finite(params["outcome_tolerance"], "outcome_tolerance")
+    _assert_finite(params["gain_rule"], "gain_rule")
     _assert_finite(params["lag_rule"], "lag_rule")
     _assert_finite(params["metrics"], "metrics")
+    _assert_finite(params["post_hoc"], "post_hoc")
     return params
 
 
 def render_report(params: dict) -> str:
+    subject = params["subject"]
     data = params["data"]
     stage_b = params["metrics"]["stage_b"]
     overall = stage_b["overall"]
     median = stage_b["median_per_window"]
+    no_gain = stage_b["no_gain"]
+    no_gain_overall = no_gain["overall"]
+    no_gain_median = no_gain["median_per_window"]
     rule = params["lag_rule"]
+    gain_rule = params["gain_rule"]
+
+    def cell(metrics: dict, key: str) -> str:
+        value = metrics.get(key)
+        return "nan" if value is None else f"{value:.2f}"
 
     lines = [
-        f"# Wearable fit — subject {params['subject']}",
+        f"# Wearable fit — subject {subject} (these coefficients apply to "
+        f"{subject} only)",
+        "",
+        f"{params['applies_to']}.",
         "",
         f"Date range: {data['first_date']} to {data['last_date']} "
         f"({data['days']} days). These are one person's data, not a clinical "
@@ -850,17 +1117,30 @@ def render_report(params: dict) -> str:
         "",
         "## Stage B — workout windows (TEST)",
         "",
-        "| window | n | lagged | no-lag | hold pre |",
+        "| window | n | shipped | no_gain | hold pre |",
         "| --- | ---: | ---: | ---: | ---: |",
-        f"| overall mean | {overall['n']} | {overall['lagged']:.2f} | "
-        f"{overall['no_lag']:.2f} | {overall['hold_pre']:.2f} |",
-        f"| median per window | {overall['n']} | {median['lagged']:.2f} | "
-        f"{median['no_lag']:.2f} | {median['hold_pre']:.2f} |",
+        f"| overall mean | {overall['n']} | {cell(overall, 'shipped')} | "
+        f"{cell(no_gain_overall, 'no_gain')} | "
+        f"{cell(overall, 'hold_pre')} |",
+        f"| median per window | {overall['n']} | {cell(median, 'shipped')} | "
+        f"{cell(no_gain_median, 'no_gain')} | "
+        f"{cell(median, 'hold_pre')} |",
     ]
-    for label, metrics in stage_b["per_type"].items():
+    labels = sorted(
+        set(stage_b["per_type"]) | set(no_gain["per_type"])
+    )
+    for label in labels:
+        shipped_metrics = stage_b["per_type"].get(label)
+        no_gain_metrics = no_gain["per_type"].get(label)
+        n = (
+            shipped_metrics["n"] if shipped_metrics is not None
+            else no_gain_metrics["n"]
+        )
         lines.append(
-            f"| {label} | {metrics['n']} | {metrics['lagged']:.2f} | "
-            f"{metrics['no_lag']:.2f} | {metrics['hold_pre']:.2f} |"
+            f"| {label} | {n} | "
+            f"{cell(shipped_metrics or {}, 'shipped')} | "
+            f"{cell(no_gain_metrics or {}, 'no_gain')} | "
+            f"{cell(shipped_metrics or no_gain_metrics or {}, 'hold_pre')} |"
         )
     lines.extend([
         "",
@@ -873,16 +1153,48 @@ def render_report(params: dict) -> str:
         f"bpm; HR_level alone {params['metrics']['stage_a']['hr_level_mae']:.2f} "
         f"bpm.",
         "",
+        "## Gain rule",
+        "",
+        f"TEST workout MAE without gains {gain_rule['without_gains_test_mae']:.2f} "
+        f"bpm vs with gains {gain_rule['with_gains_test_mae']:.2f} bpm; the "
+        f"rule required at least {gain_rule['threshold_bpm']:.1f} bpm "
+        f"improvement, so "
+        f"{'it passed and the fitted per-type gains shipped' if gain_rule['passed'] else 'it did not pass and every gain shipped as 1.0'}.",
+        "",
         "## Lag rule",
         "",
-        f"Lagged TEST MAE {rule['lagged_test_mae']:.2f} bpm vs no-lag "
+        f"Evaluated with the gains "
+        f"{'free' if gain_rule['passed'] else 'held at 1.0'} "
+        f"({rule['gain_setting']}): lagged TEST MAE "
+        f"{rule['lagged_test_mae']:.2f} bpm vs no-lag "
         f"{rule['no_lag_test_mae']:.2f} bpm; the rule required at least "
         f"{rule['threshold_bpm']:.1f} bpm improvement, so "
-        f"{'it passed and the lagged coefficients shipped' if rule['passed'] else 'it did not pass and the no-lag coefficients shipped with both taus set to zero'}.",
+        f"{'it passed and the lagged coefficients' if rule['passed'] else 'it did not pass and the no-lag coefficients, both taus zero,'} "
+        f"{'were the rules choice (overridden below)' if params.get('post_hoc') else 'shipped'}.",
         "",
+    ])
+    post_hoc = params.get("post_hoc")
+    if post_hoc:
+        minutes = post_hoc["all_test_minutes_mae"]
+        windows = post_hoc["test_window_mae"]
+        lines.extend([
+            "## Post-hoc choice",
+            "",
+            f"The rules chose {post_hoc['rules_chose']}; the "
+            f"{post_hoc['shipped']} model shipped instead, decided "
+            f"{post_hoc['decided']}, on {post_hoc['decided_at']}. Reason: "
+            f"{post_hoc['reason']}",
+            "",
+            f"Every TEST minute: rules' choice {minutes['rules_choice']:.2f} bpm, "
+            f"shipped {minutes['full']:.2f} bpm. TEST workout windows: rules' "
+            f"choice {windows['rules_choice']:.2f} bpm, shipped "
+            f"{windows['full']:.2f} bpm.",
+            "",
+        ])
+    lines.extend([
         "## Shipped coefficients",
         "",
-        "| coefficient | value |",
+        f"| coefficient | {subject}'s value |",
         "| --- | ---: |",
     ])
     for name in COEFFICIENT_NAMES:
@@ -904,11 +1216,21 @@ def main(argv=None) -> int:
                         help="Directory holding <subject>/<date>.json bundles.")
     parser.add_argument("--subject", required=True,
                         help="Subject folder name to fit.")
+    parser.add_argument("--post-hoc", choices=list(POST_HOC_CHOICES),
+                        help="Override the pre-registered rules and ship this "
+                             "model; recorded in params.json as post-hoc.")
+    parser.add_argument("--post-hoc-reason",
+                        help="Why the rules are overridden (required with "
+                             "--post-hoc).")
     args = parser.parse_args(argv)
+    if args.post_hoc and not (args.post_hoc_reason or "").strip():
+        parser.error("--post-hoc needs --post-hoc-reason: say why the "
+                     "pre-registered rules are overridden.")
 
     days = load_days(Path(args.bundle_dir), args.subject)
     seed = _default_seed(load_twin(WEARABLE_XML))
-    params = fit(days, seed)
+    params = fit(days, seed, post_hoc=args.post_hoc,
+                 post_hoc_reason=args.post_hoc_reason)
 
     target = Path(args.bundle_dir) / args.subject
     params_path = target / "params.json"

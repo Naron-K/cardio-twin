@@ -24,6 +24,10 @@ EXPECTED = {
     "hour_local": "clock.hour",
     "dt_s": "clock.dt_s",
     "HR_level": "day.hr_level_rts",
+    # The kind of workout, as 0/1 indicators read from the recorded label.
+    "is_walk": "sample.workout in Walking",
+    "is_strength": "sample.workout in TraditionalStrengthTraining, FunctionalStrengthTraining, CoreTraining",
+    "is_cardio": "sample.workout in StairClimbing, Elliptical, Running, Cycling, HighIntensityIntervalTraining, Rowing",
 }
 
 
@@ -73,6 +77,60 @@ def test_a_field_that_could_never_resolve_is_refused(tmp_path, field):
     <attribute id="x"><name>X</name><unit>1</unit><source>SENSOR</source>
       <physio_min>0</physio_min><physio_max>1</physio_max>
       <replay_field>{field}</replay_field></attribute>""")
+
+
+def test_a_membership_field_names_its_labels():
+    from universal_twin import parse_replay_field
+
+    assert parse_replay_field("sample.hr") == ("sample.hr", None)
+    assert parse_replay_field("sample.workout in Walking, Running") == (
+        "sample.workout", frozenset({"Walking", "Running"})
+    )
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "sample.workout in",                 # no labels
+        "sample.workout in Walking,,Run",    # empty label
+        "sample.workout in Walk ing",        # space inside a label
+        "sample.workout in Run, Run",        # repeated
+        "clock.hour in Morning",             # the clock has no labels
+        "samples.workout in Walking",        # unknown source
+    ],
+)
+def test_a_malformed_membership_field_is_refused(tmp_path, field):
+    with pytest.raises(ValueError, match="replay_field"):
+        _load(tmp_path, f"""
+    <attribute id="x"><name>X</name><unit>1</unit><source>SENSOR</source>
+      <physio_min>0</physio_min><physio_max>1</physio_max>
+      <replay_field>{field}</replay_field></attribute>""")
+
+
+def test_a_membership_field_replays_as_one_or_zero(tmp_path):
+    # The demo day walks 08:00-08:30 and lifts 17:30-18:15; nothing at 10:00.
+    import json
+
+    from signal_source import ReplaySource
+
+    twin = _load(tmp_path, """
+    <attribute id="walking"><name>W</name><unit>1</unit><source>SENSOR</source>
+      <physio_min>0</physio_min><physio_max>1</physio_max>
+      <replay_field>sample.workout in Walking</replay_field></attribute>
+    <attribute id="lifting"><name>L</name><unit>1</unit><source>SENSOR</source>
+      <physio_min>0</physio_min><physio_max>1</physio_max>
+      <replay_field>sample.workout in TraditionalStrengthTraining, CoreTraining</replay_field></attribute>""")
+    bundle = json.loads(
+        (LAMINA_DIR / "bundles" / "demo" / "2025-06-01.json").read_text()
+    )
+    source = ReplaySource(twin, bundle)
+    seen = {}
+    for minute in range(1440):
+        readings = source.next()
+        if minute in (8 * 60 + 10, 10 * 60, 17 * 60 + 40):
+            seen[minute] = (readings["walking"], readings["lifting"])
+        assert "walking" not in source.last_missing  # a label is never a gap
+    assert seen == {490: (1.0, 0.0), 600: (0.0, 0.0), 1060: (0.0, 1.0)}
 
 
 def test_only_the_measured_heart_rate_is_observed():

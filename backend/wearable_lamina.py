@@ -24,6 +24,13 @@ expected to replace them later.  That is also why step_rate is declared but
 unused: activity reaches the heart-rate model through AE_rate, and adding a
 second path before the first is fitted would be guessing.
 
+A workout's kind reaches the drive through one gain per kind.  The three
+indicators and the three gains are SENSORs, so the XML names the categories
+and the Python never names a workout type: activity_gain selects the gain the
+recording set and passes it to hr_drive, which multiplies the drive by it.
+With no workout every indicator is zero and the gain is one, so a minute that
+is not a workout is unchanged.
+
 The lamina is no longer lag-free.  HR_model approaches its target with the
 heart rate's own first-order lag, and kcal_active_cum accumulates the day's
 active energy, so both carry state from one minute to the next.  That state
@@ -43,7 +50,11 @@ GUARDS
 Every function refuses None, NaN and infinity by name.  A wrong input must
 fail loudly: a confident-looking heart rate computed from a missing reading
 is worse than an attribute the engine can mark stale.  hr_drive additionally
-refuses a negative AE_rate, a fractional power of which is not a heart rate.
+refuses a negative AE_rate, a fractional power of which is not a heart rate,
+and a non-positive g_activity, which would claim activity does not drive the
+heart.  activity_gain refuses an indicator outside [0, 1] and two indicators
+at once: a minute cannot be two kinds of workout, and adding their gains
+would invent a fourth kind nobody declared.
 
 The input checks are imported from metabolic_lamina rather than redefined:
 that module's _require already rejects None, NaN and infinity, and _arity
@@ -67,7 +78,9 @@ class WearableLamina(UniversalTwin):
                                                             ├─▶ HR_residual
         A_circ, phi_circ, hour_local ──▶ HR_circ ──┐        │
         k_T, T_app, T_ref ──▶ HR_thermal ──────────┼─▶ HR_target ──▶ HR_model
-        k_I, AE_rate, p_I ──▶ HR_drive ────────────┘
+        is_walk, is_strength, is_cardio,           │
+        g_walk, g_strength, g_cardio ──▶ g_activity┤
+        k_I, AE_rate, p_I, g_activity ──▶ HR_drive ┘
         AE_rate, dt_s, hour_local ──▶ kcal_active_cum
 
     The forward chain is a straight line in one operating point.  It states
@@ -84,6 +97,7 @@ class WearableLamina(UniversalTwin):
         self._function_registry["vo2_estimate"] = self._calc_vo2_estimate
         self._function_registry["hr_circadian"] = self._calc_hr_circadian
         self._function_registry["hr_thermal"] = self._calc_hr_thermal
+        self._function_registry["activity_gain"] = self._calc_activity_gain
         self._function_registry["hr_drive"] = self._calc_hr_drive
         self._function_registry["hr_target"] = self._calc_hr_target
         self._function_registry["hr_model"] = self._calc_hr_model
@@ -191,23 +205,76 @@ class WearableLamina(UniversalTwin):
         _require(k_T=gain, T_app=t_app, T_ref=t_ref)
         return gain * max(0.0, t_app - t_ref)
 
+    def _calc_activity_gain(self, inputs: list) -> float:
+        """
+        g_activity = 1 + (g_walk - 1)*is_walk + (g_strength - 1)*is_strength
+                       + (g_cardio - 1)*is_cardio   (1)
+
+        Selects this person's gain for the kind of workout the minute is in.
+        With no workout all three indicators are zero and the gain is one, so
+        a minute that is not a workout is unchanged.  The XML names the
+        categories through the indicators, so no workout type appears here.
+
+        Each indicator must be 0 or 1: a value outside [0, 1] is a unit or
+        wiring error, not a partial workout.  Two indicators at once are
+        refused rather than added — a minute cannot be two kinds of workout,
+        and summing their gains would invent a fourth kind nobody declared.
+        inputs: [is_walk, is_strength, is_cardio, g_walk, g_strength, g_cardio]
+        """
+        _arity(inputs, 6,
+               "is_walk, is_strength, is_cardio, g_walk, g_strength, g_cardio")
+        is_walk, is_strength, is_cardio, g_walk, g_strength, g_cardio = inputs
+        _require(is_walk=is_walk, is_strength=is_strength, is_cardio=is_cardio,
+                 g_walk=g_walk, g_strength=g_strength, g_cardio=g_cardio)
+        indicators = {
+            "is_walk": is_walk,
+            "is_strength": is_strength,
+            "is_cardio": is_cardio,
+        }
+        for name, value in indicators.items():
+            if value < 0.0 or value > 1.0:
+                raise ValueError(
+                    f"{name}={value} is outside [0, 1]. An indicator is 1 "
+                    f"during a minute of that kind of workout and 0 "
+                    f"otherwise; a fractional or out-of-range value is a "
+                    f"unit or wiring error."
+                )
+        active = [name for name, value in indicators.items() if value > 0.0]
+        if len(active) > 1:
+            raise ValueError(
+                f"{', '.join(active)} are all set for this minute; a minute "
+                f"cannot be two kinds of workout at once. Refusing to add "
+                f"gains for a combination the recording never declared."
+            )
+        return (
+            1.0
+            + (g_walk - 1.0) * is_walk
+            + (g_strength - 1.0) * is_strength
+            + (g_cardio - 1.0) * is_cardio
+        )
+
     def _calc_hr_drive(self, inputs: list) -> float:
         """
-        HR_drive = k_I * AE_rate ** p_I   (bpm)
+        HR_drive = k_I * g_activity * AE_rate ** p_I   (bpm)
 
-        Activity energy turned into a heart-rate drive.  The exponent makes
-        the first minutes of activity count for more than later minutes at
-        the same rate.
+        Activity energy turned into a heart-rate drive, scaled by the gain for
+        this minute's workout kind.  The exponent makes the first minutes of
+        activity count for more than later minutes at the same rate.
 
         A negative AE_rate is refused rather than exponentiated: a
         fractional power of a negative number is not a heart rate, and the
         error would surface as a complex or NaN value further along where
-        it is harder to attribute.
-        inputs: [k_I, AE_rate, p_I]
+        it is harder to attribute.  A g_activity of zero or less is refused
+        too: a gain that small would claim activity does not drive the
+        heart, which is the opposite of what the model declares.
+        inputs: [k_I, AE_rate, p_I, g_activity]
         """
-        _arity(inputs, 3, "k_I, AE_rate, p_I")
-        gain, ae_rate, exponent = inputs[0], inputs[1], inputs[2]
-        _require(k_I=gain, AE_rate=ae_rate, p_I=exponent)
+        _arity(inputs, 4, "k_I, AE_rate, p_I, g_activity")
+        gain, ae_rate, exponent, activity_gain = (
+            inputs[0], inputs[1], inputs[2], inputs[3]
+        )
+        _require(k_I=gain, AE_rate=ae_rate, p_I=exponent,
+                 g_activity=activity_gain)
         if ae_rate < 0.0:
             raise ValueError(
                 f"AE_rate={ae_rate} is negative. A fractional power of a "
@@ -215,7 +282,13 @@ class WearableLamina(UniversalTwin):
                 f"or wiring error, and hr_drive must not report a complex "
                 f"or NaN drive as though it were a measurement."
             )
-        return gain * (ae_rate ** exponent)
+        if activity_gain <= 0.0:
+            raise ValueError(
+                f"g_activity={activity_gain} is not positive. The activity "
+                f"gain multiplies the drive and must stay above zero; zero "
+                f"or negative would claim activity does not drive the heart."
+            )
+        return gain * activity_gain * (ae_rate ** exponent)
 
     def _calc_hr_target(self, inputs: list) -> float:
         """

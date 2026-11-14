@@ -347,6 +347,14 @@ def test_written_xml_round_trips_with_the_medians(tmp_path):
         # scenario rests where this person does (the clean bundle is 62).
         assert sensors["HR_level"] == pytest.approx(62.0)
         assert summary["hr_level"] == pytest.approx(62.0)
+        # A workout state carries its kind, so a scenario applies that
+        # kind's activity gain; rest states carry none.
+        expected = {"walk": "is_walk", "vigorous": "is_cardio"}.get(summary["name"])
+        for indicator in ("is_walk", "is_strength", "is_cardio"):
+            if indicator == expected:
+                assert sensors[indicator] == pytest.approx(1.0)
+            else:
+                assert indicator not in sensors
 
         root = ET.fromstring(text)
         metadata = root.find("metadata")

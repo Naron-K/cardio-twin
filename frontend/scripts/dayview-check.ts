@@ -166,43 +166,44 @@ assert.equal(clock(Number.NaN), '')
 assert.equal(clock(Number.POSITIVE_INFINITY), '')
 
 // ── Verdicts ─────────────────────────────────────────────────────────────────
+// The verdict is a number: measured minus modelled, then the same distance in
+// model SDs.  The level only picks the colour.
 
 assert.deepEqual(
   verdictText({ verdict: 'as_expected', difference: 1.5, n_paired: 8 }, 5, 'bpm'),
-  { tone: 'ok', text: 'As expected' },
+  { tone: 'ok', text: '+1.5 bpm · 0.3 SD' },
 )
 assert.deepEqual(
   verdictText({ verdict: 'slightly_higher', difference: 7.4, n_paired: 8 }, 10, 'bpm'),
-  { tone: 'slight', text: 'Slightly higher than expected by 7 bpm' },
+  { tone: 'slight', text: '+7.4 bpm · 0.7 SD' },
 )
 assert.deepEqual(
   verdictText({ verdict: 'slightly_lower', difference: -7.4, n_paired: 8 }, 10, 'bpm'),
-  { tone: 'slight', text: 'Slightly lower than expected by 7 bpm' },
+  { tone: 'slight', text: '−7.4 bpm · 0.7 SD' },
 )
 assert.deepEqual(
   verdictText({ verdict: 'higher', difference: 13.2, n_paired: 8 }, 10, 'bpm'),
-  { tone: 'off', text: 'Higher than expected by 13 bpm' },
+  { tone: 'off', text: '+13.2 bpm · 1.3 SD' },
 )
 assert.deepEqual(
   verdictText({ verdict: 'lower', difference: -13.2, n_paired: 8 }, 10, 'bpm'),
-  { tone: 'off', text: 'Lower than expected by 13 bpm' },
+  { tone: 'off', text: '−13.2 bpm · 1.3 SD' },
 )
 assert.deepEqual(
   verdictText({ verdict: 'too_few', difference: null, n_paired: 2 }, 10, 'bpm'),
-  { tone: 'none', text: 'Too few readings to compare' },
+  { tone: 'none', text: 'n < 3' },
 )
+
+// No unit and no usable SD drop their parts rather than printing junk.
+assert.equal(verdictText({ verdict: 'higher', difference: 13.2, n_paired: 8 }, 10, '').text, '+13.2 · 1.3 SD')
+assert.equal(verdictText({ verdict: 'higher', difference: 13.2, n_paired: 8 }, 0, 'bpm').text, '+13.2 bpm')
+assert.equal(verdictText({ verdict: 'as_expected', difference: 0, n_paired: 8 }, 10, 'bpm').text, '±0.0 bpm · 0.0 SD')
 
 // Without a declared level the same three levels come from the difference,
 // the pair count and the model's usual error.
-assert.equal(verdictText({ difference: 2, n_paired: 5 }, 10, 'bpm').text, 'As expected')
-assert.equal(
-  verdictText({ difference: 6, n_paired: 5 }, 10, 'bpm').text,
-  'Slightly higher than expected by 6 bpm',
-)
-assert.equal(
-  verdictText({ difference: 12, n_paired: 5 }, 10, 'bpm').text,
-  'Higher than expected by 12 bpm',
-)
+assert.equal(verdictText({ difference: 2, n_paired: 5 }, 10, 'bpm').tone, 'ok')
+assert.equal(verdictText({ difference: 6, n_paired: 5 }, 10, 'bpm').tone, 'slight')
+assert.equal(verdictText({ difference: 12, n_paired: 5 }, 10, 'bpm').tone, 'off')
 assert.equal(verdictText({ difference: 12, n_paired: 2 }, 10, 'bpm').tone, 'none')
 
 // ── Group colours ────────────────────────────────────────────────────────────

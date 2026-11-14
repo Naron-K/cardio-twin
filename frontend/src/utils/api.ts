@@ -1,63 +1,51 @@
 import axios from 'axios'
 import { parseDaySummary } from '../twin/dayView'
 import type { DaySummary } from '../twin/dayView'
-import type { LaminaSchema } from '../twin/schema'
-import { parseSources } from '../twin/sourceBar'
-import type { SourcesResponse } from '../twin/sourceBar'
+import { parseSources } from '../twin/sources'
+import type { SourcesResponse } from '../twin/sources'
 
-export type { PresetSource, ReplaySources, SourcesResponse } from '../twin/sourceBar'
+export type { DayRoute, ReplaySources, SourcesResponse } from '../twin/sources'
 
-// The schema payload is described once, in twin/schema.ts, because the
-// dashboard is built entirely out of it and a second partial copy here is how
-// the two drift apart.
-export type Schema = LaminaSchema
-
-/**
- * One lamina this backend can serve.  `implemented` is false where the XML
- * declares a structure whose arithmetic nobody has written: it loads, draws its
- * whole shape, and shows a dash on every computed node.  That is a legitimate
- * thing to open, so it is offered and marked rather than hidden.
- */
-export interface LaminaOption {
-  id: string
-  name: string
-  level: number
-  file: string
-  implemented: boolean
-}
-
-export interface LaminaeResponse {
-  laminae: LaminaOption[]
-  /** The one a request naming no lamina will get. */
+interface LaminaeResponse {
+  laminae: { id: string }[]
   default: string
 }
 
-export async function fetchLaminae(): Promise<LaminaeResponse> {
-  const res = await axios.get<LaminaeResponse>('/api/laminae')
-  return res.data
+/**
+ * The lamina whose XML declares a `<day_view>`, or null when none does.  The
+ * page names no lamina itself: it asks each one, the backend's default first,
+ * and takes the first that can describe a day.
+ */
+export async function findDayLamina(): Promise<string | null> {
+  const { data } = await axios.get<LaminaeResponse>('/api/laminae')
+  const ids = Array.isArray(data?.laminae)
+    ? data.laminae
+        .map((entry) => entry?.id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+    : []
+  const ordered = ids.includes(data.default)
+    ? [data.default, ...ids.filter((id) => id !== data.default)]
+    : ids
+
+  const schemas = await Promise.all(
+    ordered.map((id) =>
+      axios
+        .get<unknown>('/api/schema', { params: { lamina: id } })
+        .then((res) => res.data)
+        .catch(() => null),
+    ),
+  )
+  const index = schemas.findIndex((schema) => {
+    if (typeof schema !== 'object' || schema === null) return false
+    const roles = (schema as Record<string, unknown>).day_view
+    return typeof roles === 'object' && roles !== null
+  })
+  return index >= 0 ? ordered[index] : null
 }
 
-/**
- * The structure of one lamina.  Pass the id the socket was opened with, never
- * a different one and never nothing-when-the-socket-had-something: the guard in
- * the dashboard can only hold if both halves were told the same thing.
- */
-export async function fetchSchema(laminaId?: string | null): Promise<Schema> {
-  const res = await axios.get<Schema>('/api/schema', {
-    params: laminaId ? { lamina: laminaId } : undefined,
-  })
-  return res.data
-}
-
-/**
- * Which feeds one lamina can stream and which recorded days exist.  The body
- * is checked field by field before it is returned, so a malformed response is
- * an offer with nothing in it rather than a shape the bar reads blindly.
- */
-export async function fetchSources(laminaId?: string | null): Promise<SourcesResponse> {
-  const res = await axios.get<unknown>('/api/sources', {
-    params: laminaId ? { lamina: laminaId } : undefined,
-  })
+/** The recorded days one lamina can replay, checked field by field. */
+export async function fetchSources(laminaId: string): Promise<SourcesResponse> {
+  const res = await axios.get<unknown>('/api/sources', { params: { lamina: laminaId } })
   return parseSources(res.data)
 }
 
@@ -80,8 +68,7 @@ function dayMessage(data: unknown): string | null {
 /**
  * One recorded day, replayed by the server and checked field by field.  A
  * 400 (the lamina has no day view, or a bad parameter) and a 404 (no such
- * day) become an Error carrying the server's message, so the screen can
- * show the reason rather than a generic failure.
+ * day) become an Error carrying the server's message.
  */
 export async function fetchDay(
   lamina: string,

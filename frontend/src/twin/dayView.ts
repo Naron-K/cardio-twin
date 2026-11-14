@@ -558,7 +558,8 @@ export interface VerdictSubject {
 }
 
 /**
- * The verdict in words, at the three levels of DAY_VIEW_PLAN.md section 3.
+ * The verdict as a number, coloured at the three levels of DAY_VIEW_PLAN.md
+ * section 3: "+7.4 bpm · 0.7 SD", or "n < 3" with too few paired minutes.
  * The backend's own level is trusted when present; otherwise it is derived
  * from the difference, the pair count and the model's usual error.
  */
@@ -601,21 +602,18 @@ export function verdictText(
   }
 
   if (level === 'too_few' || difference === null) {
-    return { tone: 'none', text: 'Too few readings to compare' }
-  }
-  if (level === 'as_expected') {
-    return { tone: 'ok', text: 'As expected' }
+    return { tone: 'none', text: 'n < 3' }
   }
 
-  const higher = level === 'slightly_higher' || level === 'higher'
-  const slightly = level === 'slightly_higher' || level === 'slightly_lower'
+  // Measured minus modelled, signed, then the same distance in model SDs.
+  const sign = difference > 0 ? '+' : difference < 0 ? '−' : '±'
   const suffix = unit ? ` ${unit}` : ''
-  const word = higher ? 'Higher' : 'Lower'
-  const amount = Math.round(Math.abs(difference))
-  const text = slightly
-    ? `Slightly ${word.toLowerCase()} than expected by ${amount}${suffix}`
-    : `${word} than expected by ${amount}${suffix}`
+  const usual = typeof sd === 'number' && Number.isFinite(sd) && sd > 0 ? sd : 0
+  const inSd = usual > 0 ? ` · ${(Math.abs(difference) / usual).toFixed(1)} SD` : ''
+  const text = `${sign}${Math.abs(difference).toFixed(1)}${suffix}${inSd}`
 
+  if (level === 'as_expected') return { tone: 'ok', text }
+  const slightly = level === 'slightly_higher' || level === 'slightly_lower'
   return { tone: slightly ? 'slight' : 'off', text }
 }
 

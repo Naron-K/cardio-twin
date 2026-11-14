@@ -17,21 +17,21 @@ function groupBackground(index: number): string {
 }
 
 export function DayLegend({ day }: Props) {
-  const sd = Math.round(day.model.sd)
+  const sd = Number.isInteger(day.model.sd) ? String(day.model.sd) : day.model.sd.toFixed(1)
 
   return (
     <div className="flex flex-wrap items-center gap-x-[18px] gap-y-2 font-body text-[13px] text-ink/70">
       <span className="flex items-center gap-1.5">
         <span className="inline-block h-0 w-[22px] border-t-[3px] border-day-measured align-middle" />
-        Measured {day.pair.label.toLowerCase()}
+        Measured
       </span>
       <span className="flex items-center gap-1.5">
         <span className="inline-block h-0 w-[22px] border-t-[3px] border-dashed border-day-model align-middle" />
-        Expected by the model (estimate)
+        Model
       </span>
       <span className="flex items-center gap-1.5">
         <span className="inline-block h-3 w-[22px] rounded-sm bg-day-band align-middle" />
-        Model ± {sd} {day.pair.unit} (its usual error)
+        ±1 SD ({sd} {day.pair.unit})
       </span>
       {day.events.map((event, index) => (
         <span key={`${event.group}-${index}`} className="flex items-center gap-1.5">

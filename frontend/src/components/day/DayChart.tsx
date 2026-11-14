@@ -97,10 +97,9 @@ export function DayChart({
   const hasMeasured = day.pair.measured.some((value) => isFiniteNumber(value))
 
   if (!hasMeasured) {
-    const label = day.pair.label.toLowerCase().replace(/\s+/g, '-')
     return (
       <p className="rounded-el border border-white/10 bg-surface-lowest/60 px-3 py-2 font-body text-[13px] text-ink/70">
-        No {label} readings on this day
+        {day.pair.label}: no data
       </p>
     )
   }
@@ -179,7 +178,7 @@ export function DayChart({
                 className="fill-ink"
                 fillOpacity={0.7}
               >
-                Watch not worn · no data
+                No data
               </text>
             )}
           </g>

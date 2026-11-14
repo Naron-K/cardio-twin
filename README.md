@@ -11,18 +11,16 @@ CardioTwin is a browser-based physiological digital twin for the cardiovascular 
 
 ## Overview
 
-The app is a single dashboard, read left to right the way the data travels:
+> **This branch (`feature/wearable-lamina`) is the Day view only.** The page opens straight on one recorded day for a specialist (cardiologist, nutritionist, coach) to read. The full modelling dashboard (animated heart, inputs, outcomes, feedback loop, Inspect) lives on `deploy/render-touch-board` and `main`; the backend here is unchanged and still serves every lamina and the live stream.
 
-1. **Data sources** — the lamina's inputs, grouped by the ingestion channel each one is mapped to, with a slider per input
-2. **Digital twin** — what the model computes from them every cycle, shown as an animated heart, a trend per computed attribute, or a table of inputs beside outputs
-3. **Outcomes** — each behavioural outcome against the target and tolerance the model declares
-4. **Over time** — total distance from the targets, with the feedback loop on and with it off
+The page shows one person's day:
 
-Everything on screen is built from the lamina XML and the live model state; the UI holds no attribute names, units or thresholds of its own. The functions, segments, feedback loop, composites and pipeline configuration are one click away under **Inspect**.
+- **The day in numbers**: active energy, steps, sessions, heart rate outside sessions (median), peak heart rate, share of minutes within ±1 SD of the model, wear time.
+- **Whole day**: measured heart rate against the model's expectation with its ±1 SD band, sessions coloured by kind and no-data hours shaded, with active energy and steps per 10 minutes underneath.
+- **Selected session**: the session enlarged, with mean, model, Δ measured − model (in the unit and in SDs), peak and the session's energy and steps.
+- **Sessions**: every session with its mean and Δ, coloured by how far it is from the model.
 
-The **Daily Activity** lamina (`lamina_wearable`) can also replay a recorded day minute by minute, or hold a scenario (sleep, rest, desk work, walk, vigorous). For a replayed day it adds a fourth form, **Day**, written for a specialist rather than a modeller: a one-line summary, the day in numbers, measured heart rate beside the model's expectation with workouts and no-data hours marked, and each session with a verdict against the model's usual error. Which attribute plays which part on that screen is declared in the lamina's `<day_view>` block, so the screen still names no attribute of its own. The model's numbers are estimates, labelled as such, and fitted coefficients apply only to the person they were fitted on.
-
-Other laminae's readings are generated around the baselines the XML declares, and the dashboard says so.
+Pick the subject and the day at the top right; the URL (`?subject=…&date=…`) reopens the same day. Which attribute plays which part is declared in the lamina's `<day_view>` block, so the page names no attribute of its own. The model's numbers are estimates, and fitted coefficients apply only to the person they were fitted on.
 
 ---
 
@@ -68,13 +66,11 @@ cardio-twin/
 │
 ├── frontend/
 │   └── src/
-│       ├── App.tsx                # The one screen, and its URL state
-│       ├── components/
-│       │   ├── dashboard/         # The dashboard: zones, tiles, trends, table, Inspect drawer
-│       │   └── twin/              # Panels the dashboard and Inspect are built from
-│       ├── hooks/                 # Live stream + per-lamina structure
-│       ├── twin/                  # Schema index, view registry, stage template, outcome helpers
-│       └── utils/api.ts           # /api/laminae and /api/schema client
+│       ├── App.tsx                # The page: header, subject and day pickers, URL state
+│       ├── components/day/        # Day view: figures, whole-day chart, rate strip, sessions
+│       ├── twin/dayView.ts        # Parses and checks /api/day; verdicts, clock, bins
+│       ├── twin/sources.ts        # Recorded days on offer, and the day the URL names
+│       └── utils/api.ts           # /api/laminae, /api/sources and /api/day client
 │
 ├── presets/                       # Example patient XML files
 ├── test_dataset/                  # Synthetic patient profiles
@@ -83,7 +79,7 @@ cardio-twin/
     └── design/                    # Working plans and decisions from each development phase
 ```
 
-**Stack:** Python 3.10+ / FastAPI — React 19 / Vite / TypeScript / TailwindCSS / Recharts
+**Stack:** Python 3.10+ / FastAPI — React 19 / Vite / TypeScript / TailwindCSS
 
 ---
 
@@ -117,6 +113,8 @@ npm run dev
 The application will be available at `http://localhost:5173`.
 
 ### 3. Presenting on a big screen
+
+_Describes the full dashboard on `deploy/render-touch-board`; this branch serves the Day view only._
 
 For a talk or a long-running demo, serve the production build instead of the
 dev server:
@@ -208,6 +206,8 @@ docker run -p 8000:8000 cardio-twin
 ```
 
 ### 5. On the LG CreateBoard (Android touch display)
+
+_Describes the full dashboard on `deploy/render-touch-board`; this branch serves the Day view only._
 
 Open the address in Chrome, then use **⋮ → Add to Home screen**. The shortcut
 opens the dashboard full screen, without the address bar. On the screen itself:

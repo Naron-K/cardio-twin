@@ -51,7 +51,7 @@ export class ErrorBoundary extends Component<Props, State> {
             <p className="font-mono text-[11px] font-bold readout uppercase text-crimson-container">
               Something went wrong
             </p>
-            <h1 className="font-display text-xl font-semibold mt-2">The dashboard stopped</h1>
+            <h1 className="font-display text-xl font-semibold mt-2">The page stopped</h1>
             <p className="mt-3 text-[14px] leading-relaxed text-ink/70">
               A part of the screen failed while drawing. Reloading starts it again from the
               server; nothing on the server was lost.

@@ -369,25 +369,19 @@ def _build(lamina_id: str, subject: str, date: str) -> dict:
     for spec in rate_specs:
         attr_id = spec["attribute"]
         total = day_rate_totals[attr_id]
-        recorded = sum(
-            1 for value in rate_values[attr_id] if value is not None
-        )
         kpis.append({
             "key": attr_id,
             "label": spec["label"],
             "value": total,
             "unit": attrs[attr_id].unit.replace("/min", "").strip(),
-            "note": (
-                f"sum over {recorded} minutes" if total is not None
-                else "no data"
-            ),
+            "note": "",
         })
 
     kpis.append({
         "key": "sessions",
         "label": "Sessions",
         "value": len(sessions),
-        "unit": "sessions",
+        "unit": "",
         "note": f"{total_session_minutes} min",
     })
 
@@ -403,12 +397,10 @@ def _build(lamina_id: str, subject: str, date: str) -> dict:
     ]
     kpis.append({
         "key": "quiet",
-        "label": f"{pair['label']} when quiet",
+        "label": f"{pair['label']} outside sessions",
         "value": _r(statistics.median(quiet)) if quiet else None,
         "unit": pair_unit,
-        "note": (
-            f"median of {len(quiet)} readings" if quiet else "no data"
-        ),
+        "note": f"median, n = {len(quiet)}" if quiet else "",
     })
 
     peak_minutes = [
@@ -418,7 +410,7 @@ def _build(lamina_id: str, subject: str, date: str) -> dict:
         peak_value, peak_index = max(peak_minutes, key=lambda item: item[0])
         peak_note = f"at {_clock_label(peak_index, bundle)}"
     else:
-        peak_value, peak_note = None, "no data"
+        peak_value, peak_note = None, ""
     kpis.append({
         "key": "peak",
         "label": f"Peak {pair['label'].lower()}",
@@ -434,13 +426,13 @@ def _build(lamina_id: str, subject: str, date: str) -> dict:
     if paired_all:
         within = sum(1 for a, b in paired_all if abs(a - b) <= sd)
         as_expected_value = 100.0 * within / len(paired_all)
-        as_expected_note = f"within ±{_plain(sd)} {pair_unit}"
+        as_expected_note = f"SD {_plain(sd)} {pair_unit}".strip()
     else:
         as_expected_value = None
-        as_expected_note = "no data"
+        as_expected_note = ""
     kpis.append({
         "key": "as_expected",
-        "label": "Readings as the model expected",
+        "label": "Within ±1 SD of model",
         "value": _r(as_expected_value),
         "unit": "%",
         "note": as_expected_note,
@@ -449,13 +441,10 @@ def _build(lamina_id: str, subject: str, date: str) -> dict:
     worn_minutes = sum(1 for present in worn_present if present)
     kpis.append({
         "key": "worn",
-        "label": "Watch worn",
+        "label": "Wear time",
         "value": _r(worn_minutes / 60.0) if worn_minutes else None,
         "unit": "h",
-        "note": (
-            f"measured on {worn_minutes} of {n_minutes} minutes"
-            if worn_minutes else "no data"
-        ),
+        "note": f"{worn_minutes} / {n_minutes} min" if worn_minutes else "",
     })
 
     rate_phrases = []

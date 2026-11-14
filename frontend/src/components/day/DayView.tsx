@@ -1,21 +1,21 @@
 /**
  * DayView — one recorded day, laid out for a specialist.
  *
- * Option C of the approved mockup: the day's KPIs on top, the whole day on
+ * Option C of the approved mockup: the day's figures on top, the whole day on
  * the left, the selected session enlarged on the right, and the session list
  * under it.  The endpoint is replayed once per (lamina, subject, date); picking
  * another session only changes what is drawn, never what is requested.
  *
- * Every attribute name, unit and colour group comes from the day summary and
- * the schema.  Nothing in this file names a measurement, and a malformed or
- * failed response becomes the error state rather than a half-drawn page.
+ * Every attribute name, unit and colour group comes from the day summary.
+ * Nothing in this file names a measurement, and a malformed or failed
+ * response becomes the error state rather than a half-drawn page.
  */
 import { useEffect, useState } from 'react'
 import { fetchDay } from '../../utils/api'
 import type { DaySummary } from '../../twin/dayView'
 import { clock, groupColourIndex, verdictText } from '../../twin/dayView'
 import type { VerdictTone } from '../../twin/dayView'
-import { Chip, Panel } from '../twin/ui'
+import { Panel } from '../ui'
 import { DayChart } from './DayChart'
 import { DayLegend } from './DayLegend'
 import { RateStrip } from './RateStrip'
@@ -24,6 +24,8 @@ interface Props {
   lamina: string
   subject: string
   date: string
+  /** Told the loaded day, so the page header can show its zone and origin. */
+  onDay?: (day: DaySummary) => void
 }
 
 type LoadState =
@@ -70,7 +72,12 @@ function sdFigure(sd: number): string {
   return Number.isInteger(sd) ? String(sd) : sd.toFixed(1)
 }
 
-export function DayView({ lamina, subject, date }: Props) {
+/** A unit the label already says ("12,503" over "Steps") is left off. */
+function kpiUnit(label: string, unit: string): string {
+  return unit && !label.toLowerCase().includes(unit.toLowerCase()) ? unit : ''
+}
+
+export function DayView({ lamina, subject, date, onDay }: Props) {
   const key = `${lamina}\u0000${subject}\u0000${date}`
   const [attempt, setAttempt] = useState(0)
   const [load, setLoad] = useState<LoadState>({
@@ -88,6 +95,7 @@ export function DayView({ lamina, subject, date }: Props) {
         if (!live) return
         setLoad({ key, attempt, status: 'ready', day })
         setSelectedIndex(0)
+        onDay?.(day)
       })
       .catch((error: unknown) => {
         if (!live) return
@@ -101,7 +109,7 @@ export function DayView({ lamina, subject, date }: Props) {
     return () => {
       live = false
     }
-  }, [lamina, subject, date, attempt, key])
+  }, [lamina, subject, date, attempt, key, onDay])
 
   // Tagged with its request, so a render between a change and the fetch that
   // answers it is loading — never the previous day drawn under new labels.
@@ -110,31 +118,32 @@ export function DayView({ lamina, subject, date }: Props) {
   if (!current || current.status === 'loading') {
     return (
       <p className="rounded-card border border-white/10 bg-surface-low/80 px-5 py-4 font-mono text-[13px] readout uppercase text-ink/60 animate-pulse">
-        Reading the day…
+        Loading…
       </p>
     )
   }
 
   if (current.status === 'error') {
-    // A day that does not exist is not fixed by retrying: say so in one line
-    // (the server lists every available day, far too much to show) and point
-    // at the picker. Anything else may be transient, so it keeps Retry.
+    // A day that does not exist is not fixed by retrying: the server lists
+    // every available day after "Available:", far too much to show.
     const missing = current.message.includes('Available:')
     const message = missing
-      ? `${current.message.split('Available:')[0].trim()} Pick an available day above.`
+      ? current.message.split('Available:')[0].trim()
       : current.message
     return (
       <div className="flex flex-col items-start gap-3 rounded-card border border-white/10 bg-surface-low/80 px-5 py-4">
         <p className={`font-body text-[15px] ${missing ? 'text-ink/80' : 'text-crimson-container'}`}>
           {message}
         </p>
-        {!missing && <button
-          type="button"
-          onClick={() => setAttempt((value) => value + 1)}
-          className="min-h-[44px] rounded-el border border-white/10 bg-surface-lowest px-4 font-mono text-[13px] font-bold readout uppercase text-ink/70 transition-colors hover:text-ink"
-        >
-          Retry
-        </button>}
+        {!missing && (
+          <button
+            type="button"
+            onClick={() => setAttempt((value) => value + 1)}
+            className="min-h-[44px] rounded-el border border-white/10 bg-surface-lowest px-4 font-mono text-[13px] font-bold readout uppercase text-ink/70 transition-colors hover:text-ink"
+          >
+            Retry
+          </button>
+        )}
       </div>
     )
   }
@@ -146,19 +155,15 @@ export function DayView({ lamina, subject, date }: Props) {
       ? -1
       : Math.max(0, Math.min(selectedIndex, sessions.length - 1))
   const session = selected >= 0 ? sessions[selected] : null
-  const modelNote = day.model.applies_to
-    ? `Fitted for ${day.model.applies_to}`
-    : 'Declared default coefficients — not fitted to this person'
-  const verdict = session
-    ? verdictText(session, day.model.sd, day.pair.unit)
-    : null
+  const unit = day.pair.unit
+  const verdict = session ? verdictText(session, day.model.sd, unit) : null
+  const sd = `±${sdFigure(day.model.sd)}${unit ? ` ${unit}` : ''}`
+  const modelLine = day.model.fitted
+    ? `Model fitted on ${day.subject} only · residual SD ${sd}`
+    : `Model with default coefficients · SD ${sd}`
 
   const wholeDay = (
-    <Panel
-      className="!p-5"
-      eyebrow="Whole day"
-      title={sessions.length > 0 ? 'Whole day — pick a session' : 'Whole day'}
-    >
+    <Panel className="!p-5" title="Whole day">
       <DayLegend day={day} />
       <div className="mt-2">
         {/* Full width when there is no session column beside it: a wider
@@ -178,51 +183,34 @@ export function DayView({ lamina, subject, date }: Props) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <p className="font-display text-[21px] font-semibold leading-snug text-ink">
-            {day.summary}
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            {day.synthetic && <Chip tone="warn">Synthetic day</Chip>}
-            <span className="font-body text-[13px] text-ink/70">{modelNote}</span>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap gap-3">
-          {day.kpis.map((kpi) => (
+      <section className="flex flex-wrap gap-3 rounded-card border border-white/10 bg-surface-low/80 p-4">
+        {day.kpis.map((kpi) => {
+          const kpiShownUnit = kpiUnit(kpi.label, kpi.unit)
+          return (
             <div
               key={kpi.key}
-              className="min-w-[160px] flex-1 rounded-el border border-white/10 bg-surface-lowest/60 px-4 py-3"
+              className="min-w-[130px] flex-1 rounded-el bg-surface-lowest/60 px-4 py-3"
             >
-              <p className="flex items-baseline gap-1.5">
-                <span className="font-mono text-[26px] font-bold leading-none tabular-nums text-ink">
-                  {figure(kpi.value)}
-                </span>
-                {kpi.unit && (
-                  <span className="font-mono text-[13px] readout text-ink/70">
-                    {kpi.unit}
-                  </span>
-                )}
+              <p className="font-mono text-[26px] font-bold leading-none tabular-nums text-ink">
+                {figure(kpi.value)}
+                {kpiShownUnit && (kpiShownUnit === '%' ? '%' : ` ${kpiShownUnit}`)}
               </p>
-              <p className="mt-1 font-body text-[13px] text-ink">{kpi.label}</p>
+              <p className="mt-2 font-body text-[13px] text-ink">{kpi.label}</p>
               {kpi.note && (
-                <p className="mt-0.5 font-body text-[13px] text-ink/60">
+                <p className="mt-0.5 font-mono text-[12px] tabular-nums text-ink/60">
                   {kpi.note}
                 </p>
               )}
             </div>
-          ))}
-        </div>
-      </div>
+          )
+        })}
+      </section>
 
       {sessions.length === 0 ? (
         <>
           {wholeDay}
-          <Panel className="!p-5" eyebrow="Sessions" title="Sessions">
-            <p className="font-body text-[13px] text-ink/70">
-              No session was recorded on this day
-            </p>
+          <Panel className="!p-5" title="Sessions · 0">
+            {null}
           </Panel>
         </>
       ) : (
@@ -233,7 +221,6 @@ export function DayView({ lamina, subject, date }: Props) {
             {session && (
               <Panel
                 className="!p-5"
-                eyebrow="Selected session"
                 title={`${session.label} · ${clock(session.start)}–${clock(session.end)}`}
               >
                 <DayChart
@@ -245,74 +232,84 @@ export function DayView({ lamina, subject, date }: Props) {
                   labels={false}
                 />
 
-                <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 font-body text-[13px]">
-                  <dt className="text-ink/60">Average {day.pair.label.toLowerCase()}</dt>
-                  <dd className="text-right font-mono tabular-nums text-ink">
-                    {figure(session.mean_measured, day.pair.unit)}
-                  </dd>
-                  <dt className="text-ink/60">Model expected</dt>
-                  <dd className="text-right font-mono tabular-nums text-ink">
-                    {figure(session.mean_modelled, day.pair.unit)}
-                  </dd>
-                  <dt className="text-ink/60">Peak</dt>
-                  <dd className="text-right font-mono tabular-nums text-ink">
-                    {figure(session.peak_measured, day.pair.unit)}
-                  </dd>
-                  {day.rates.map((rate) => (
-                    <FragmentRow
-                      key={rate.attribute}
-                      label={rate.label}
-                      value={figure(session.rate_totals[rate.attribute], rate.unit)}
-                    />
-                  ))}
-                </dl>
-
-                {verdict && (
-                  <p
-                    className={`mt-3 font-body text-[13px] ${TONE_CLASS[verdict.tone]}`}
-                  >
-                    {verdict.text}
+                <div
+                  className={`mt-3 rounded-el border-l-[5px] bg-surface-lowest/60 px-4 py-3 ${groupBorder(groupColourIndex(day, session.group))}`}
+                >
+                  <p className="font-display text-[17px] font-semibold text-ink">
+                    {session.label}
                   </p>
-                )}
+                  <p className="font-mono text-[13px] tabular-nums text-ink/60">
+                    {clock(session.start)}–{clock(session.end)} · {session.minutes} min
+                  </p>
+                  <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 font-body text-[13px]">
+                    <FragmentRow label="Mean" value={figure(session.mean_measured, unit)} />
+                    <FragmentRow label="Model" value={figure(session.mean_modelled, unit)} />
+                    {verdict && (
+                      <>
+                        <dt className="text-ink/60">Δ measured − model</dt>
+                        <dd
+                          className={`text-right font-mono font-bold tabular-nums ${TONE_CLASS[verdict.tone]}`}
+                        >
+                          {verdict.text}
+                        </dd>
+                      </>
+                    )}
+                    <FragmentRow label="Peak" value={figure(session.peak_measured, unit)} />
+                    {day.rates.map((rate) => (
+                      <FragmentRow
+                        key={rate.attribute}
+                        label={rate.label}
+                        value={figure(session.rate_totals[rate.attribute], rate.unit)}
+                      />
+                    ))}
+                  </dl>
+                </div>
               </Panel>
             )}
 
-            <Panel className="!p-5" eyebrow="Sessions" title="Sessions">
+            <Panel className="!p-5" title={`Sessions · ${sessions.length}`}>
               <div className="flex flex-col gap-2">
-                {sessions.map((entry, index) => (
-                  <button
-                    key={`${entry.start}-${entry.end}-${index}`}
-                    type="button"
-                    aria-pressed={selected === index}
-                    onClick={() => {
-                      if (index >= 0 && index < sessions.length) setSelectedIndex(index)
-                    }}
-                    className={`min-h-[44px] w-full rounded-el border-l-[5px] px-3 py-2 text-left font-body text-[13px] transition-colors ${groupBorder(groupColourIndex(day, entry.group))} ${
-                      selected === index
-                        ? 'bg-white/5 ring-2 ring-day-model'
-                        : 'bg-surface-lowest/60 hover:bg-white/5'
-                    }`}
-                  >
-                    <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                      <span className="font-semibold text-ink">{entry.label}</span>
-                      <span className="font-mono tabular-nums text-ink/60">
-                        {clock(entry.start)}–{clock(entry.end)}
+                {sessions.map((entry, index) => {
+                  const delta = verdictText(entry, day.model.sd, '')
+                  return (
+                    <button
+                      key={`${entry.start}-${entry.end}-${index}`}
+                      type="button"
+                      aria-pressed={selected === index}
+                      onClick={() => {
+                        if (index >= 0 && index < sessions.length) setSelectedIndex(index)
+                      }}
+                      className={`min-h-[44px] w-full rounded-el border-l-[5px] px-3 py-2 text-left font-body text-[13px] transition-colors ${groupBorder(groupColourIndex(day, entry.group))} ${
+                        selected === index
+                          ? 'bg-white/5 ring-2 ring-day-model'
+                          : 'bg-surface-lowest/60 hover:bg-white/5'
+                      }`}
+                    >
+                      <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                        <span className="font-semibold text-ink">{entry.label}</span>
+                        <span className="font-mono tabular-nums text-ink/60">
+                          {clock(entry.start)}–{clock(entry.end)}
+                        </span>
+                        <span className="ml-auto font-mono tabular-nums text-ink/80">
+                          {figure(entry.mean_measured, unit)}
+                        </span>
+                        <span
+                          className={`min-w-[72px] text-right font-mono tabular-nums ${TONE_CLASS[delta.tone]}`}
+                        >
+                          {delta.tone === 'none' ? delta.text : `Δ ${delta.text.split(' · ')[0]}`}
+                        </span>
                       </span>
-                      <span className="ml-auto font-mono tabular-nums text-ink/70">
-                        avg {figure(entry.mean_measured, day.pair.unit)}
-                      </span>
-                    </span>
-                  </button>
-                ))}
+                    </button>
+                  )
+                })}
               </div>
             </Panel>
           </div>
         </div>
       )}
 
-      <p className="font-body text-[13px] text-ink/60">
-        Model estimate, not a clinical tool. Usual error ±{sdFigure(day.model.sd)}
-        {day.pair.unit ? ` ${day.pair.unit}` : ''} ({day.model.sd_source}).
+      <p className="font-mono text-[12px] text-ink/50">
+        {modelLine} · not for clinical use
       </p>
     </div>
   )

@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Day view mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;800&family=Hanken+Grotesk:wght@400;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#081425;--card:#111c2d;--card2:#152031;--line:rgba(216,227,251,.14);--ink:#d8e3fb;--ink2:rgba(216,227,251,.72);--ink3:rgba(216,227,251,.52);
+--meas:#ff7d86;--model:#4fe3f7;--band:rgba(0,227,253,.13);--walk:#2fbf9b;--strength:#f0a13c;--cardio:#ff525f;--other:#8fa3c7;--gap:rgba(216,227,251,.07);--bar:#6f8fd8;--ok:#2fbf9b;--warn:#f0a13c}
+:root[data-theme="light"]{--bg:#f4f6fa;--card:#ffffff;--card2:#eef1f7;--line:rgba(16,32,60,.16);--ink:#10203c;--ink2:rgba(16,32,60,.78);--ink3:rgba(16,32,60,.6);
+--meas:#c2182f;--model:#00758a;--band:rgba(0,117,138,.13);--walk:#0f8a6c;--strength:#a8650a;--cardio:#c2182f;--other:#55678a;--gap:rgba(16,32,60,.07);--bar:#3d5fb3;--ok:#0f8a6c;--warn:#a8650a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Hanken Grotesk",system-ui,sans-serif}
+.wrap{max-width:1560px;margin:0 auto;padding:20px 28px 48px}
+header{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;margin-bottom:18px}
+h1{font:800 22px Sora,system-ui,sans-serif;margin:0}
+h2{font:600 17px Sora,system-ui,sans-serif;margin:0 0 10px}
+.who{color:var(--ink2);font-size:15px}
+.tabs{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
+button{font:600 14px "Hanken Grotesk",system-ui,sans-serif;min-height:44px;padding:0 16px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink2);cursor:pointer}
+button[aria-pressed="true"]{background:var(--model);color:#04202a;border-color:transparent}
+:root[data-theme="light"] button[aria-pressed="true"]{color:#fff}
+.note{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:10px 14px;color:var(--ink2);font-size:14px;margin-bottom:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+.grid{display:grid;gap:16px}
+.headline{font:600 21px/1.4 Sora,system-ui,sans-serif;margin:0 0 4px}
+.sub{color:var(--ink2);font-size:15px;margin:0}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.kpi{background:var(--card2);border-radius:12px;padding:12px 14px}
+.kpi b{display:block;font:700 26px "JetBrains Mono",monospace;line-height:1.2}
+.kpi span{color:var(--ink2);font-size:14px}
+.kpi small{display:block;color:var(--ink3);font-size:13px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;color:var(--ink2);font-size:14px;margin:6px 0 2px}
+.legend i{display:inline-block;width:22px;height:0;border-top:3px solid;vertical-align:middle;margin-right:6px}
+.legend i.dash{border-top-style:dashed}.legend i.box{height:12px;border:0;border-radius:3px}
+svg{display:block;width:100%;height:auto}
+svg text{font:13px "JetBrains Mono",monospace;fill:var(--ink2)}
+svg text.t{font:600 13px "Hanken Grotesk",sans-serif;fill:var(--ink)}
+.sessions{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.sess{background:var(--card2);border-radius:12px;padding:14px 16px;border-left:5px solid var(--other);text-align:left;width:100%;min-height:0;color:var(--ink);font-weight:400;font-size:15px;display:block}
+.sess.sel{outline:2px solid var(--model)}
+.sess h3{margin:0 0 2px;font:600 16px Sora,sans-serif}
+.sess .when{color:var(--ink2);font-size:14px;margin-bottom:8px}
+.sess dl{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;margin:0}
+.sess dt{color:var(--ink2);font-size:14px}.sess dd{margin:0;font:700 15px "JetBrains Mono",monospace;text-align:right}
+.verdict{margin-top:8px;font-size:14px;color:var(--ink2)}
+.verdict b{color:var(--ok)}.verdict b.off{color:var(--warn)}
+.two{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(320px,1fr);gap:16px}
+@media(max-width:1100px){.two{grid-template-columns:1fr}}
+.foot{color:var(--ink3);font-size:13px;margin-top:14px}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Day view</h1>
+  <span class="who" id="who"></span>
+  <div class="tabs">
+    <button data-opt="A" aria-pressed="true">A · Timeline first</button>
+    <button data-opt="B" aria-pressed="false">B · Sessions first</button>
+    <button data-opt="C" aria-pressed="false">C · Day + selected session</button>
+    <button id="theme" aria-pressed="false">Light theme</button>
+  </div>
+</header>
+<div class="note" id="note"></div>
+
+<section id="optA" class="grid">
+  <div class="card"><p class="headline" id="a-head"></p><p class="sub" id="a-sub"></p></div>
+  <div class="card"><h2>Heart rate through the day: measured against what the model expects</h2><div class="legend" id="a-leg"></div><div id="a-chart"></div>
+    <h2 style="margin-top:14px">Active energy and steps, per 10 minutes</h2><div id="a-energy"></div></div>
+  <div class="card"><h2>Sessions</h2><div class="sessions" id="a-sess"></div></div>
+</section>
+
+<section id="optB" class="grid" hidden>
+  <div class="card"><h2>The day in numbers</h2><div class="kpis" id="b-kpis"></div></div>
+  <div class="card"><h2>Each session: did the heart respond as expected?</h2><div class="sessions" id="b-sess"></div></div>
+  <div class="card"><h2>Whole day</h2><div class="legend" id="b-leg"></div><div id="b-chart"></div></div>
+</section>
+
+<section id="optC" class="grid" hidden>
+  <div class="card"><div class="kpis" id="c-kpis"></div></div>
+  <div class="two">
+    <div class="card"><h2>Whole day — pick a session on the right</h2><div class="legend" id="c-leg"></div><div id="c-chart"></div><div id="c-energy"></div></div>
+    <div class="grid" style="align-content:start">
+      <div class="card"><h2 id="c-title"></h2><div id="c-zoom"></div><div id="c-detail"></div></div>
+      <div class="card"><h2>Sessions</h2><div class="grid" id="c-list" style="gap:8px"></div></div>
+    </div>
+  </div>
+</section>
+<p class="foot" id="foot"></p>
+</div>
+<script>
+const D = /*DATA*/;
+const $ = (id) => document.getElementById(id);
+const hhmm = (m) => String(Math.floor(m/60)).padStart(2,'0')+':'+String(Math.round(m%60)).padStart(2,'0');
+const f0 = (v) => v==null ? '—' : Math.round(v).toLocaleString('en-GB');
+const col = (g) => `var(--${g})`;
+
+function chart(t0, t1, o = {}) {
+  const W = o.w ?? 1400, H = o.h ?? 380, L = 52, R = 30, T = 26, B = 30;
+  const x = (m) => L + (m - t0) / (t1 - t0) * (W - L - R);
+  let lo = 40, hi = 170;
+  for (let m = t0; m < t1; m++) { for (const v of [D.hr[m], D.model[m]]) if (v != null) { lo = Math.min(lo, v - 5); hi = Math.max(hi, v + 5) } }
+  lo = Math.floor(lo / 10) * 10; hi = Math.ceil(hi / 10) * 10;
+  const y = (v) => T + (hi - v) / (hi - lo) * (H - T - B);
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Heart rate, measured and modelled">`;
+  for (const g of D.gaps) { const a = Math.max(g[0], t0), b = Math.min(g[1], t1); if (b <= a) continue;
+    s += `<rect x="${x(a)}" y="${T}" width="${x(b)-x(a)}" height="${H-T-B}" fill="var(--gap)"/>`;
+    if (x(b)-x(a) > 150) s += `<text x="${(x(a)+x(b))/2}" y="${(T+H-B)/2}" text-anchor="middle">watch not worn · no data</text>`; }
+  for (const w of D.sessions) { const a = Math.max(w.start, t0), b = Math.min(w.end, t1); if (b <= a) continue;
+    s += `<rect x="${x(a)}" y="${T}" width="${Math.max(2,x(b)-x(a))}" height="${H-T-B}" fill="${col(w.group)}" opacity=".16"/>`;
+    s += `<rect x="${x(a)}" y="${T-6}" width="${Math.max(2,x(b)-x(a))}" height="5" fill="${col(w.group)}"/>`;
+    if (o.labels !== false && x(b)-x(a) > 26) s += `<text class="t" x="${x(a)}" y="${T-10}">${o.long ? w.name : w.short}</text>`; }
+  for (let v = lo; v <= hi; v += (hi-lo > 100 ? 20 : 10)) s += `<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${L-8}" y="${y(v)+4}" text-anchor="end">${v}</text>`;
+  const span = t1 - t0, step = span > 720 ? 120 : span > 180 ? 30 : 10;
+  for (let m = Math.ceil(t0/step)*step; m <= t1; m += step) s += `<text x="${x(m)}" y="${H-8}" text-anchor="middle">${hhmm(m)}</text>`;
+  s += `<text x="${L}" y="14">bpm</text>`;
+  // model band and line, broken where the model has no inputs
+  let run = [];
+  const flush = () => { if (run.length > 1) {
+      const up = run.map(([m,v]) => `${x(m)},${y(v+D.sd)}`), dn = run.slice().reverse().map(([m,v]) => `${x(m)},${y(v-D.sd)}`);
+      s += `<polygon points="${up.concat(dn).join(' ')}" fill="var(--band)"/>`;
+      s += `<polyline points="${run.map(([m,v]) => `${x(m)},${y(v)}`).join(' ')}" fill="none" stroke="var(--model)" stroke-width="2" stroke-dasharray="7 5"/>`; } run = []; };
+  for (let m = t0; m < t1; m++) { if (D.model[m] == null) flush(); else run.push([m, D.model[m]]); } flush();
+  // measured: join only consecutive minutes; isolated readings stay dots
+  run = [];
+  const flushM = () => { if (run.length > 1) s += `<polyline points="${run.map(([m,v]) => `${x(m)},${y(v)}`).join(' ')}" fill="none" stroke="var(--meas)" stroke-width="2.5"/>`;
+    for (const [m,v] of run) s += `<circle cx="${x(m)}" cy="${y(v)}" r="${span > 720 ? 2.2 : 3.2}" fill="var(--meas)"/>`; run = []; };
+  for (let m = t0; m < t1; m++) { if (D.hr[m] == null) flushM(); else run.push([m, D.hr[m]]); } flushM();
+  return s + '</svg>';
+}
+
+function energy(W = 1400) {
+  const H = 150, L = 52, R = 30, half = (H - 30) / 2;
+  const x = (i) => L + i / 144 * (W - L - R), bw = (W - L - R) / 144 - 1.5;
+  const maxE = Math.max(...D.ae10.map((v) => v ?? 0), 1), maxS = Math.max(...D.steps10.map((v) => v ?? 0), 1);
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Active energy and steps per ten minutes">`;
+  for (const g of D.gaps) s += `<rect x="${x(g[0]/10)}" y="0" width="${x(g[1]/10)-x(g[0]/10)}" height="${H-26}" fill="var(--gap)"/>`;
+  D.ae10.forEach((v, i) => { if (v) { const h = v / maxE * (half - 6); s += `<rect x="${x(i)}" y="${half-h}" width="${bw}" height="${h}" fill="var(--strength)"/>` } });
+  D.steps10.forEach((v, i) => { if (v) { const h = v / maxS * (half - 6); s += `<rect x="${x(i)}" y="${half+4}" width="${bw}" height="${h}" fill="var(--bar)"/>` } });
+  s += `<text x="${L+4}" y="14" class="t">Active energy (peak ${f0(maxE)} kcal / 10 min)</text><text x="${L+4}" y="${half+half-2}" class="t">Steps (peak ${f0(maxS)} / 10 min)</text>`;
+  for (let m = 0; m <= 1440; m += 120) s += `<text x="${x(m/10)}" y="${H-6}" text-anchor="middle">${hhmm(m)}</text>`;
+  return s + '</svg>';
+}
+
+const legend = `<span><i style="border-color:var(--meas)"></i>Measured heart rate</span><span><i class="dash" style="border-color:var(--model)"></i>Expected by the model (estimate)</span><span><i class="box" style="background:var(--band)"></i>Model ± ${D.sd.toFixed(0)} bpm (its usual error)</span><span><i class="box" style="background:var(--walk)"></i>Walk</span><span><i class="box" style="background:var(--strength)"></i>Strength</span><span><i class="box" style="background:var(--cardio)"></i>Cardio</span><span><i class="box" style="background:var(--gap);outline:1px solid var(--line)"></i>No data</span>`;
+
+function verdict(w) {
+  if (w.diff == null) return 'Too few heart-rate readings to compare with the model.';
+  const a = Math.abs(w.diff);
+  if (a <= D.sd / 2) return `<b>As expected</b>: average within ${a.toFixed(0)} bpm of the model.`;
+  return `<b class="off">${w.diff > 0 ? 'Higher' : 'Lower'} than expected</b> by ${a.toFixed(0)} bpm on average.`;
+}
+function sessCard(w, i, mini, tag = 'div') {
+  return `<${tag} class="sess" data-i="${i}" style="border-left-color:${col(w.group)}"><h3>${w.name}</h3><div class="when">${hhmm(w.start)}–${hhmm(w.end)} · ${w.end-w.start} min</div>` +
+    (mini ? chart(Math.max(0,w.start-15), Math.min(1440,w.end+20), {w:400,h:210,labels:false}) : '') +
+    `<dl><dt>Average heart rate</dt><dd>${f0(w.mean)} bpm</dd><dt>Model expected</dt><dd>${f0(w.mean_model)} bpm</dd><dt>Peak</dt><dd>${f0(w.peak)} bpm</dd><dt>Active energy</dt><dd>${f0(w.kcal)} kcal</dd><dt>Drop 5 min after</dt><dd>${w.recovery==null?'—':'−'+f0(w.recovery)+' bpm'}</dd></dl><div class="verdict">${verdict(w)}</div></${tag}>`;
+}
+function kpis() { return D.kpis.map((k) => `<div class="kpi"><b>${k.value}</b><span>${k.label}</span>${k.note ? `<small>${k.note}</small>` : ''}</div>`).join(''); }
+
+$('who').textContent = D.who; $('note').innerHTML = D.note; $('foot').textContent = D.foot;
+$('a-head').textContent = D.headline; $('a-sub').textContent = D.sub;
+for (const id of ['a-leg','b-leg','c-leg']) $(id).innerHTML = legend;
+$('a-chart').innerHTML = chart(0, 1440); $('a-energy').innerHTML = energy();
+$('a-sess').innerHTML = D.sessions.map((w, i) => sessCard(w, i, false)).join('') || '<p class="sub">No session was recorded on this day.</p>';
+$('b-kpis').innerHTML = kpis(); $('b-sess').innerHTML = D.sessions.map((w, i) => sessCard(w, i, true)).join('') || '<p class="sub">No session was recorded on this day.</p>';
+$('b-chart').innerHTML = chart(0, 1440, {h: 260});
+$('c-kpis').innerHTML = kpis(); $('c-chart').innerHTML = chart(0, 1440, {w: 1000, h: 380}); $('c-energy').innerHTML = energy(1000);
+function pick(i) {
+  const w = D.sessions[i]; if (!w) { $('c-title').textContent = 'No session on this day'; return; }
+  $('c-title').textContent = `${w.name} · ${hhmm(w.start)}–${hhmm(w.end)}`;
+  $('c-zoom').innerHTML = chart(Math.max(0, w.start-15), Math.min(1440, w.end+20), {w: 520, h: 290, labels: false});
+  $('c-detail').innerHTML = sessCard(w, i, false);
+  $('c-list').innerHTML = D.sessions.map((v, j) => `<button class="sess${j===i?' sel':''}" data-i="${j}" style="border-left-color:${col(v.group)}"><b>${v.name}</b> · ${hhmm(v.start)}–${hhmm(v.end)} · avg ${f0(v.mean)} bpm</button>`).join('');
+  $('c-list').querySelectorAll('button').forEach((b) => b.onclick = () => pick(+b.dataset.i));
+}
+pick(0);
+document.querySelectorAll('[data-opt]').forEach((b) => b.onclick = () => {
+  document.querySelectorAll('[data-opt]').forEach((o) => o.setAttribute('aria-pressed', o === b));
+  for (const k of 'ABC') $('opt' + k).hidden = k !== b.dataset.opt; });
+$('theme').onclick = (e) => { const light = document.documentElement.dataset.theme !== 'light';
+  document.documentElement.dataset.theme = light ? 'light' : 'dark'; e.target.setAttribute('aria-pressed', light); };
+const q = new URLSearchParams(location.search);
+if (q.get('opt')) document.querySelector(`[data-opt="${q.get('opt')}"]`)?.click();
+if (q.get('theme') === 'light') $('theme').click();
+</script>
+</body>
+</html>

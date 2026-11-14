@@ -20,7 +20,9 @@ The app is a single dashboard, read left to right the way the data travels:
 
 Everything on screen is built from the lamina XML and the live model state; the UI holds no attribute names, units or thresholds of its own. The functions, segments, feedback loop, composites and pipeline configuration are one click away under **Inspect**.
 
-Readings are currently generated around the baselines the XML declares, and the dashboard says so. No wearable device is connected yet.
+The **Daily Activity** lamina (`lamina_wearable`) can also replay a recorded day minute by minute, or hold a scenario (sleep, rest, desk work, walk, vigorous). For a replayed day it adds a fourth form, **Day**, written for a specialist rather than a modeller: a one-line summary, the day in numbers, measured heart rate beside the model's expectation with workouts and no-data hours marked, and each session with a verdict against the model's usual error. Which attribute plays which part on that screen is declared in the lamina's `<day_view>` block, so the screen still names no attribute of its own. The model's numbers are estimates, labelled as such, and fitted coefficients apply only to the person they were fitted on.
+
+Other laminae's readings are generated around the baselines the XML declares, and the dashboard says so.
 
 ---
 
@@ -244,7 +246,9 @@ The dashboard uses the first three; the rest remain available for scripts.
 |--------|----------|-------------|
 | GET | `/api/laminae` | The laminae this backend can serve, and the default |
 | GET | `/api/schema` | Full lamina structure (attributes, functions, segments, composites, outcomes, tags, gates) as JSON |
-| WS | `/ws/feedback` | Live stream: one model snapshot per cycle; accepts `set_sensor`, `pause`, `resume`, `reset` |
+| WS | `/ws/feedback` | Live stream: one model snapshot per cycle; accepts `set_sensor`, `pause`, `resume`, `reset`; `source=replay` or `scenario` for the wearable lamina |
+| GET | `/api/sources` | The feeds a lamina offers: replay days, speeds, scenario presets |
+| GET | `/api/day` | One recorded day, computed whole from the lamina's `<day_view>` roles (`lamina`, `subject`, `date`) |
 | GET | `/api/organisms`, `/api/organism` | Bodies of several laminae and the channels between them |
 | WS | `/ws/organism` | Live stream for a body |
 | POST | `/api/compute` | Accepts sensor values, returns computed results and vectors |
@@ -310,7 +314,7 @@ This is the format `POST /api/upload` accepts. The files in `presets/` demonstra
 
 - **Q and CO disagree:** Q divides by R, a single-segment Poiseuille estimate, so at baseline Q is about 2.2 L/min while CO is about 4.75 L/min. Trust Q's trend, not its magnitude. SVR = (MAP − CVP) / CO is the resistance that moves with the pump.
 - **Outcomes outside tolerance at a healthy baseline:** SVR (≈18.6 against a target of 14 ± 4) and lambda read outside tolerance with every input at its declared baseline. These are open questions about the targets and units, listed in `docs/circulatory_functions_review.xml`.
-- **No device input yet:** every reading is generated around the baselines the XML declares. The lamina maps its inputs to channels, but no wearable channel exists yet.
+- **Recorded days are not live data:** the wearable lamina replays exported Apple Watch days; nothing streams from a device. Heart rate exists on only a fraction of a day's minutes (the watch is often off at night), and the model's usual error for one person was about 12.6 bpm. Real recordings are never in this repository; only a synthetic demo day is.
 - **Windows terminal encoding:** The Omega character in console output may render incorrectly on some Windows terminals. This is cosmetic and does not affect computation.
 - **No authentication or database:** a hosted copy (see *Hosting it online*) is open to anyone with its address, and keeps nothing between sessions.
 
@@ -324,7 +328,7 @@ This is the format `POST /api/upload` accepts. The files in `presets/` demonstra
 - [Skeleton diagram brief](./docs/skeleton-diagram-brief.md) and [circulatory diagram brief](./docs/circulatory-diagram-brief.md) — the engine, and the engine with the circulatory lamina loaded
 - [The lamina seam](./docs/gate-transmission.html) — what crosses between two laminae, and the gates on each side
 - [Architecture refactor](./docs/architecture_refactor.md) — the move to a multi-lamina foundation, and what of it is still unbuilt
-- [`docs/design/`](./docs/design/) — working plans from each phase: the feedback loop, permeability gates, two-sided gate channels, lamina switching
+- [`docs/design/`](./docs/design/) — working plans from each phase: the feedback loop, permeability gates, two-sided gate channels, lamina switching, the wearable lamina and the Day view
 
 ---
 

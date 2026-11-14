@@ -29,6 +29,12 @@ interface Props {
   onTogglePause: () => void
   onSpeed: (speed: number) => void
   onRestart: () => void
+  /**
+   * False where the day is shown whole rather than played (the Day form):
+   * play, speed and the playback position mean nothing there, so only the
+   * mode and the subject/date pickers are drawn.
+   */
+  playback?: boolean
 }
 
 interface SourceState {
@@ -54,6 +60,7 @@ export function SourceBar({
   onTogglePause,
   onSpeed,
   onRestart,
+  playback = true,
 }: Props) {
   const [attempt, setAttempt] = useState(0)
   const [state, setState] = useState<SourceState>({
@@ -254,7 +261,7 @@ export function SourceBar({
         </p>
       )}
 
-      {isReplay && replay && (
+      {playback && isReplay && replay && (
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -285,11 +292,11 @@ export function SourceBar({
         </div>
       )}
 
-      {(isReplay || isScenario) && line && (
+      {playback && (isReplay || isScenario) && line && (
         <p className="font-mono text-[12px] readout text-ink/55">{line}</p>
       )}
 
-      {isReplay && latest?.ended === true && (
+      {playback && isReplay && latest?.ended === true && (
         <div>
           <button
             type="button"

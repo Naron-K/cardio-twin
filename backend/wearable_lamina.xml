@@ -602,6 +602,23 @@
   </segments>
 
   <!--
+    <day_view> names the roles an attribute plays on a "day of one
+    person" screen (measured vs modelled, the rates worth a strip, the
+    workout indicators that colour a session, and the worn marker).  It
+    introduces no new quantities: every id below is an attribute already
+    declared in this file.
+  -->
+  <day_view>
+    <pair measured="HR_measured" modelled="HR_model" label="Heart rate"/>
+    <rate attribute="AE_rate" label="Active energy"/>
+    <rate attribute="step_rate" label="Steps"/>
+    <event indicator="is_walk" group="walk" label="Walk"/>
+    <event indicator="is_strength" group="strength" label="Strength"/>
+    <event indicator="is_cardio" group="cardio" label="Cardio"/>
+    <worn attribute="AE_rate"/>
+  </day_view>
+
+  <!--
     NO <tags> block, and that is a decision rather than an omission.
 
     This lamina monitors and corrects nothing — the same decision the

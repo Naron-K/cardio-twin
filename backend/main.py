@@ -62,6 +62,7 @@ from session import OrganismSession, Session
 from signal_source import ReplaySource, ScenarioSource, SimulatedSource
 from streaming_runtime import StreamingRuntime
 from bundles import UnknownBundle, list_bundles, load_bundle, load_params
+from day_summary import day_summary
 from usage_meter import UsageMeter
 from snapshot import (
     _KSTATE_SEP,
@@ -758,6 +759,7 @@ def get_schema(lamina: Optional[str] = Query(default=None,
         "composites": composites,
         "functions": functions,
         "segments": segments,
+        "day_view": twin.day_view,
         "channel_mappings": twin.channel_mappings,
         # Phase A: expose the feedback loop selection so the frontend
         # (Phase F) knows which coupling/solver to render.  Defaults
@@ -854,6 +856,53 @@ def get_sources(lamina: Optional[str] = Query(
         ),
         "presets": presets,
     }
+
+
+@app.get("/api/day")
+def get_day(
+    lamina: Optional[str] = Query(
+        default=None,
+        description="Lamina id; omit for the process default.",
+    ),
+    subject: str = Query(
+        ..., description="Bundle subject, for example 'demo'."
+    ),
+    date: str = Query(
+        ..., description="Recorded day in YYYY-MM-DD form."
+    ),
+):
+    """
+    One person's whole day, computed from the lamina's declared day roles.
+
+    The replay happens here, once, and the finished day is returned as one
+    JSON: per-minute pair and rate series, gaps, sessions, KPIs, the usual
+    error and a one-sentence summary.  A lamina without a ``<day_view>`` is
+    a 400 with its reason; an unknown subject or date keeps the loader's
+    404, which lists the days that do exist.
+    """
+    print(
+        f"[LOG] GET /api/day  lamina={lamina or '(default)'}  "
+        f"subject={subject}  date={date}"
+    )
+    _resolve_or_400(lamina)
+    try:
+        return day_summary(lamina or "", subject, date)
+    except UnknownBundle as e:
+        print(f"[ERROR] /api/day unknown bundle: {e}")
+        raise HTTPException(status_code=404, detail={
+            "error": str(e),
+            "subject": e.subject,
+            "date": e.date,
+            "available": e.available,
+            "timestamp": datetime.now().isoformat(),
+        })
+    except ValueError as e:
+        print(f"[WARN] /api/day refused: {e}")
+        raise HTTPException(status_code=400, detail={
+            "error": str(e),
+            "type": type(e).__name__,
+            "timestamp": datetime.now().isoformat(),
+        })
 
 
 @app.post("/api/compute")

@@ -73,3 +73,7 @@ htmlcov/
 backend/bundles/*
 !backend/bundles/demo/
 !backend/bundles/bundle.schema.json
+
+# Mockups built from a real person's day stay local; the synthetic one is tracked.
+docs/design/mockups/*
+!docs/design/mockups/day-view-demo.html

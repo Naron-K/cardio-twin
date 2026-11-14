@@ -44,6 +44,7 @@ import { OutcomeTiles } from './OutcomeTiles'
 import { TrendGrid } from './TrendGrid'
 import { StateTable } from './StateTable'
 import { SourceBar } from './SourceBar'
+import { DayView } from '../day/DayView'
 import { InspectDrawer } from './InspectDrawer'
 import { TWIN_FORMS } from './forms'
 import type { TwinForm } from './forms'
@@ -72,28 +73,50 @@ export function Dashboard({ lamina, onLamina, form, onForm, feed, onFeed, formNa
   useWakeLock(!idle)
   const viewing = usePageViewing()
 
+  // A replay with both fields set is the only feed the Day form can describe.
+  const replayFeed =
+    feed.source === 'replay' && feed.subject.length > 0 && feed.date.length > 0
+      ? feed
+      : null
+
   const twin = useLaminaTwin({
     lamina,
     onLamina,
     feed,
-    enabled: !idle && viewing,
+    // The Day form is served by /api/day; keeping the socket open for it would
+    // spend the host's metered bandwidth on data the screen never reads.
+    enabled: !idle && viewing && form !== 'day',
     onNotice: streamHandlers.onNotice,
     onReconnect: streamHandlers.onReconnect,
   })
   const { index, latest, ticks, status, stale, staleAge, stage, artwork, paused } = twin
 
-  // A lamina that can replay opens on the graph when the URL named no form:
-  // the day's shape is what a replay is for.  Once per lamina, so a presenter
-  // who then chooses animation is not overruled by a later render.
+  // A replay of a lamina that declares a day view opens on the Day form when
+  // the URL named none: that is the finished day, without the wait.  Otherwise
+  // a lamina that can replay still opens on the graph.  Once per lamina, so a
+  // presenter who then chooses animation is not overruled by a later render.
   const autoFormRef = useRef<string | null>(null)
   useEffect(() => {
     if (formNamed || !index) return
     const id = index.schema.lamina_id
     if (autoFormRef.current === id) return
+    if (replayFeed && index.schema.day_view) {
+      autoFormRef.current = id
+      onForm('day')
+      return
+    }
     if (!index.sensors.some((sensor) => Boolean(sensor.replay_field))) return
     autoFormRef.current = id
     onForm('graph')
-  }, [formNamed, index, onForm])
+  }, [formNamed, index, onForm, replayFeed])
+
+  // A 'day' in the URL is not a form this lamina/feed can draw.  Fall back to
+  // the graph rather than leaving the URL and the screen disagreeing.
+  useEffect(() => {
+    if (form !== 'day' || !index) return
+    if (replayFeed && index.schema.day_view) return
+    onForm('graph')
+  }, [form, index, onForm, replayFeed])
 
   // The reset action is kept in a ref because confirmReset is the other value
   // from this same call: the notice hook needs resetLoop, and resetLoop must
@@ -205,7 +228,29 @@ export function Dashboard({ lamina, onLamina, form, onForm, feed, onFeed, formNa
       animation: artwork ? 'Animation' : 'Map',
       graph: 'Graph',
       table: 'Table',
+      day: 'Day',
     }
+    const dayAvailable = replayFeed !== null && index.schema.day_view !== null
+    // A 'day' form that cannot be drawn is shown as the graph until the URL is
+    // rewritten, so a stale link never produces half a day page.
+    const shownForm: TwinForm = form === 'day' && !dayAvailable ? 'graph' : form
+    const dayShown = shownForm === 'day' && replayFeed !== null
+    const offeredForms = TWIN_FORMS.filter((f) => f !== 'day' || dayAvailable)
+    const formToggle = (
+      <div className="flex rounded-full border border-white/10 bg-surface-lowest/80 p-0.5">
+        {offeredForms.map((f) => (
+          <button
+            key={f}
+            onClick={() => onForm(f)}
+            className={`min-h-[44px] rounded-full px-3 font-mono text-[11px] readout uppercase transition-colors ${
+              shownForm === f ? 'bg-white/10 text-ink' : 'text-ink/40 hover:text-ink/70'
+            }`}
+          >
+            {formLabel[f]}
+          </button>
+        ))}
+      </div>
+    )
     const dataLimit = twin.closeCode === STREAM_LIMIT_CLOSE
     const statusChip =
       dataLimit
@@ -236,10 +281,19 @@ export function Dashboard({ lamina, onLamina, form, onForm, feed, onFeed, formNa
             </span>
           </div>
 
-          <Chip tone={statusChip.tone} dot pulse={statusChip.pulse}>
-            {statusChip.label}
-          </Chip>
-          {staleAge !== null && (
+          {/* The Day form closes the stream on purpose, so the live-stream
+              chips and controls would only report that as a fault. */}
+          {!dayShown && (
+            <Chip tone={statusChip.tone} dot pulse={statusChip.pulse}>
+              {statusChip.label}
+            </Chip>
+          )}
+          {dayShown && replayFeed && (
+            <Chip tone="oxy">
+              Day · {replayFeed.subject} · {replayFeed.date}
+            </Chip>
+          )}
+          {!dayShown && staleAge !== null && (
             <Chip tone="crimson" title="The socket is not open, so nothing on screen is updating.">
               Frozen · last tick {staleAge}s ago
             </Chip>
@@ -250,7 +304,7 @@ export function Dashboard({ lamina, onLamina, form, onForm, feed, onFeed, formNa
               Simulated feed · no device connected
             </Chip>
           )}
-          {feed.kind === 'replay' &&
+          {!dayShown && feed.kind === 'replay' &&
             (feed.ended === true ? (
               <Chip tone="neutral" title={feed.detail}>
                 Replay finished
@@ -268,6 +322,7 @@ export function Dashboard({ lamina, onLamina, form, onForm, feed, onFeed, formNa
           )}
 
           <div className="ml-auto flex items-center gap-3">
+            {!dayShown && (<>
             <span className={`flex items-baseline gap-1.5 ${dim}`}>
               <span className="font-mono text-[10px] readout uppercase text-ink/30">Cycle</span>
               <span className="font-mono text-[13px] font-bold tabular-nums text-ink/80">
@@ -285,6 +340,7 @@ export function Dashboard({ lamina, onLamina, form, onForm, feed, onFeed, formNa
             >
               ↺ Reset loop
             </HeaderButton>
+            </>)}
             <HeaderButton onClick={() => setInspecting(true)}>Inspect ▸</HeaderButton>
           </div>
         </header>
@@ -293,7 +349,38 @@ export function Dashboard({ lamina, onLamina, form, onForm, feed, onFeed, formNa
              The tier comes from display.ts. Wide: three columns, as designed.
              Tablet: inputs beside one scrolling column of twin, outcomes and
              time, so no panel is squeezed below what it needs. Phone: one
-             column, and the page scrolls. */}
+             column, and the page scrolls. The Day form takes the whole body:
+             a toolbar keeps the source pickers, and the day itself fills the
+             rest. */}
+        {shownForm === 'day' && replayFeed ? (
+          <div className="flex flex-1 min-h-0 flex-col gap-4 p-4 wide:px-margin wide:py-gutter fit:overflow-y-auto">
+            <div className="flex flex-wrap items-start gap-3">
+              <div className="min-w-0 flex-1 max-w-[560px]">
+                <SourceBar
+                  playback={false}
+                  lamina={index.schema.lamina_id}
+                  feed={replayFeed}
+                  onFeed={onFeed}
+                  onPreset={(preset) => {
+                    twin.setPreset(preset)
+                    onFeed({ source: 'scenario', preset })
+                  }}
+                  latest={twin.latest?.source}
+                  paused={twin.paused}
+                  onTogglePause={twin.togglePause}
+                  onSpeed={(speed) => onFeed({ ...replayFeed, speed })}
+                  onRestart={twin.reset}
+                />
+              </div>
+              <div className="ml-auto shrink-0">{formToggle}</div>
+            </div>
+            <DayView
+              lamina={index.schema.lamina_id}
+              subject={replayFeed.subject}
+              date={replayFeed.date}
+            />
+          </div>
+        ) : (
         <div
           className="grid gap-4 p-4 fit:flex-1 fit:min-h-0
                      tablet:grid-cols-[minmax(250px,300px)_minmax(0,1fr)] tablet:grid-rows-[minmax(0,1fr)]
@@ -345,25 +432,11 @@ export function Dashboard({ lamina, onLamina, form, onForm, feed, onFeed, formNa
                        wide:h-auto wide:min-h-0 wide:shrink"
             eyebrow="2 · Digital twin"
             title="What the model computes from them, every cycle"
-            action={
-              <div className="flex rounded-full border border-white/10 bg-surface-lowest/80 p-0.5">
-                {TWIN_FORMS.map((f) => (
-                  <button
-                    key={f}
-                    onClick={() => onForm(f)}
-                    className={`rounded-full px-3 py-1 font-mono text-[11px] readout uppercase transition-colors ${
-                      form === f ? 'bg-white/10 text-ink' : 'text-ink/40 hover:text-ink/70'
-                    }`}
-                  >
-                    {formLabel[f]}
-                  </button>
-                ))}
-              </div>
-            }
+            action={formToggle}
           >
             <div
               className={`relative flex-1 min-h-0 rounded-card border border-white/10 shadow-inset1
-                          bg-surface-lowest overflow-hidden ${form === 'animation' ? 'stage-grid' : ''}
+                          bg-surface-lowest overflow-hidden ${shownForm === 'animation' ? 'stage-grid' : ''}
                           ${stale ? 'saturate-50' : ''}`}
             >
               <div className="absolute top-3 right-3 z-10">
@@ -377,10 +450,10 @@ export function Dashboard({ lamina, onLamina, form, onForm, feed, onFeed, formNa
                 </Chip>
               </div>
 
-              <div className={`absolute inset-0 ${dim} ${form === 'animation' ? 'flex items-center justify-center p-8' : 'p-4 pt-12'}`}>
-                {form === 'graph' ? (
+              <div className={`absolute inset-0 ${dim} ${shownForm === 'animation' ? 'flex items-center justify-center p-8' : 'p-4 pt-12'}`}>
+                {shownForm === 'graph' ? (
                   <TrendGrid index={index} ticks={twin.mismatch ? [] : ticks} />
-                ) : form === 'table' ? (
+                ) : shownForm === 'table' ? (
                   <StateTable index={index} latest={latest} />
                 ) : artwork ? (
                   <div
@@ -433,7 +506,7 @@ export function Dashboard({ lamina, onLamina, form, onForm, feed, onFeed, formNa
             </div>
 
             {/* Where the stage got its numbers, whenever the stage is showing. */}
-            {form === 'animation' && stage && (
+            {shownForm === 'animation' && stage && (
               <div className="shrink-0 mt-3">
                 <ProvenanceStrip stage={stage} sources={index.sources} />
               </div>
@@ -468,6 +541,7 @@ export function Dashboard({ lamina, onLamina, form, onForm, feed, onFeed, formNa
           </Panel>
           </div>
         </div>
+        )}
 
         {/* ── Status line ─────────────────────────────────────────────────── */}
         <footer className="shrink-0 flex items-center gap-3 px-4 wide:px-margin py-2.5 border-t border-white/10 bg-surface-lowest/80">

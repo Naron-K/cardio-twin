@@ -1094,6 +1094,11 @@ class UniversalTwin:
         self.functions: dict[str, FunctionDef] = {}
         self.composites: dict[str, Composite] = {}
         self.segments: dict[str, Segment] = {}
+        # Optional <day_view> roles: which declared attributes play the
+        # measured/modelled pair, the rates, the event indicators and the
+        # worn marker on a "day of one person" screen.  None when the
+        # lamina declares no such block.
+        self.day_view: Optional[dict] = None
         self.tags: dict[str, Tag] = {}  # Phase B — feedback tag registry
         self.channel_mappings: dict[str, str] = {}  # attribute_id -> channel_id
         self.gates: list[Gate] = []
@@ -1788,6 +1793,11 @@ class UniversalTwin:
                 continue
             attr.set_value(attr.baseline, confidence=UNCOUPLED_CONFIDENCE)
 
+        # Parse the optional <day_view> roles.  Attributes are all in place
+        # by now, so every role can be checked against what this lamina
+        # actually declares.
+        self.day_view = self._parse_day_view(root)
+
         # Parse functions
         for func_el in root.findall(".//functions/function"):
             func_id = func_el.get("id")
@@ -1944,6 +1954,219 @@ class UniversalTwin:
         # Identifier.emit_tags() will return [] every cycle and the
         # feedback loop becomes a no-op.
         self._parse_tags(root)
+
+    def _day_view_attribute(self, lamina_id: str, element: str,
+                            attr_id: str) -> Attribute:
+        """The attribute a <day_view> role names, or a refusal by name."""
+        attr = self.attributes.get(attr_id)
+        if attr is None:
+            raise ValueError(
+                f"Lamina '{lamina_id}' <day_view><{element}> names unknown "
+                f"attribute '{attr_id}'."
+            )
+        return attr
+
+    @staticmethod
+    def _day_view_label(el, attr: Attribute) -> str:
+        """The role's label, defaulting to the attribute's own <name>."""
+        label = (el.get("label") or "").strip()
+        return label or attr.name
+
+    def _parse_day_view(self, root) -> Optional[dict]:
+        """
+        Parse the optional, domain-neutral <day_view> role declaration.
+
+        The block says which attributes play which part on a day screen:
+        one measured/modelled pair, the rates worth a strip, the event
+        indicators that colour a session and the attribute whose absence
+        means the device was not worn.  Nothing here is a new quantity;
+        every id must already be declared, and a role with the wrong
+        source or a misspelt child is refused rather than skipped.
+        """
+        dv_el = root.find("day_view")
+        if dv_el is None:
+            return None
+
+        lamina_id = self.lamina_id
+        allowed = {"pair", "rate", "event", "worn"}
+        for child in dv_el:
+            if child.tag not in allowed:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <day_view> contains unknown child "
+                    f"<{child.tag}>. Allowed children: <pair>, <rate>, "
+                    f"<event>, <worn>."
+                )
+
+        pairs = dv_el.findall("pair")
+        if len(pairs) != 1:
+            raise ValueError(
+                f"Lamina '{lamina_id}' <day_view> must declare exactly one "
+                f"<pair>; found {len(pairs)}."
+            )
+        pair_el = pairs[0]
+        measured_id = (pair_el.get("measured") or "").strip()
+        modelled_id = (pair_el.get("modelled") or "").strip()
+        if not measured_id or not modelled_id:
+            raise ValueError(
+                f"Lamina '{lamina_id}' <day_view><pair> must declare both "
+                f"measured and modelled attribute ids."
+            )
+        measured = self._day_view_attribute(
+            lamina_id, f"pair measured='{measured_id}'", measured_id)
+        modelled = self._day_view_attribute(
+            lamina_id, f"pair modelled='{modelled_id}'", modelled_id)
+        for role, attr in (("measured", measured), ("modelled", modelled)):
+            if attr.source != PRELIMINARY:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <day_view><pair {role}="
+                    f"'{attr.id}'>: attribute '{attr.id}' is {attr.source}; "
+                    f"the {role} attribute must be PRELIMINARY."
+                )
+        if measured.id == modelled.id:
+            raise ValueError(
+                f"Lamina '{lamina_id}' <day_view><pair> names '{measured.id}' "
+                f"as both measured and modelled; they must differ."
+            )
+        pair = {
+            "measured": measured.id,
+            "modelled": modelled.id,
+            "label": self._day_view_label(pair_el, measured),
+        }
+
+        rates = []
+        seen_rate_ids = set()
+        for rate_el in dv_el.findall("rate"):
+            attr_id = (rate_el.get("attribute") or "").strip()
+            if not attr_id:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <day_view><rate> must declare an "
+                    f"attribute."
+                )
+            attr = self._day_view_attribute(
+                lamina_id, f"rate attribute='{attr_id}'", attr_id)
+            if attr.source != SENSOR:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <day_view><rate "
+                    f"attribute='{attr.id}'>: attribute '{attr.id}' is "
+                    f"{attr.source}; a rate must be SENSOR."
+                )
+            if attr.id in seen_rate_ids:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <day_view><rate "
+                    f"attribute='{attr.id}'>: attribute '{attr.id}' is named "
+                    f"more than once among the rates."
+                )
+            seen_rate_ids.add(attr.id)
+            rates.append({
+                "attribute": attr.id,
+                "label": self._day_view_label(rate_el, attr),
+            })
+
+        events = []
+        seen_groups = set()
+        seen_indicators = set()
+        event_field = None
+        for event_el in dv_el.findall("event"):
+            indicator_id = (event_el.get("indicator") or "").strip()
+            group = (event_el.get("group") or "").strip()
+            if not indicator_id:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <day_view><event> must declare an "
+                    f"indicator."
+                )
+            attr = self._day_view_attribute(
+                lamina_id, f"event indicator='{indicator_id}'", indicator_id)
+            if attr.source != SENSOR:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <day_view><event "
+                    f"indicator='{attr.id}'>: attribute '{attr.id}' is "
+                    f"{attr.source}; an event indicator must be SENSOR."
+                )
+            field = attr.replay_field
+            if field is None:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <day_view><event "
+                    f"indicator='{attr.id}'>: attribute '{attr.id}' declares "
+                    f"no replay_field; an event indicator must read a "
+                    f"recorded label with 'sample.<field> in A, B'."
+                )
+            try:
+                path, labels = parse_replay_field(field)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <day_view><event "
+                    f"indicator='{attr.id}'>: {exc}"
+                ) from exc
+            if labels is None or path in REPLAY_CLOCK_FIELDS:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <day_view><event "
+                    f"indicator='{attr.id}'>: replay_field '{field}' is not a "
+                    f"membership field; an event indicator must read "
+                    f"'sample.<field> in A, B'."
+                )
+            if not re.match(r"^[a-z][a-z0-9_]*$", group):
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <day_view><event "
+                    f"indicator='{attr.id}'>: group '{group}' must match "
+                    f"^[a-z][a-z0-9_]*$."
+                )
+            if group in seen_groups:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <day_view><event "
+                    f"indicator='{attr.id}'>: group '{group}' is used by more "
+                    f"than one event."
+                )
+            if attr.id in seen_indicators:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <day_view><event "
+                    f"indicator='{attr.id}'>: indicator '{attr.id}' is used "
+                    f"more than once."
+                )
+            if event_field is None:
+                event_field = path
+            elif path != event_field:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <day_view><event "
+                    f"indicator='{attr.id}'>: reads '{path}' while another "
+                    f"event reads '{event_field}'; all events must share one "
+                    f"recorded path."
+                )
+            seen_groups.add(group)
+            seen_indicators.add(attr.id)
+            events.append({
+                "indicator": attr.id,
+                "group": group,
+                "label": self._day_view_label(event_el, attr),
+            })
+
+        worns = dv_el.findall("worn")
+        if len(worns) != 1:
+            raise ValueError(
+                f"Lamina '{lamina_id}' <day_view> must declare exactly one "
+                f"<worn>; found {len(worns)}."
+            )
+        worn_id = (worns[0].get("attribute") or "").strip()
+        if not worn_id:
+            raise ValueError(
+                f"Lamina '{lamina_id}' <day_view><worn> must declare an "
+                f"attribute."
+            )
+        worn = self._day_view_attribute(
+            lamina_id, f"worn attribute='{worn_id}'", worn_id)
+        if worn.source != SENSOR:
+            raise ValueError(
+                f"Lamina '{lamina_id}' <day_view><worn "
+                f"attribute='{worn.id}'>: attribute '{worn.id}' is "
+                f"{worn.source}; the worn attribute must be SENSOR."
+            )
+
+        return {
+            "pair": pair,
+            "rates": rates,
+            "events": events,
+            "event_field": event_field,
+            "worn": worn.id,
+        }
 
     def _parse_tags(self, root):
         """

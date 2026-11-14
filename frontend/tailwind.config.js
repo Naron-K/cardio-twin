@@ -56,6 +56,18 @@ export default {
           container: '#93000a',
           on:        '#690005',
         },
+        day: {
+          measured: '#ff7d86',
+          model:    '#4fe3f7',
+          band:     'rgba(0,227,253,0.13)',
+          gap:      'rgba(216,227,251,0.07)',
+          g0:       '#2fbf9b',
+          g1:       '#f0a13c',
+          g2:       '#ff525f',
+          g3:       '#e8c547',
+          other:    '#8fa3c7',
+          bar:      '#6f8fd8',
+        },
       },
       fontFamily: {
         display: ['Sora', 'ui-sans-serif', 'system-ui', 'sans-serif'],

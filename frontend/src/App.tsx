@@ -9,7 +9,7 @@ import type { FeedRequest } from './hooks/useCardioStream'
  * The app is one screen. Where you are on it lives in the URL, so a link opens
  * the lamina and the form it names and a reload stays there:
  *
- *   #dashboard/<lamina_id>/<animation|graph|table>
+ *   #dashboard/<lamina_id>/<animation|graph|table|day>
  *
  * A bare URL takes the backend's default lamina and the animation. Any other
  * hash, including the old #twin, #body, #stream and #analysis links, opens the

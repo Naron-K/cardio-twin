@@ -1,4 +1,6 @@
 import axios from 'axios'
+import { parseDaySummary } from '../twin/dayView'
+import type { DaySummary } from '../twin/dayView'
 import type { LaminaSchema } from '../twin/schema'
 import { parseSources } from '../twin/sourceBar'
 import type { SourcesResponse } from '../twin/sourceBar'
@@ -57,4 +59,48 @@ export async function fetchSources(laminaId?: string | null): Promise<SourcesRes
     params: laminaId ? { lamina: laminaId } : undefined,
   })
   return parseSources(res.data)
+}
+
+/**
+ * The server's own words for a refused day.  Both 400 and 404 carry their
+ * reason under `detail`, sometimes as a string and sometimes as an object
+ * whose `error` is the sentence worth showing.
+ */
+function dayMessage(data: unknown): string | null {
+  if (typeof data !== 'object' || data === null) return null
+  const detail = (data as Record<string, unknown>).detail
+  if (typeof detail === 'string') return detail
+  if (typeof detail === 'object' && detail !== null) {
+    const error = (detail as Record<string, unknown>).error
+    if (typeof error === 'string') return error
+  }
+  return null
+}
+
+/**
+ * One recorded day, replayed by the server and checked field by field.  A
+ * 400 (the lamina has no day view, or a bad parameter) and a 404 (no such
+ * day) become an Error carrying the server's message, so the screen can
+ * show the reason rather than a generic failure.
+ */
+export async function fetchDay(
+  lamina: string,
+  subject: string,
+  date: string,
+): Promise<DaySummary> {
+  try {
+    const res = await axios.get<unknown>('/api/day', {
+      params: { lamina, subject, date },
+    })
+    return parseDaySummary(res.data)
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      const status = error.response?.status
+      if (status === 400 || status === 404) {
+        const message = dayMessage(error.response?.data)
+        throw new Error(message ?? `The day could not be loaded (${status}).`)
+      }
+    }
+    throw error
+  }
 }

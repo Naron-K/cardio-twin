@@ -154,6 +154,37 @@ export interface FeedbackConfig {
 /** Mechanism names the engine has registered, per pipeline slot. */
 export type Registries = Record<string, string[]>
 
+/**
+ * The roles a lamina declares for the Day form.  The lamina says which of its
+ * attributes are the measured/modelled pair, which are rates, which indicators
+ * colour a session and which one's absence means "not worn"; the screen reads
+ * these roles rather than naming any attribute itself.
+ */
+export interface DayViewPairSchema {
+  measured: string
+  modelled: string
+  label: string
+}
+
+export interface DayViewRateSchema {
+  attribute: string
+  label: string
+}
+
+export interface DayViewEventSchema {
+  indicator: string
+  group: string
+  label: string
+}
+
+export interface DayViewSchema {
+  pair: DayViewPairSchema
+  rates: DayViewRateSchema[]
+  events: DayViewEventSchema[]
+  event_field: string | null
+  worn: string
+}
+
 export interface LaminaSchema {
   lamina_name: string
   lamina_id: string
@@ -169,6 +200,8 @@ export interface LaminaSchema {
   tags: Record<string, TagSchema>
   gates: GateSchema[]
   registries: Registries
+  /** The Day form's roles, or null for a lamina that offers no day view. */
+  day_view: DayViewSchema | null
 }
 
 // ── Index — the derivations every view would otherwise redo ──────────────────
@@ -296,7 +329,9 @@ export function indexLamina(raw: LaminaSchema): LaminaIndex {
   }
 
   return {
-    schema: raw,
+    // An older backend omits day_view entirely; normalise that to null so the
+    // dashboard can ask one question of every schema.
+    schema: { ...raw, day_view: raw.day_view ?? null },
     sensors: all.filter((a) => a.source === 'SENSOR'),
     // Inputs that arrive from another lamina rather than from a device. They
     // are not computed here, so `computed` now asks for PRELIMINARY rather

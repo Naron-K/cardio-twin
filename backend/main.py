@@ -69,6 +69,12 @@ from bundles import (
     subject_labels,
 )
 from day_summary import NoReadings, day_summary, days_without_readings
+from plan_options import (
+    NoPlanView,
+    NoTemplates,
+    UnknownSubject,
+    plan_options,
+)
 from usage_meter import UsageMeter
 from snapshot import (
     _KSTATE_SEP,
@@ -766,6 +772,7 @@ def get_schema(lamina: Optional[str] = Query(default=None,
         "functions": functions,
         "segments": segments,
         "day_view": twin.day_view,
+        "plan_view": twin.plan_view,
         "channel_mappings": twin.channel_mappings,
         # Phase A: expose the feedback loop selection so the frontend
         # (Phase F) knows which coupling/solver to render.  Defaults
@@ -922,6 +929,71 @@ def get_day(
     except ValueError as e:
         print(f"[WARN] /api/day refused: {e}")
         raise HTTPException(status_code=400, detail={
+            "error": str(e),
+            "type": type(e).__name__,
+            "timestamp": datetime.now().isoformat(),
+        })
+
+
+@app.get("/api/plan/options")
+def get_plan_options(
+    lamina: Optional[str] = Query(
+        default=None,
+        description="Lamina id; omit for the process default.",
+    ),
+    subject: str = Query(
+        ..., description="Bundle subject, for example 'subject_demo'."
+    ),
+    level: Optional[float] = Query(
+        default=None, description="Resting level to plan at."
+    ),
+    ambient: Optional[float] = Query(
+        default=None, description="Ambient temperature to plan at."
+    ),
+):
+    """
+    Everything the Plan a day editor draws, computed from declared roles.
+
+    The settle table is the lamina's own answer at each hour and intensity,
+    not a second implementation of its arithmetic.  A lamina without a
+    ``<plan_view>`` is a 400; an unknown subject and a subject without
+    templates keep their own 404s so a picker can offer what can be planned;
+    a level or ambient outside the templates' ranges is a 422.
+    """
+    print(
+        f"[LOG] GET /api/plan/options  lamina={lamina or '(default)'}  "
+        f"subject={subject}  level={level}  ambient={ambient}"
+    )
+    _resolve_or_400(lamina)
+    try:
+        return plan_options(
+            lamina or "", subject, level=level, ambient=ambient
+        )
+    except NoPlanView as e:
+        print(f"[WARN] /api/plan/options no plan view: {e}")
+        raise HTTPException(status_code=400, detail={
+            "error": str(e),
+            "lamina": e.lamina_id,
+            "timestamp": datetime.now().isoformat(),
+        })
+    except UnknownSubject as e:
+        print(f"[WARN] /api/plan/options unknown subject: {e}")
+        raise HTTPException(status_code=404, detail={
+            "error": str(e),
+            "subject": e.subject,
+            "available": e.available,
+            "timestamp": datetime.now().isoformat(),
+        })
+    except NoTemplates as e:
+        print(f"[WARN] /api/plan/options no templates: {e}")
+        raise HTTPException(status_code=404, detail={
+            "error": str(e),
+            "subject": e.subject,
+            "timestamp": datetime.now().isoformat(),
+        })
+    except ValueError as e:
+        print(f"[WARN] /api/plan/options refused: {e}")
+        raise HTTPException(status_code=422, detail={
             "error": str(e),
             "type": type(e).__name__,
             "timestamp": datetime.now().isoformat(),

@@ -1099,6 +1099,11 @@ class UniversalTwin:
         # worn marker on a "day of one person" screen.  None when the
         # lamina declares no such block.
         self.day_view: Optional[dict] = None
+        # Optional <plan_view> roles: which declared attributes a plan
+        # screen reads as the session's intensity, where it settles, and
+        # the counts, ambient context, baseline level and clock that
+        # frame it.  None when the lamina declares no such block.
+        self.plan_view: Optional[dict] = None
         self.tags: dict[str, Tag] = {}  # Phase B — feedback tag registry
         self.channel_mappings: dict[str, str] = {}  # attribute_id -> channel_id
         self.gates: list[Gate] = []
@@ -1793,11 +1798,6 @@ class UniversalTwin:
                 continue
             attr.set_value(attr.baseline, confidence=UNCOUPLED_CONFIDENCE)
 
-        # Parse the optional <day_view> roles.  Attributes are all in place
-        # by now, so every role can be checked against what this lamina
-        # actually declares.
-        self.day_view = self._parse_day_view(root)
-
         # Parse functions
         for func_el in root.findall(".//functions/function"):
             func_id = func_el.get("id")
@@ -1825,6 +1825,16 @@ class UniversalTwin:
                 description=func_el.findtext("description", ""),
                 state_after_gap=state_after_gap,
             )
+
+        # Parse the optional <day_view> roles.  Attributes are all in place
+        # by now, so every role can be checked against what this lamina
+        # actually declares.
+        self.day_view = self._parse_day_view(root)
+
+        # Parse the optional <plan_view> roles right after it.  Functions
+        # are in place too, so the settles role can be followed through
+        # the chain back to the intensity sensor.
+        self.plan_view = self._parse_plan_view(root)
 
         # Parse composites
         for comp_el in root.findall(".//composites/composite"):
@@ -1956,12 +1966,12 @@ class UniversalTwin:
         self._parse_tags(root)
 
     def _day_view_attribute(self, lamina_id: str, element: str,
-                            attr_id: str) -> Attribute:
-        """The attribute a <day_view> role names, or a refusal by name."""
+                            attr_id: str, block: str = "day_view") -> Attribute:
+        """The attribute a view role names, or a refusal by name."""
         attr = self.attributes.get(attr_id)
         if attr is None:
             raise ValueError(
-                f"Lamina '{lamina_id}' <day_view><{element}> names unknown "
+                f"Lamina '{lamina_id}' <{block}><{element}> names unknown "
                 f"attribute '{attr_id}'."
             )
         return attr
@@ -2166,6 +2176,156 @@ class UniversalTwin:
             "events": events,
             "event_field": event_field,
             "worn": worn.id,
+        }
+
+    def _plan_settles_reaches(self, settles_id: str,
+                              intensity_id: str) -> bool:
+        """
+        Whether the settles attribute is driven, through function inputs,
+        by the intensity attribute.
+
+        Walk the function that produces settles, then the functions that
+        produce its inputs, until only sensors are left.  A producer is
+        looked up by its declared output, falling back to the attribute's
+        computed_by id, so a chain whose attributes and functions disagree
+        about an id surfaces here rather than as a silent "no dependency".
+        """
+        seen = set()
+        stack = [settles_id]
+        while stack:
+            current = stack.pop()
+            if current == intensity_id:
+                return True
+            if current in seen:
+                continue
+            seen.add(current)
+            attr = self.attributes.get(current)
+            if attr is None or attr.source != PRELIMINARY:
+                continue
+            producer = (
+                self.functions.get(attr.computed_by)
+                if attr.computed_by else None
+            )
+            if producer is None:
+                producer = next(
+                    (f for f in self.functions.values()
+                     if f.output == current),
+                    None,
+                )
+            if producer is None:
+                continue
+            stack.extend(producer.inputs)
+        return False
+
+    def _parse_plan_view(self, root) -> Optional[dict]:
+        """
+        Parse the optional, domain-neutral <plan_view> role declaration.
+
+        The block says which declared attributes a plan screen reads: the
+        session's intensity, where that intensity makes the model settle,
+        the count it accumulates, the ambient context, the person's
+        baseline level and the clock it runs against.  Nothing here is a
+        new quantity; every id must already be declared.  A role with the
+        wrong source, a misspelt child, a repeated role, or a settling
+        value that its intensity never reaches is refused rather than
+        skipped.
+
+        A plan reuses <day_view>'s events as the kinds of session, so a
+        <plan_view> without a <day_view> to borrow them from is refused.
+        """
+        pv_el = root.find("plan_view")
+        if pv_el is None:
+            return None
+
+        lamina_id = self.lamina_id
+        if self.day_view is None:
+            raise ValueError(
+                f"Lamina '{lamina_id}' declares <plan_view> but no "
+                f"<day_view>. A plan reuses the day view's events as kinds "
+                f"of session; add a <day_view> block first."
+            )
+
+        role_names = ("intensity", "settles", "count", "ambient",
+                      "level", "clock")
+        sensor_roles = ("intensity", "count", "ambient", "level", "clock")
+        allowed = set(role_names)
+        for child in pv_el:
+            if child.tag not in allowed:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <plan_view> contains unknown "
+                    f"child <{child.tag}>. Allowed children: "
+                    f"<intensity>, <settles>, <count>, <ambient>, <level>, "
+                    f"<clock>."
+                )
+
+        roles = {}
+        for name in role_names:
+            els = pv_el.findall(name)
+            if len(els) != 1:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <plan_view> must declare exactly "
+                    f"one <{name}>; found {len(els)}."
+                )
+            el = els[0]
+            attr_id = (el.get("attribute") or "").strip()
+            if not attr_id:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <plan_view><{name}> must declare "
+                    f"an attribute."
+                )
+            attr = self._day_view_attribute(
+                lamina_id, f"{name} attribute='{attr_id}'", attr_id,
+                block="plan_view")
+            roles[name] = (el, attr)
+
+        for name in sensor_roles:
+            _, attr = roles[name]
+            if attr.source != SENSOR:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <plan_view><{name} "
+                    f"attribute='{attr.id}'>: attribute '{attr.id}' is "
+                    f"{attr.source}; the {name} attribute must be SENSOR."
+                )
+
+        _, settles = roles["settles"]
+        if settles.source != PRELIMINARY:
+            raise ValueError(
+                f"Lamina '{lamina_id}' <plan_view><settles "
+                f"attribute='{settles.id}'>: attribute '{settles.id}' is "
+                f"{settles.source}; the settles attribute must be "
+                f"PRELIMINARY."
+            )
+
+        _, intensity = roles["intensity"]
+        if not self._plan_settles_reaches(settles.id, intensity.id):
+            raise ValueError(
+                f"Lamina '{lamina_id}' <plan_view><settles "
+                f"attribute='{settles.id}'>: '{settles.id}' does not depend "
+                f"on the intensity attribute '{intensity.id}' through its "
+                f"function inputs; a settling value must be driven by the "
+                f"session intensity."
+            )
+
+        seen_roles = {}
+        for name in role_names:
+            _, attr = roles[name]
+            if attr.id in seen_roles:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <plan_view><{name} "
+                    f"attribute='{attr.id}'>: attribute '{attr.id}' is "
+                    f"already used by <{seen_roles[attr.id]}>; the six roles "
+                    f"must name six different attributes."
+                )
+            seen_roles[attr.id] = name
+
+        return {
+            name: {
+                "attribute": roles[name][1].id,
+                "label": self._day_view_label(roles[name][0],
+                                              roles[name][1]),
+                "unit": roles[name][1].unit,
+            }
+            for name in role_names
         }
 
     def _parse_tags(self, root):

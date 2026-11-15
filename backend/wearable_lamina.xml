@@ -619,6 +619,24 @@
   </day_view>
 
   <!--
+    <plan_view> names the roles an attribute plays on a "plan a session"
+    screen: the intensity the session asks for, where the model settles
+    under that intensity, the count it accumulates, the ambient context,
+    the person's baseline level, and the clock hour the plan runs
+    against.  It introduces no new quantities: every id below is an
+    attribute already declared in this file, and the settling value is
+    the heart-rate target the intensity chain already drives.
+  -->
+  <plan_view>
+    <intensity attribute="AE_rate" label="Level"/>
+    <settles attribute="HR_target" label="Settles near"/>
+    <count attribute="step_rate" label="Steps"/>
+    <ambient attribute="T_app" label="Outdoor temperature"/>
+    <level attribute="HR_level" label="Resting level"/>
+    <clock attribute="hour_local" label="Clock hour"/>
+  </plan_view>
+
+  <!--
     NO <tags> block, and that is a decision rather than an omission.
 
     This lamina monitors and corrects nothing — the same decision the

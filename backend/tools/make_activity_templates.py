@@ -55,13 +55,13 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from bundles import read_subject_label  # noqa: E402
+from plan_options import kind_groups  # noqa: E402
 from tools.fit_hr_model import (  # noqa: E402
     WEARABLE_XML,
     day_inputs,
     load_days,
     load_twin,
 )
-from universal_twin import parse_replay_field  # noqa: E402
 
 SCHEMA_VERSION = 1
 LAMINA_ID = "lamina_wearable"
@@ -88,50 +88,6 @@ def _r1(value) -> float:
 
 def _nearest(value, step: int) -> int:
     return int(round(float(value) / step) * step)
-
-
-def kind_groups(twin) -> dict[str, dict]:
-    """
-    The lamina's workout groups: group id -> indicator, label and labels.
-
-    Each <event> in the lamina's <day_view> names an indicator whose
-    replay_field is a membership field.  Its labels are the workouts in that
-    group.  A lamina without a day view, or an indicator without a membership
-    field, is refused by name rather than producing empty groups.
-    """
-    day_view = getattr(twin, "day_view", None)
-    if not day_view:
-        raise ValueError(
-            f"Lamina {twin.lamina_id} declares no <day_view>, so its workout "
-            f"groups cannot be read. Add a <day_view> block with one <event> "
-            f"per group."
-        )
-
-    groups: dict[str, dict] = {}
-    for event in day_view["events"]:
-        indicator = event["indicator"]
-        group_id = event["group"]
-        attr = twin.attributes.get(indicator)
-        field = None if attr is None else attr.replay_field
-        if field is None:
-            raise ValueError(
-                f"Lamina {twin.lamina_id}: indicator '{indicator}' for group "
-                f"'{group_id}' declares no replay_field. An event indicator "
-                f"must read a membership field 'sample.<field> in A, B'."
-            )
-        _path, labels = parse_replay_field(field)
-        if labels is None:
-            raise ValueError(
-                f"Lamina {twin.lamina_id}: indicator '{indicator}' for group "
-                f"'{group_id}' has replay_field '{field}', which is not a "
-                f"membership field. Use 'sample.<field> in A, B'."
-            )
-        groups[group_id] = {
-            "indicator": indicator,
-            "label": event["label"],
-            "workouts": sorted(labels),
-        }
-    return groups
 
 
 def _empty_acc() -> dict:

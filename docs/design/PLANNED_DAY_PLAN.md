@@ -222,6 +222,27 @@ element. The three other laminae are unchanged.
 Unknown subject: 404 with the list. A subject with no templates: 404 saying so. A lamina
 with no `<plan_view>`: 400.
 
+As built (phase 3), and where it differs from the text above:
+
+- **A sixth role, `<clock attribute="hour_local"/>`.** The settle value depends on the time
+  of day through the circadian term. Without a clock role the backend could not vary the
+  hour, and the frontend may not name an attribute.
+- **The settle table covers every hour, not hour 12 only.** Each kind gets
+  `settle.values[hour][point]`: 24 hours × 21 points. The editor reads the row for the
+  session's middle hour. It is the same session-time dependence the approved mockup has,
+  and at 0.1 ms per lamina pass the full table costs about 0.15 s.
+- **Optional `level` and `ambient` query parameters.** Both shift the settle value, so the
+  editor asks again when the Day column changes them. Defaults are the subject's median
+  level and median temperature. A value outside the slider range, or one that is not a
+  number, gets 422.
+- **The peaks limit line names each kind.** For Subject demo it reads "Walk 20, Strength
+  4, Cardio 34 bpm", because a single range would hide how differently the kinds miss.
+- `kind_groups` moved to `backend/plan_options.py`. The templates tool imports it from
+  there.
+- **Parity.** The table equals `fit_hr_model.simulate_day` at every hour and point tested,
+  to 1e-9. The first call takes 0.18 s and the response is 16 KB; it is then cached on the
+  two files' modification times.
+
 ### 4.5 The editor: columns of sliders
 
 Above the chart, one **Day** column and one column per session, side by side, scrolling
@@ -349,7 +370,7 @@ Each phase ends with its own tests and the whole suite green: the backend tests,
 | 0 | A static mockup of the plan page (columns, timeline, Run, the chart after a run) at 1920x1080 and at phone width; the user approves it | done 2026-11-15 (section 0) |
 | 1 | Rename of section 3 | done 2026-11-15 (section 3) |
 | 2 | Templates tool and backtest tool, with tests on generated days | done 2026-11-15: `tools/make_activity_templates.py`, `tools/backtest_planned_day.py`; `bundles/subject_demo/templates.json` holds both, tracked |
-| 3 | `<plan_view>` roles and `GET /api/plan/options` | bad ids are refused at load; the other laminae are unchanged; the settle table equals the lamina's own value at each point to 1e-9 |
+| 3 | `<plan_view>` roles and `GET /api/plan/options` | done 2026-11-15 (as built under 4.4) |
 | 4 | `planned_day.py`, `POST /api/day/plan`, `day_summary` for a planned day | a plan copied from a recorded day's sessions reproduces that day's session energy; every guard has a test |
 | 5 | The two tabs, the plan route and its URL encoding; Recorded days unchanged | screenshots of a recorded day before and after are the same; an old link still opens its day |
 | 6 | The editor of 4.5 with its pure logic in `frontend/src/twin/planDay.ts` and a `plan-check.ts` script (linking Level and Target, overlap rules, the URL encoding) | the linked sliders agree with the settle table both ways; an overlap cannot be made |

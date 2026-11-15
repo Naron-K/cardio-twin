@@ -3,9 +3,9 @@
   <metadata>
     <name>Walk</name>
     <lamina>lamina_wearable</lamina>
-    <subject>s2</subject>
+    <subject>subject_demo</subject>
     <order>4</order>
-    <description>s2's median over 1156 minutes on 30 days (2023-05-11 to 2025-05-11) where the workout label is Walking. A proxy for Walk, not a labelled state. The resting level, 77.2 bpm, is the median of the pipeline's daily level over 121 days.</description>
+    <description>Subject demo's median over 1156 minutes on 30 days (2023-05-11 to 2025-05-11) where the workout label is Walking. A proxy for Walk, not a labelled state. The resting level, 77.2 bpm, is the median of the pipeline's daily level over 121 days.</description>
   </metadata>
   <sensor_data>
     <AE_rate>3.18</AE_rate>

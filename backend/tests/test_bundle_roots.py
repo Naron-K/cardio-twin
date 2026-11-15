@@ -59,5 +59,5 @@ def test_the_environment_replaces_a_committed_subject_but_never_the_demo(tmp_pat
 def test_the_published_subject_is_offered_from_the_repository(monkeypatch):
     monkeypatch.delenv("CARDIOTWIN_BUNDLE_DIR", raising=False)
     listing = bundles.list_bundles()
-    assert "s2" in listing and len(listing["s2"]) > 0
-    assert bundles.load_params("s2") is not None
+    assert "subject_demo" in listing and len(listing["subject_demo"]) > 0
+    assert bundles.load_params("subject_demo") is not None

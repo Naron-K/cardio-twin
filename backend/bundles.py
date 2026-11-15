@@ -110,12 +110,17 @@ def bundle_roots() -> dict[str, Path]:
     local export can be newer than what was published, except for the demo:
     a demo whose numbers change with the deployment's environment is not a
     reproducible demo.  The environment variable is read on every call so a
-    test or a deployment can change it at runtime.
+    test or a deployment can change it at runtime.  The demo is the last key
+    so the synthetic sample comes last in every picker built from this order.
     """
-    roots: dict[str, Path] = {"demo": BUNDLE_DIR / "demo"}
+    roots: dict[str, Path] = {}
     if BUNDLE_DIR.is_dir():
         for child in sorted(BUNDLE_DIR.iterdir()):
-            if child.is_dir() and _SUBJECT_PATTERN.match(child.name):
+            if (
+                child.is_dir()
+                and child.name != "demo"
+                and _SUBJECT_PATTERN.match(child.name)
+            ):
                 roots.setdefault(child.name, child)
 
     configured = os.environ.get("CARDIOTWIN_BUNDLE_DIR")
@@ -126,7 +131,61 @@ def bundle_roots() -> dict[str, Path]:
                 if child.is_dir() and child.name != "demo":
                     roots[child.name] = child
 
+    roots["demo"] = BUNDLE_DIR / "demo"
     return roots
+
+
+def read_subject_label(directory: Path, subject: str) -> str:
+    """
+    The display label in ``<directory>/subject.json``, or ``subject`` when
+    the folder has no such file.
+
+    A folder may carry ``{"label": "Subject demo"}`` so the screen, the fit
+    report and the presets name the person without the folder name.  A label
+    is what a person reads, so a malformed file is refused by path and
+    problem rather than silently falling back to the id.
+    """
+    path = Path(directory) / "subject.json"
+    if not path.exists():
+        return subject
+
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ValueError(f"{path}: cannot read subject label: {exc}") from exc
+
+    try:
+        data = json.loads(text)
+    except ValueError as exc:
+        raise ValueError(f"{path}: invalid JSON in subject label: {exc}") from exc
+
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"{path}: subject label must be a JSON object, got "
+            f"{type(data).__name__}."
+        )
+    if "label" not in data:
+        raise ValueError(f"{path}: subject label is missing required field 'label'.")
+
+    label = data["label"]
+    if not isinstance(label, str):
+        raise ValueError(f"{path}: label must be a string, got {type(label).__name__}.")
+    label = label.strip()
+    if not label:
+        raise ValueError(f"{path}: label must not be empty or only whitespace.")
+    if len(label) > 40:
+        raise ValueError(f"{path}: label must be at most 40 characters, got {len(label)}.")
+    if any(ord(char) < 32 for char in label):
+        raise ValueError(f"{path}: label must not contain control characters.")
+    return label
+
+
+def subject_labels() -> dict[str, str]:
+    """Subject name -> display label, in the order `bundle_roots` offers them."""
+    return {
+        subject: read_subject_label(directory, subject)
+        for subject, directory in bundle_roots().items()
+    }
 
 
 def list_bundles() -> dict[str, list[str]]:

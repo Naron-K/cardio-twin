@@ -75,6 +75,8 @@ export interface DayModel {
 export interface DaySummary {
   lamina: string
   subject: string
+  /** The name to show for the subject; the id itself when the server sends none. */
+  subject_label: string
   date: string
   timezone: string
   synthetic: boolean
@@ -356,9 +358,12 @@ export function parseDaySummary(raw: unknown): DaySummary {
   if (!isRecord(raw)) bad('the response', 'must be an object')
   const nMinutes = readInteger(raw, 'n_minutes', '')
 
+  const subject = readString(raw, 'subject', '')
+  const label = raw.subject_label
   return {
     lamina: readString(raw, 'lamina', ''),
-    subject: readString(raw, 'subject', ''),
+    subject,
+    subject_label: typeof label === 'string' && label.trim() !== '' ? label.trim() : subject,
     date: readString(raw, 'date', ''),
     timezone: readString(raw, 'timezone', ''),
     synthetic: readBoolean(raw, 'synthetic', ''),

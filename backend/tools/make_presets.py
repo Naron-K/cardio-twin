@@ -42,11 +42,11 @@ Caveats are computed from the data, never typed in as facts:
 
 Run from the repository root:
 
-    python backend/tools/make_presets.py --bundle-dir DIR --subject s2
+    python backend/tools/make_presets.py --bundle-dir DIR --subject subject_demo
 
 or from backend/:
 
-    python tools/make_presets.py --bundle-dir DIR --subject s2
+    python tools/make_presets.py --bundle-dir DIR --subject subject_demo
 
 The output directory must be named ``wearable`` so a typo cannot overwrite the
 patient presets in ``presets/``.
@@ -66,6 +66,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
+from bundles import read_subject_label  # noqa: E402
 from tools.fit_hr_model import day_inputs, load_days  # noqa: E402
 
 # ── Pre-registered proxy definitions (do not tune per subject) ───────────────
@@ -251,7 +252,7 @@ def summarise(states: dict, days: list[dict]) -> list[dict]:
     # The subject's resting level travels with every preset.  A scenario that
     # took the fitted offset (relative to THIS person's level) but left
     # HR_level at the lamina's default would rest 15 bpm below them: measured
-    # for s2, 61.6 bpm against a daily level near 77.
+    # for Subject demo, 61.6 bpm against a daily level near 77.
     levels = [
         float(bundle["day"]["hr_level_rts"])
         for bundle in days
@@ -346,9 +347,16 @@ def _format_number(value: float, decimals: int) -> str:
 
 
 def write_presets(
-    summaries: list[dict], subject: str, out_dir: Path
+    summaries: list[dict], subject: str, out_dir: Path,
+    label: str | None = None,
 ) -> list[Path]:
-    """Write one preset XML per summary and return the paths written."""
+    """
+    Write one preset XML per summary and return the paths written.
+
+    ``subject`` is the folder id, written to <subject> because a scenario
+    loads that subject's params.json by it.  The description names the
+    person by ``label`` (from subject.json) when there is one.
+    """
     out_dir = Path(out_dir)
     if out_dir.name != "wearable":
         raise ValueError(
@@ -370,7 +378,7 @@ def write_presets(
     paths: list[Path] = []
     for summary in sorted(summaries, key=lambda item: item["order"]):
         description = (
-            f"{subject}'s median over {summary['n_minutes']} minutes on "
+            f"{label or subject}'s median over {summary['n_minutes']} minutes on "
             f"{summary['n_days']} days ({summary['first_date']} to "
             f"{summary['last_date']}) where {RULE_TEXT[summary['name']]}. "
             f"A proxy for {summary['label']}, not a labelled state."
@@ -441,7 +449,8 @@ def main(argv=None) -> int:
     days = load_days(Path(args.bundle_dir), args.subject)
     states = classify_minutes(days)
     summaries = summarise(states, days)
-    write_presets(summaries, args.subject, Path(args.out))
+    label = read_subject_label(Path(args.bundle_dir) / args.subject, args.subject)
+    write_presets(summaries, args.subject, Path(args.out), label=label)
 
     for summary in summaries:
         print(

@@ -8,10 +8,15 @@
  * scripts/sources-check.ts.
  */
 
-/** Each subject's recorded days, newest first, and whether it is fitted. */
+/**
+ * Each subject's recorded days, newest first, whether it is fitted, and the
+ * name to show for it.  A subject id is a folder name; the screen shows the
+ * label and never the id.
+ */
 export interface ReplaySources {
   subjects: Record<string, string[]>
   fitted: Record<string, boolean>
+  labels: Record<string, string>
 }
 
 /** `GET /api/sources?lamina=<id>`, after every field has been checked. */
@@ -28,6 +33,8 @@ export interface DayRoute {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const SUBJECT_RE = /^[a-z0-9_]{1,32}$/
+/** The backend refuses a longer label; anything longer here is not one. */
+const LABEL_MAX = 40
 
 /** Parameters an older link may carry; they name nothing on this page. */
 const ROUTE_KEYS = ['source', 'subject', 'date', 'speed', 'preset'] as const
@@ -77,7 +84,24 @@ function parseReplay(raw: unknown): ReplaySources | null {
     }
   }
 
-  return { subjects, fitted }
+  // Every offered subject gets a label: the server's when it is a usable
+  // string, else the id, so a picker never shows an empty option.
+  const given = isRecord(raw.labels) ? raw.labels : {}
+  const labels: Record<string, string> = {}
+  for (const subject of Object.keys(subjects)) {
+    const label = given[subject]
+    labels[subject] =
+      typeof label === 'string' && label.trim() !== '' && label.length <= LABEL_MAX
+        ? label.trim()
+        : subject
+  }
+
+  return { subjects, fitted, labels }
+}
+
+/** The name to show for a subject: its label when one is on offer, else its id. */
+export function subjectLabel(sources: SourcesResponse | null, subject: string): string {
+  return sources?.replay?.labels[subject] ?? subject
 }
 
 /** A sources response with every usable field kept and every wrong type dropped. */

@@ -238,7 +238,7 @@ export function DayView({ lamina, subject, date, onDay }: Props) {
   const verdict = session ? verdictText(session, day.model.sd, unit) : null
   const sd = `±${sdFigure(day.model.sd)}${unit ? ` ${unit}` : ''}`
   const modelLine = day.model.fitted
-    ? `Model fitted on ${day.subject} only · residual SD ${sd}`
+    ? `Model fitted on ${day.subject_label} only · residual SD ${sd}`
     : `Model with default coefficients · SD ${sd}`
 
   const playLabel = play?.running

@@ -23,10 +23,11 @@ import numpy as np
 sys.path.insert(0, str(Path.cwd()))
 sys.path.insert(0, str(Path.cwd() / "tools"))
 import fit_hr_model as F  # noqa: E402
+from bundles import read_subject_label  # noqa: E402
 
 template, subject, out = sys.argv[1:4]
 data_out = sys.argv[4] if len(sys.argv) > 4 else None
-LABEL = "Subject demo"
+LABEL = read_subject_label(Path("bundles") / subject, subject)
 MIN_SESSION = 5
 N = 1440
 
@@ -171,7 +172,7 @@ check = [dict(plan=p, **project(p)) for p in (default_plan, alt1, alt2)]
 
 data = dict(
     subject_label=LABEL,
-    applies_to="Fitted on Subject demo's recordings only",
+    applies_to=f"Fitted on {LABEL}'s recordings only",
     days=len(days),
     coef=coef, hr_floor=F.HR_TARGET_FLOOR,
     kinds=kinds, hourly=dict(ae=hourly_ae, steps=hourly_steps),

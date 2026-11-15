@@ -69,16 +69,17 @@ htmlcov/
 
 # Day bundles of real people are health data, and this repository is public and
 # is what Render builds from.  Tracked: the synthetic demo day, the schema, and
-# s2's days and fitted coefficients (published with the owner's approval,
-# 2026-11-14).  Any other subject copied here stays on this machine, and so does
-# a fit report.
+# Subject demo's days, fitted coefficients and display label (published with
+# the owner's approval, 2026-11-14).  Any other subject copied here stays on
+# this machine, and so does a fit report.
 backend/bundles/*
 !backend/bundles/demo/
 !backend/bundles/bundle.schema.json
-!backend/bundles/s2/
-backend/bundles/s2/*
-!backend/bundles/s2/20??-??-??.json
-!backend/bundles/s2/params.json
+!backend/bundles/subject_demo/
+backend/bundles/subject_demo/*
+!backend/bundles/subject_demo/20??-??-??.json
+!backend/bundles/subject_demo/params.json
+!backend/bundles/subject_demo/subject.json
 
 # Mockups built from a real person's day stay local; the synthetic one is tracked.
 docs/design/mockups/*

@@ -16,6 +16,7 @@ import {
   pickDay,
   routeFromSearch,
   routeToSearch,
+  subjectLabel,
 } from '../src/twin/sources.ts'
 
 const sources = parseSources({
@@ -84,6 +85,30 @@ assert.deepEqual(pickDay(withEmpty, { subject: 's2', date: '2025-01-02' }), {
   subject: 's2',
   date: '2025-04-03',
 })
+
+// ── Labels: the screen shows a name, never the folder id ─────────────────────
+
+const labelled = parseSources({
+  replay: {
+    subjects: { subject_demo: ['2025-04-03'], demo: ['2025-06-01'], s9: ['2025-01-02'] },
+    labels: { subject_demo: '  Subject demo ', demo: 'Synthetic sample', s9: '', ghost: 'Nobody' },
+  },
+})
+assert.deepEqual(labelled.replay?.labels, {
+  subject_demo: 'Subject demo',
+  demo: 'Synthetic sample',
+  s9: 's9', // an empty label falls back to the id rather than an empty option
+})
+// The server's order is kept, so the picker opens on the first subject it lists.
+assert.deepEqual(Object.keys(labelled.replay?.subjects ?? {}), ['subject_demo', 'demo', 's9'])
+assert.equal(subjectLabel(labelled, 'subject_demo'), 'Subject demo')
+assert.equal(subjectLabel(labelled, 'unknown'), 'unknown')
+assert.equal(subjectLabel(null, 'demo'), 'demo')
+// GUARD: a malformed labels field labels every subject with its id.
+for (const bad of [null, 5, 'x', ['Subject demo'], { demo: 7 }, { demo: 'x'.repeat(41) }]) {
+  const result = parseSources({ replay: { subjects: { demo: ['2025-06-01'] }, labels: bad } })
+  assert.deepEqual(result.replay?.labels, { demo: 'demo' })
+}
 
 // ── The day the URL names ────────────────────────────────────────────────────
 

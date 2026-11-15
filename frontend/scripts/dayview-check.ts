@@ -214,6 +214,13 @@ assert.equal(verdictText({ difference: 12, n_paired: 2 }, 10, 'bpm').tone, 'none
 // ── Group colours ────────────────────────────────────────────────────────────
 
 const day = parseDaySummary(sampleDay())
+// No label from the server: the id is shown rather than nothing.
+assert.equal(day.subject_label, 'demo')
+assert.equal(
+  parseDaySummary({ ...sampleDay(), subject_label: 'Synthetic sample' }).subject_label,
+  'Synthetic sample',
+)
+assert.equal(parseDaySummary({ ...sampleDay(), subject_label: 7 }).subject_label, 'demo')
 assert.equal(groupColourIndex(day, 'walk'), 0)
 assert.equal(groupColourIndex(day, 'strength'), 1)
 assert.equal(groupColourIndex(day, 'cardio'), 2)

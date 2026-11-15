@@ -12,11 +12,11 @@ controls, states and copy. Rebuild it with:
 
 ```bash
 cd backend
-python ../tools/mockups/build_plan_mockup.py ../tools/mockups/plan_day_template.html s2 ../docs/design/mockups/plan-day-demo.html
+python ../tools/mockups/build_plan_mockup.py ../tools/mockups/plan_day_template.html subject_demo ../docs/design/mockups/plan-day-demo.html
 node ../tools/mockups/plan-model-check.mjs ../docs/design/mockups/plan-day-demo.html
 ```
 
-(After the rename of section 3, pass `subject_demo` instead of `s2`.) The built page is
+The built page is
 gitignored, like every mockup built from a real person's days. Open it in a browser; Run
 plays the projection.
 
@@ -93,6 +93,12 @@ feed stretched over a schedule: "what this person's model shows for this plan". 
 and endpoint calls it a projection from a plan, never a forecast.
 
 ## 3. Rename: "s2" becomes "Subject demo"
+
+Done 2026-11-15. A shared `bundles.read_subject_label(directory, subject)` reads a
+folder's `subject.json`. `/api/sources` and `/api/day`, the fitter's `applies_to`
+and report, the preset descriptions and the mockup all use it. Regenerating the presets
+changed only the subject and the name, not a number. What `git grep -w s2` still finds:
+this section, the two earlier plans, and made-up ids in test fixtures.
 
 The id `demo` is already the synthetic sample day and about ten test files rely on it, so
 the real person takes a new id and both get a display name.
@@ -309,7 +315,7 @@ Each phase ends with its own tests and the whole suite green: the backend tests,
 | Phase | Work | Accept when |
 |---|---|---|
 | 0 | A static mockup of the plan page (columns, timeline, Run, the chart after a run) at 1920x1080 and at phone width; the user approves it | done 2026-11-15 (section 0) |
-| 1 | Rename of section 3 | the acceptance line of section 3 |
+| 1 | Rename of section 3 | done 2026-11-15 (section 3) |
 | 2 | Templates tool and backtest tool, with tests on generated days | on Subject demo the report reproduces section 2 within rounding |
 | 3 | `<plan_view>` roles and `GET /api/plan/options` | bad ids are refused at load; the other laminae are unchanged; the settle table equals the lamina's own value at each point to 1e-9 |
 | 4 | `planned_day.py`, `POST /api/day/plan`, `day_summary` for a planned day | a plan copied from a recorded day's sessions reproduces that day's session energy; every guard has a test |

@@ -50,11 +50,11 @@ value; the file names the subject in "applies_to".
 
 Run from the repository root:
 
-    python backend/tools/fit_hr_model.py --bundle-dir DIR --subject s2
+    python backend/tools/fit_hr_model.py --bundle-dir DIR --subject subject_demo
 
 or from backend/:
 
-    python tools/fit_hr_model.py --bundle-dir DIR --subject s2
+    python tools/fit_hr_model.py --bundle-dir DIR --subject subject_demo
 """
 from __future__ import annotations
 
@@ -72,7 +72,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from bundles import is_finite_number, validate_bundle  # noqa: E402
+from bundles import is_finite_number, read_subject_label, validate_bundle  # noqa: E402
 from laminae import load_twin  # noqa: E402
 from signal_source import ReplayExhausted, ReplaySource  # noqa: E402
 
@@ -794,7 +794,7 @@ def _all_minutes_mae(day_list: list[dict], coef: dict) -> float:
 
 
 def fit(days: list[dict], seed_coef: dict, post_hoc: str | None = None,
-        post_hoc_reason: str | None = None) -> dict:
+        post_hoc_reason: str | None = None, label: str | None = None) -> dict:
     """
     Fit the four models and return the params dict.
 
@@ -1012,8 +1012,8 @@ def fit(days: list[dict], seed_coef: dict, post_hoc: str | None = None,
         "schema_version": SCHEMA_VERSION,
         "subject": subject,
         "applies_to": (
-            f"{subject} only: fitted on {subject}'s recordings; not a "
-            f"population value"
+            f"{label or subject} only: fitted on {label or subject}'s "
+            f"recordings; not a population value"
         ),
         "fitted_at": datetime.now(timezone.utc).isoformat(),
         "lamina": LAMINA_ID,
@@ -1089,8 +1089,10 @@ def fit(days: list[dict], seed_coef: dict, post_hoc: str | None = None,
     return params
 
 
-def render_report(params: dict) -> str:
-    subject = params["subject"]
+def render_report(params: dict, label: str | None = None) -> str:
+    # The report names the person by their label (subject.json) when the
+    # folder has one, so a published report never shows the folder name.
+    subject = label or params["subject"]
     data = params["data"]
     stage_b = params["metrics"]["stage_b"]
     overall = stage_b["overall"]
@@ -1228,14 +1230,15 @@ def main(argv=None) -> int:
                      "pre-registered rules are overridden.")
 
     days = load_days(Path(args.bundle_dir), args.subject)
+    target = Path(args.bundle_dir) / args.subject
+    label = read_subject_label(target, args.subject)
     seed = _default_seed(load_twin(WEARABLE_XML))
     params = fit(days, seed, post_hoc=args.post_hoc,
-                 post_hoc_reason=args.post_hoc_reason)
+                 post_hoc_reason=args.post_hoc_reason, label=label)
 
-    target = Path(args.bundle_dir) / args.subject
     params_path = target / "params.json"
     report_path = target / "fit_report.md"
-    report = render_report(params)
+    report = render_report(params, label=label)
 
     params_path.write_text(
         json.dumps(params, indent=2, ensure_ascii=False) + "\n",

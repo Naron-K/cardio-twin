@@ -79,8 +79,8 @@ def test_empty_day_raises_its_own_error(tmp_path, monkeypatch):
         ds.day_summary(LAMINA, "s7", "2025-06-01")
 
 
-def test_s2_has_exactly_its_eleven_days_without_heart_rate(monkeypatch):
+def test_subject_demo_has_exactly_its_eleven_days_without_heart_rate(monkeypatch):
     monkeypatch.delenv("CARDIOTWIN_BUNDLE_DIR", raising=False)
-    empty = ds.days_without_readings(LAMINA).get("s2", [])
+    empty = ds.days_without_readings(LAMINA).get("subject_demo", [])
     assert len(empty) == 11
     assert "2025-01-02" in empty and "2025-04-03" not in empty

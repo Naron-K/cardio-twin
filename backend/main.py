@@ -61,7 +61,13 @@ from organism import OrganismError, available_organisms, load_organism
 from session import OrganismSession, Session
 from signal_source import ReplaySource, ScenarioSource, SimulatedSource
 from streaming_runtime import StreamingRuntime
-from bundles import UnknownBundle, list_bundles, load_bundle, load_params
+from bundles import (
+    UnknownBundle,
+    list_bundles,
+    load_bundle,
+    load_params,
+    subject_labels,
+)
 from day_summary import NoReadings, day_summary, days_without_readings
 from usage_meter import UsageMeter
 from snapshot import (
@@ -844,6 +850,7 @@ def get_sources(lamina: Optional[str] = Query(
         "replay": (
             {
                 "subjects": subjects,
+                "labels": subject_labels(),
                 "fitted": {
                     subject: load_params(subject) is not None
                     for subject in subjects

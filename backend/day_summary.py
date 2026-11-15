@@ -35,6 +35,7 @@ from bundles import (
     list_bundles,
     load_bundle,
     load_params,
+    subject_labels,
 )
 from laminae import load_twin, resolve_lamina
 from session import Session
@@ -125,7 +126,7 @@ def days_without_readings(lamina_id: str) -> dict[str, list[str]]:
     have a reading.
 
     Without a measured value there is nothing to set the model against, and
-    on s2's days without one the model has no resting level to run from
+    on Subject demo's days without one the model has no resting level to run from
     either, so such a day has nothing to show.  A lamina with no observed
     attribute judges no day empty.  Each file is read once per modification
     time.
@@ -264,6 +265,7 @@ def _build(lamina_id: str, subject: str, date: str) -> dict:
 
     bundle = load_bundle(subject, date)
     params = load_params(subject)
+    subject_label = subject_labels().get(subject, subject)
 
     attrs = twin.attributes
     pair = day_view["pair"]
@@ -329,8 +331,8 @@ def _build(lamina_id: str, subject: str, date: str) -> dict:
     # whatever the model drew; the same rule as days_without_readings.
     if not any(v is not None for v in measured):
         raise NoReadings(
-            f"No readings on {date}: {subject}'s watch recorded nothing the "
-            f"model can be set against that day."
+            f"No readings on {date}: {subject_label}'s watch recorded nothing "
+            f"the model can be set against that day."
         )
 
     n_minutes = len(measured)
@@ -365,8 +367,8 @@ def _build(lamina_id: str, subject: str, date: str) -> dict:
         sd_source = "default"
     if not math.isfinite(sd) or sd < 0.0:
         raise ValueError(
-            f"the usual error for {subject}/{date} is {sd!r}; a standard "
-            f"deviation must be a finite non-negative number."
+            f"the usual error for {subject_label}/{date} is {sd!r}; a "
+            f"standard deviation must be a finite non-negative number."
         )
 
     sessions: list[dict] = []
@@ -582,6 +584,7 @@ def _build(lamina_id: str, subject: str, date: str) -> dict:
     result = {
         "lamina": twin.lamina_id,
         "subject": subject,
+        "subject_label": subject_label,
         "date": date,
         "timezone": bundle["timezone"],
         "synthetic": bundle["synthetic"],

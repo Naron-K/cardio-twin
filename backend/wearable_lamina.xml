@@ -188,7 +188,7 @@
       <physio_max>40</physio_max>
       <baseline>0</baseline>
       <noise_sigma>0</noise_sigma>
-      <description>A constant this person's quiet heart rate sits away from HR_level. HR_level is the daily level of a resting marker computed elsewhere (for s2 about 76 bpm while measured heart rate reaches 44), so it is kept as given and not refitted; the offset is fitted instead, on quiet minutes outside workouts. Zero until a fitted params.json replaces it.</description>
+      <description>A constant this person's quiet heart rate sits away from HR_level. HR_level is the daily level of a resting marker computed elsewhere (for Subject demo about 76 bpm while measured heart rate reaches 44), so it is kept as given and not refitted; the offset is fitted instead, on quiet minutes outside workouts. Zero until a fitted params.json replaces it.</description>
     </attribute>
 
     <attribute id="HR_max">

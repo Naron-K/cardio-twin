@@ -4,7 +4,13 @@ import { Chip } from './components/ui'
 import type { DaySummary } from './twin/dayView'
 import { fetchSources, findDayLamina } from './utils/api'
 import type { DayRoute, SourcesResponse } from './utils/api'
-import { neighbourDays, pickDay, routeFromSearch, routeToSearch } from './twin/sources'
+import {
+  neighbourDays,
+  pickDay,
+  routeFromSearch,
+  routeToSearch,
+  subjectLabel,
+} from './twin/sources'
 
 interface DayMeta {
   subject: string
@@ -109,7 +115,7 @@ export default function App() {
         </h1>
         {route && (
           <p className="font-body text-[14px] text-ink/70">
-            subject {route.subject} · {route.date}
+            {subjectLabel(ready?.sources ?? null, route.subject)} · {route.date}
             {shown?.timezone ? ` · ${shown.timezone}` : ''}
           </p>
         )}
@@ -129,12 +135,14 @@ export default function App() {
               >
                 {subjectNames.map((name) => (
                   <option key={name} value={name}>
-                    {name}
+                    {subjectLabel(ready.sources, name)}
                   </option>
                 ))}
               </select>
             ) : (
-              <span className="font-mono text-[13px] readout text-ink/80">{route.subject}</span>
+              <span className="font-mono text-[13px] readout text-ink/80">
+                {subjectLabel(ready.sources, route.subject)}
+              </span>
             )}
 
             <button

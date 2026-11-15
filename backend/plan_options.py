@@ -385,16 +385,24 @@ def _spread(low: float, high: float, count: int) -> list[float]:
     return [float(low) + step * index for index in range(count)]
 
 
+class OutOfRange(ValueError):
+    """A level or ambient value the subject's templates do not cover."""
+
+    def __init__(self, field: str, message: str) -> None:
+        self.field = field
+        super().__init__(message)
+
+
 def _range(name: str, value: float, low: float, high: float) -> float:
     """Refuse a plan value that is not a finite number inside its range."""
     if not is_finite_number(value):
-        raise ValueError(
+        raise OutOfRange(name, 
             f"{name}={value!r} is not a finite number; give a number from "
             f"{low:g} to {high:g}."
         )
     value = float(value)
     if value < low or value > high:
-        raise ValueError(
+        raise OutOfRange(name,
             f"{name}={value:g} is outside the range {low:g}..{high:g} that "
             f"this subject's templates support. Give a number in that range."
         )
@@ -506,6 +514,82 @@ def _limits_text(
             f"{projection['test_sessions']} sessions"
         )
     return lines
+
+
+def _interpolate(x: float, xs: list[float], ys: list[float]) -> float:
+    """Linear interpolation of ``ys`` over increasing ``xs``, clamped at the ends."""
+    if x <= xs[0]:
+        return float(ys[0])
+    if x >= xs[-1]:
+        return float(ys[-1])
+    for index in range(1, len(xs)):
+        if x <= xs[index]:
+            span = xs[index] - xs[index - 1]
+            weight = (x - xs[index - 1]) / span if span else 0.0
+            return float(ys[index - 1] + weight * (ys[index] - ys[index - 1]))
+    return float(ys[-1])
+
+
+def _default_plan(
+    kinds: list[dict],
+    awake: list[int],
+    ambient: float,
+    level: float,
+    count_outside: float,
+    step_minutes: int,
+) -> dict:
+    """
+    The plan the editor opens on: one typical walk and one typical strength
+    session, when the lamina offers two kinds and they fit the waking hours.
+
+    Each session's target is the settle table's value at the session's
+    middle hour, interpolated at the kind's typical (50th percentile) level.
+    The table's middle point is the midpoint of the 10th-90th range, which
+    is not the typical level (for Subject demo's strength it is 1.3 kcal/min
+    below it), so it must not be read off directly.
+    """
+    start_minute, end_minute = awake
+
+    def snapped(value: float) -> int:
+        return int(round(value / step_minutes) * step_minutes)
+
+    candidates = []
+    if kinds:
+        candidates.append((kinds[0], snapped(start_minute + 70), 30))
+    if len(kinds) > 1:
+        candidates.append((kinds[1], snapped(end_minute - 265), 45))
+
+    sessions: list[dict] = []
+    for kind, start, minutes in candidates:
+        end = start + minutes
+        if start < start_minute or end > end_minute:
+            continue
+        if any(
+            not (end <= item["start"] or start >= item["start"] + item["minutes"])
+            for item in sessions
+        ):
+            continue
+        settle = kind["settle"]
+        hour = int((start + minutes / 2) // 60) % 24
+        typical = kind["intensity"]["p50"]
+        sessions.append({
+            "kind": kind["id"],
+            "start": start,
+            "minutes": minutes,
+            "intensity": kind["intensity"]["p50"],
+            "count": round(kind["steps_per_min"] * minutes),
+            "target": round(_interpolate(
+                typical, settle["intensities"], settle["values"][hour]
+            )),
+        })
+
+    return {
+        "awake": [start_minute, end_minute],
+        "ambient": ambient,
+        "level": level,
+        "count_outside": count_outside,
+        "sessions": sessions,
+    }
 
 
 def _build(
@@ -649,6 +733,14 @@ def _build(
                 "ambient": ambient_value,
             },
         },
+        "default_plan": _default_plan(
+            kinds,
+            [templates["awake"]["start"], templates["awake"]["end"]],
+            ambient_value,
+            level_value,
+            count_p50,
+            5,
+        ),
         "projection_error": projection,
         "limits": {
             "max_sessions": 6,

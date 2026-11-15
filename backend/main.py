@@ -32,7 +32,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -75,6 +75,7 @@ from plan_options import (
     UnknownSubject,
     plan_options,
 )
+from planned_day import PlanRefused, planned_day
 from usage_meter import UsageMeter
 from snapshot import (
     _KSTATE_SEP,
@@ -993,6 +994,84 @@ def get_plan_options(
         })
     except ValueError as e:
         print(f"[WARN] /api/plan/options refused: {e}")
+        raise HTTPException(status_code=422, detail={
+            "error": str(e),
+            "type": type(e).__name__,
+            "timestamp": datetime.now().isoformat(),
+        })
+
+
+@app.post("/api/day/plan")
+async def post_day_plan(
+    request: Request,
+    lamina: Optional[str] = Query(
+        default=None,
+        description="Lamina id; omit for the process default.",
+    ),
+):
+    """
+    Run a planned day through the lamina and answer in the /api/day shape.
+
+    The plan is the JSON body; nothing is written and nothing is cached.  A
+    plan this subject's options cannot accept is a 422 naming the field and
+    its allowed range.  A lamina without a plan view is a 400; an unknown
+    subject and a subject without templates keep their own 404s, as on
+    ``/api/plan/options``.
+    """
+    try:
+        plan = await request.json()
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail={
+            "error": f"The request body must be JSON: {e}",
+            "field": "plan",
+            "timestamp": datetime.now().isoformat(),
+        })
+    if not isinstance(plan, dict):
+        raise HTTPException(status_code=422, detail={
+            "error": "The plan must be a JSON object.",
+            "field": "plan",
+            "timestamp": datetime.now().isoformat(),
+        })
+
+    print(
+        f"[LOG] POST /api/day/plan  lamina={lamina or '(default)'}  "
+        f"subject={plan.get('subject')}  "
+        f"sessions={len(plan.get('sessions') or [])}"
+    )
+    _resolve_or_400(lamina)
+    try:
+        return planned_day(lamina or "", plan)
+    except PlanRefused as e:
+        print(f"[WARN] /api/day/plan refused: {e}")
+        raise HTTPException(status_code=422, detail={
+            "error": str(e),
+            "field": e.field,
+            "timestamp": datetime.now().isoformat(),
+        })
+    except NoPlanView as e:
+        print(f"[WARN] /api/day/plan no plan view: {e}")
+        raise HTTPException(status_code=400, detail={
+            "error": str(e),
+            "lamina": e.lamina_id,
+            "timestamp": datetime.now().isoformat(),
+        })
+    except UnknownSubject as e:
+        print(f"[WARN] /api/day/plan unknown subject: {e}")
+        raise HTTPException(status_code=404, detail={
+            "error": str(e),
+            "subject": e.subject,
+            "available": e.available,
+            "timestamp": datetime.now().isoformat(),
+        })
+    except NoTemplates as e:
+        print(f"[WARN] /api/day/plan no templates: {e}")
+        raise HTTPException(status_code=404, detail={
+            "error": str(e),
+            "subject": e.subject,
+            "timestamp": datetime.now().isoformat(),
+        })
+    except ValueError as e:
+        print(f"[WARN] /api/day/plan refused: {e}")
         raise HTTPException(status_code=422, detail={
             "error": str(e),
             "type": type(e).__name__,

@@ -252,8 +252,22 @@ def _assert_finite(node, path: str) -> None:
             _assert_finite(value, f"{path}[{index}]")
 
 
-def _build(lamina_id: str, subject: str, date: str) -> dict:
-    """Replay one recorded day and return the finished day summary."""
+def summarise_bundle(
+    lamina_id: str,
+    bundle: dict,
+    params: dict | None,
+    subject_label: str,
+    *,
+    planned: bool = False,
+) -> dict:
+    """
+    Replay one bundle and return the finished day summary.
+
+    ``_build`` loads a recorded day and calls this; ``planned_day`` builds a
+    bundle from a plan and calls it with ``planned=True``.  A planned bundle
+    has no measured value by construction, so the "nothing was measured"
+    refusal is skipped and every session's verdict is ``None``.
+    """
     path = resolve_lamina(lamina_id)
     twin = load_twin(path)
     day_view = twin.day_view
@@ -263,9 +277,8 @@ def _build(lamina_id: str, subject: str, date: str) -> dict:
             f"day to describe. Add a <day_view> block to that lamina."
         )
 
-    bundle = load_bundle(subject, date)
-    params = load_params(subject)
-    subject_label = subject_labels().get(subject, subject)
+    subject = bundle["subject"]
+    date = bundle["date"]
 
     attrs = twin.attributes
     pair = day_view["pair"]
@@ -329,7 +342,7 @@ def _build(lamina_id: str, subject: str, date: str) -> dict:
 
     # Without one measured value there is nothing to set the model against,
     # whatever the model drew; the same rule as days_without_readings.
-    if not any(v is not None for v in measured):
+    if not planned and not any(v is not None for v in measured):
         raise NoReadings(
             f"No readings on {date}: {subject_label}'s watch recorded nothing "
             f"the model can be set against that day."
@@ -391,7 +404,18 @@ def _build(lamina_id: str, subject: str, date: str) -> dict:
                 for k in minutes
                 if measured[k] is not None and modelled[k] is not None
             ]
-            if paired:
+            modelled_run = [
+                modelled[k] for k in minutes if modelled[k] is not None
+            ]
+            if planned:
+                # A planned session has no measured line to pair with, so the
+                # mean and peak the model reached are read from the model
+                # alone; there is no difference to judge.
+                mean_measured = difference = None
+                mean_modelled = (
+                    statistics.mean(modelled_run) if modelled_run else None
+                )
+            elif paired:
                 mean_measured = statistics.mean(p[0] for p in paired)
                 mean_modelled = statistics.mean(p[1] for p in paired)
                 difference = mean_measured - mean_modelled
@@ -429,7 +453,9 @@ def _build(lamina_id: str, subject: str, date: str) -> dict:
                 "n_paired": len(paired),
                 "difference": _r(difference),
                 "rate_totals": rate_totals,
-                "verdict": _verdict(len(paired), difference, sd),
+                "verdict": (
+                    None if planned else _verdict(len(paired), difference, sd)
+                ),
             })
         index = end
 
@@ -623,6 +649,21 @@ def _build(lamina_id: str, subject: str, date: str) -> dict:
     }
     _assert_finite(result, "day_summary")
     return result
+
+
+def _build(lamina_id: str, subject: str, date: str) -> dict:
+    """Load one recorded day and summarise it."""
+    twin = load_twin(resolve_lamina(lamina_id))
+    if not twin.day_view:
+        raise ValueError(
+            f"lamina {twin.lamina_id} declares no <day_view>; there is no "
+            f"day to describe. Add a <day_view> block to that lamina."
+        )
+
+    bundle = load_bundle(subject, date)
+    params = load_params(subject)
+    subject_label = subject_labels().get(subject, subject)
+    return summarise_bundle(lamina_id, bundle, params, subject_label)
 
 
 @functools.lru_cache(maxsize=32)

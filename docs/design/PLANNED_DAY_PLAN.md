@@ -62,19 +62,25 @@ What the approved mockup settled beyond section 4:
 
 ## 2. What was measured, and the limits to keep on screen
 
-Measured 2026-11-15 with a scratch script (not in the repo). 86 days before 2025-04-05
-build the templates of section 4.2; the 35 days after are projected from their schedule only
-(session kind, start, length, which minutes the watch was worn, outdoor temperature) and
-compared with the recording. Coefficients are the shipped `params.json`, not refitted.
+First measured 2026-11-15 with a scratch script. Since phase 2 the same measurement is
+`backend/tools/backtest_planned_day.py`, and the table shows its figures. The templates of
+section 4.2 come from the 90 days before the fitter's split date (2025-04-05) that have any
+wear. The 35 days from that date that have heart rate are projected from their schedule
+alone: session kind, start and length, the minutes the watch was worn, and outdoor
+temperature. Each projection is compared with the recording. The coefficients are the
+shipped `params.json`, not refitted.
+
+The scratch script used only the 86 earlier days that had heart rate. That moved the two
+baselines slightly (energy 118, steps 2,791) and changed nothing else.
 
 | Quantity | Projection from the schedule | For comparison |
 |---|---|---|
-| Active energy per day | MAE 51 kcal (median day 340), 12%, r 0.91 | always the median day: MAE 118 |
+| Active energy per day | MAE 51 kcal (median day 340), 12%, r 0.91 | always the median day: MAE 117 |
 | Heart rate per minute (4,093 measured minutes) | MAE 10.8 bpm | model fed the recorded energy: 9.8; constant level: 14.7 |
 | Session mean heart rate | off by 8 (walk), 12 (strength), 10 (cardio) bpm | model fed the recorded energy: 5, 9, 2 |
 | Session mean heart rate, intensity also stated | off by 6, 8, 6 bpm | |
 | Session peak heart rate | 20 (walk) to 34 (cardio) bpm too low | a flat session has no peaks |
-| Steps per day | MAE 2,500 (median day 9,115), r 0.51 | always the median day: MAE 2,791 |
+| Steps per day | MAE 2,500 (median day 9,115), r 0.51 | always the median day: MAE 2,804 |
 
 Only 24 test sessions stand behind the session rows. Wear time was given to the projection,
 which flatters the energy total. Apple derives active energy partly from heart rate, so the
@@ -155,6 +161,27 @@ Reads a subject's bundles and writes `bundles/<subject>/templates.json`:
 Groups come from the lamina's `<replay_field>` sets, so the Python names no workout type.
 A kind with fewer than 5 sessions is not offered. The synthetic sample has no templates and
 is not offered for planning.
+
+As built (phase 2):
+
+- A minute is worn when it has an active-energy record.
+- A session is a run of minutes with the same workout label. It counts towards `sessions`
+  and the level percentiles when it lasts 5 minutes or more and has at least 3 worn
+  minutes.
+- The hour of a minute is its local clock hour, so the 23- and 25-hour days of daylight
+  saving fall in the right hours.
+- `session_rate` takes the energy and steps for a session minute from the first of these
+  that has enough data:
+  - its workout label, with 30 minutes or more;
+  - its group, with 10 minutes or more;
+  - all sessions.
+- `hour_rate` gives the same for a minute outside sessions, from its hour. An hour with
+  fewer than 30 minutes uses the mean of all of them.
+- Steps outside sessions add up every minute outside a session, worn or not, because the
+  phone also records steps.
+
+For the kinds' level ranges, the waking hours, the resting level and the steps range, the
+tool gives the same numbers as the approved mockup.
 
 ### 4.3 Roles in the lamina XML (engine, domain-neutral)
 
@@ -291,6 +318,11 @@ runs on any new subject:
   line is labelled "rough";
 - the report states how many test sessions it rests on.
 
+As built (phase 2), the report also scores a second mode, "stated_intensity". It is the
+same projection, with each session's energy set to its recorded mean, as if the plan had
+said how hard each session was. On Subject demo the result is energy reliable (51 against
+117 kcal) and heart rate not rough (10.8 against 9.8 bpm), from 24 test sessions.
+
 ## 5. Rules that stay in force
 
 - The frontend names no attribute, unit, kind of workout or threshold. All of it comes
@@ -316,7 +348,7 @@ Each phase ends with its own tests and the whole suite green: the backend tests,
 |---|---|---|
 | 0 | A static mockup of the plan page (columns, timeline, Run, the chart after a run) at 1920x1080 and at phone width; the user approves it | done 2026-11-15 (section 0) |
 | 1 | Rename of section 3 | done 2026-11-15 (section 3) |
-| 2 | Templates tool and backtest tool, with tests on generated days | on Subject demo the report reproduces section 2 within rounding |
+| 2 | Templates tool and backtest tool, with tests on generated days | done 2026-11-15: `tools/make_activity_templates.py`, `tools/backtest_planned_day.py`; `bundles/subject_demo/templates.json` holds both, tracked |
 | 3 | `<plan_view>` roles and `GET /api/plan/options` | bad ids are refused at load; the other laminae are unchanged; the settle table equals the lamina's own value at each point to 1e-9 |
 | 4 | `planned_day.py`, `POST /api/day/plan`, `day_summary` for a planned day | a plan copied from a recorded day's sessions reproduces that day's session energy; every guard has a test |
 | 5 | The two tabs, the plan route and its URL encoding; Recorded days unchanged | screenshots of a recorded day before and after are the same; an old link still opens its day |

@@ -1,0 +1,504 @@
+{
+  "schema_version": 1,
+  "subject": "subject_demo",
+  "label": "Subject demo",
+  "applies_to": "Subject demo only: from Subject demo's recordings; not a population value",
+  "lamina": "lamina_wearable",
+  "made_at": "2026-11-15T12:38:23.166917+00:00",
+  "workouts": {
+    "Walking": {
+      "minutes": 1156,
+      "ae_mean": 3.1743,
+      "steps_mean": 120.0309,
+      "sessions": 33,
+      "session_ae": {
+        "p10": 1.9392,
+        "p50": 3.1279,
+        "p90": 4.0197
+      },
+      "group": "walk"
+    },
+    "Cycling": {
+      "minutes": 15,
+      "ae_mean": 5.3624,
+      "steps_mean": 125.3647,
+      "sessions": 1,
+      "session_ae": {
+        "p10": 5.3624,
+        "p50": 5.3624,
+        "p90": 5.3624
+      },
+      "group": "cardio"
+    },
+    "TraditionalStrengthTraining": {
+      "minutes": 1028,
+      "ae_mean": 4.4018,
+      "steps_mean": 39.2432,
+      "sessions": 20,
+      "session_ae": {
+        "p10": 3.939,
+        "p50": 4.3977,
+        "p90": 4.9873
+      },
+      "group": "strength"
+    },
+    "StairClimbing": {
+      "minutes": 105,
+      "ae_mean": 6.1899,
+      "steps_mean": 24.3175,
+      "sessions": 9,
+      "session_ae": {
+        "p10": 5.49,
+        "p50": 6.0267,
+        "p90": 6.6678
+      },
+      "group": "cardio"
+    },
+    "FunctionalStrengthTraining": {
+      "minutes": 841,
+      "ae_mean": 1.7257,
+      "steps_mean": 15.448,
+      "sessions": 9,
+      "session_ae": {
+        "p10": 1.5579,
+        "p50": 2.7363,
+        "p90": 3.2085
+      },
+      "group": "strength"
+    },
+    "Elliptical": {
+      "minutes": 89,
+      "ae_mean": 6.0715,
+      "steps_mean": 111.7207,
+      "sessions": 8,
+      "session_ae": {
+        "p10": 4.3149,
+        "p50": 6.3247,
+        "p90": 7.0352
+      },
+      "group": "cardio"
+    },
+    "Running": {
+      "minutes": 28,
+      "ae_mean": 4.5383,
+      "steps_mean": 193.1885,
+      "sessions": 1,
+      "session_ae": {
+        "p10": 4.5383,
+        "p50": 4.5383,
+        "p90": 4.5383
+      },
+      "group": "cardio"
+    },
+    "HighIntensityIntervalTraining": {
+      "minutes": 53,
+      "ae_mean": 4.6678,
+      "steps_mean": 55.9472,
+      "sessions": 1,
+      "session_ae": {
+        "p10": 4.6678,
+        "p50": 4.6678,
+        "p90": 4.6678
+      },
+      "group": "cardio"
+    },
+    "Cooldown": {
+      "minutes": 17,
+      "ae_mean": 2.9154,
+      "steps_mean": 11.6174,
+      "sessions": 1,
+      "session_ae": {
+        "p10": 2.5396,
+        "p50": 2.5396,
+        "p90": 2.5396
+      },
+      "group": null
+    }
+  },
+  "groups": {
+    "walk": {
+      "minutes": 1156,
+      "ae_mean": 3.1743,
+      "steps_mean": 120.0309,
+      "sessions": 33,
+      "session_ae": {
+        "p10": 1.9392,
+        "p50": 3.1279,
+        "p90": 4.0197
+      },
+      "label": "Walk",
+      "offered": true
+    },
+    "strength": {
+      "minutes": 1869,
+      "ae_mean": 3.1976,
+      "steps_mean": 28.536,
+      "sessions": 29,
+      "session_ae": {
+        "p10": 2.2454,
+        "p50": 4.2889,
+        "p90": 4.8719
+      },
+      "label": "Strength",
+      "offered": true
+    },
+    "cardio": {
+      "minutes": 290,
+      "ae_mean": 5.6731,
+      "steps_mean": 78.4532,
+      "sessions": 20,
+      "session_ae": {
+        "p10": 4.6548,
+        "p50": 5.971,
+        "p90": 6.8962
+      },
+      "label": "Cardio",
+      "offered": true
+    }
+  },
+  "all_sessions": {
+    "minutes": 3332,
+    "ae_mean": 3.4035,
+    "steps_mean": 64.5373,
+    "sessions": 83,
+    "session_ae": {
+      "p10": 2.1356,
+      "p50": 3.9677,
+      "p90": 6.2041
+    }
+  },
+  "hourly": [
+    {
+      "hour": 0,
+      "ae_mean": 0.4732,
+      "steps_mean": 5.5345,
+      "minutes": 501,
+      "fallback": false
+    },
+    {
+      "hour": 1,
+      "ae_mean": 0.5532,
+      "steps_mean": 10.0553,
+      "minutes": 405,
+      "fallback": false
+    },
+    {
+      "hour": 2,
+      "ae_mean": 0.5991,
+      "steps_mean": 8.5972,
+      "minutes": 255,
+      "fallback": false
+    },
+    {
+      "hour": 3,
+      "ae_mean": 0.7029,
+      "steps_mean": 15.3292,
+      "minutes": 173,
+      "fallback": false
+    },
+    {
+      "hour": 4,
+      "ae_mean": 0.5795,
+      "steps_mean": 6.2678,
+      "minutes": 125,
+      "fallback": false
+    },
+    {
+      "hour": 5,
+      "ae_mean": 0.4707,
+      "steps_mean": 6.444,
+      "minutes": 117,
+      "fallback": false
+    },
+    {
+      "hour": 6,
+      "ae_mean": 0.7229,
+      "steps_mean": 14.7826,
+      "minutes": 331,
+      "fallback": false
+    },
+    {
+      "hour": 7,
+      "ae_mean": 0.7066,
+      "steps_mean": 21.6283,
+      "minutes": 951,
+      "fallback": false
+    },
+    {
+      "hour": 8,
+      "ae_mean": 0.7217,
+      "steps_mean": 16.4856,
+      "minutes": 2214,
+      "fallback": false
+    },
+    {
+      "hour": 9,
+      "ae_mean": 0.6801,
+      "steps_mean": 15.214,
+      "minutes": 3483,
+      "fallback": false
+    },
+    {
+      "hour": 10,
+      "ae_mean": 0.6054,
+      "steps_mean": 11.6864,
+      "minutes": 4339,
+      "fallback": false
+    },
+    {
+      "hour": 11,
+      "ae_mean": 0.5436,
+      "steps_mean": 10.1237,
+      "minutes": 4987,
+      "fallback": false
+    },
+    {
+      "hour": 12,
+      "ae_mean": 0.6026,
+      "steps_mean": 12.9013,
+      "minutes": 5236,
+      "fallback": false
+    },
+    {
+      "hour": 13,
+      "ae_mean": 0.6644,
+      "steps_mean": 19.3686,
+      "minutes": 5423,
+      "fallback": false
+    },
+    {
+      "hour": 14,
+      "ae_mean": 0.5986,
+      "steps_mean": 15.3409,
+      "minutes": 5291,
+      "fallback": false
+    },
+    {
+      "hour": 15,
+      "ae_mean": 0.5878,
+      "steps_mean": 14.4142,
+      "minutes": 4808,
+      "fallback": false
+    },
+    {
+      "hour": 16,
+      "ae_mean": 0.571,
+      "steps_mean": 14.4738,
+      "minutes": 4435,
+      "fallback": false
+    },
+    {
+      "hour": 17,
+      "ae_mean": 0.5635,
+      "steps_mean": 11.5866,
+      "minutes": 3803,
+      "fallback": false
+    },
+    {
+      "hour": 18,
+      "ae_mean": 0.5689,
+      "steps_mean": 12.4979,
+      "minutes": 3240,
+      "fallback": false
+    },
+    {
+      "hour": 19,
+      "ae_mean": 0.5883,
+      "steps_mean": 15.7046,
+      "minutes": 3200,
+      "fallback": false
+    },
+    {
+      "hour": 20,
+      "ae_mean": 0.5812,
+      "steps_mean": 12.8624,
+      "minutes": 2686,
+      "fallback": false
+    },
+    {
+      "hour": 21,
+      "ae_mean": 0.5434,
+      "steps_mean": 9.4195,
+      "minutes": 1798,
+      "fallback": false
+    },
+    {
+      "hour": 22,
+      "ae_mean": 0.4671,
+      "steps_mean": 5.4614,
+      "minutes": 1134,
+      "fallback": false
+    },
+    {
+      "hour": 23,
+      "ae_mean": 0.4586,
+      "steps_mean": 5.7641,
+      "minutes": 555,
+      "fallback": false
+    }
+  ],
+  "steps_outside": {
+    "p10": 6003,
+    "p50": 10000,
+    "p90": 13468,
+    "days": 14
+  },
+  "awake": {
+    "start": 380,
+    "end": 1345,
+    "days": 14
+  },
+  "level": {
+    "median": 77.2,
+    "recorded": [
+      75,
+      79
+    ],
+    "days": 121
+  },
+  "t_app": {
+    "p5": 13.7,
+    "p50": 22.0,
+    "p95": 33.0
+  },
+  "days": 132,
+  "first_date": "2023-05-11",
+  "last_date": "2025-05-11",
+  "projection_report": {
+    "split_date": "2025-04-05",
+    "fit_days": 90,
+    "test_days": 35,
+    "level_median": 76.69,
+    "rules": {
+      "ENERGY_BEATS_BASELINE": 0.25,
+      "HR_WITHIN_BPM": 2.0
+    },
+    "schedule": {
+      "energy_day": {
+        "mae": 51.42,
+        "bias": -3.08,
+        "mape_median_pct": 12.23,
+        "r": 0.91,
+        "actual_median": 340.2,
+        "baseline_mae": 117.08,
+        "n_days": 35
+      },
+      "steps_day": {
+        "mae": 2499.73,
+        "bias": 156.38,
+        "mape_median_pct": 24.98,
+        "r": 0.51,
+        "actual_median": 9115.0,
+        "baseline_mae": 2803.74,
+        "n_days": 35
+      },
+      "hr_minute": {
+        "mae": 10.83,
+        "mae_replay": 9.82,
+        "mae_constant": 14.72,
+        "n_minutes": 4093
+      },
+      "sessions": {
+        "walk": {
+          "n": 10,
+          "energy_mae": 16.92,
+          "energy_actual_median": 51.3,
+          "steps_mae": 986.14,
+          "steps_actual_median": 1197.86,
+          "n_hr": 10,
+          "mean_hr_abs_error": 8.28,
+          "mean_hr_abs_error_replay": 5.07,
+          "peak_bias": -19.85
+        },
+        "strength": {
+          "n": 8,
+          "energy_mae": 27.73,
+          "energy_actual_median": 201.46,
+          "steps_mae": 706.08,
+          "steps_actual_median": 2116.68,
+          "n_hr": 8,
+          "mean_hr_abs_error": 11.68,
+          "mean_hr_abs_error_replay": 8.61,
+          "peak_bias": -3.93
+        },
+        "cardio": {
+          "n": 6,
+          "energy_mae": 7.09,
+          "energy_actual_median": 94.71,
+          "steps_mae": 341.92,
+          "steps_actual_median": 358.03,
+          "n_hr": 6,
+          "mean_hr_abs_error": 10.1,
+          "mean_hr_abs_error_replay": 1.57,
+          "peak_bias": -33.58
+        }
+      }
+    },
+    "stated_intensity": {
+      "energy_day": {
+        "mae": 45.18,
+        "bias": 0.24,
+        "mape_median_pct": 8.93,
+        "r": 0.92,
+        "actual_median": 340.2,
+        "baseline_mae": 117.08,
+        "n_days": 35
+      },
+      "steps_day": {
+        "mae": 2499.73,
+        "bias": 156.38,
+        "mape_median_pct": 24.98,
+        "r": 0.51,
+        "actual_median": 9115.0,
+        "baseline_mae": 2803.74,
+        "n_days": 35
+      },
+      "hr_minute": {
+        "mae": 10.49,
+        "mae_replay": 9.82,
+        "mae_constant": 14.72,
+        "n_minutes": 4093
+      },
+      "sessions": {
+        "walk": {
+          "n": 10,
+          "energy_mae": 0.0,
+          "energy_actual_median": 51.3,
+          "steps_mae": 986.14,
+          "steps_actual_median": 1197.86,
+          "n_hr": 10,
+          "mean_hr_abs_error": 6.28,
+          "mean_hr_abs_error_replay": 5.07,
+          "peak_bias": -22.92
+        },
+        "strength": {
+          "n": 8,
+          "energy_mae": 0.0,
+          "energy_actual_median": 201.46,
+          "steps_mae": 706.08,
+          "steps_actual_median": 2116.68,
+          "n_hr": 8,
+          "mean_hr_abs_error": 8.16,
+          "mean_hr_abs_error_replay": 8.61,
+          "peak_bias": -0.24
+        },
+        "cardio": {
+          "n": 6,
+          "energy_mae": 0.0,
+          "energy_actual_median": 94.71,
+          "steps_mae": 341.92,
+          "steps_actual_median": 358.03,
+          "n_hr": 6,
+          "mean_hr_abs_error": 6.15,
+          "mean_hr_abs_error_replay": 1.57,
+          "peak_bias": -29.62
+        }
+      }
+    },
+    "energy_reliable": true,
+    "hr_rough": false,
+    "test_sessions": 24,
+    "test_sessions_with_hr": 24,
+    "made_at": "2026-11-15T12:38:33.774890+00:00"
+  }
+}

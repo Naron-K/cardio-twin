@@ -1,0 +1,628 @@
+"""
+Turn one subject's recorded days into activity templates.
+
+A template is a summary of the minutes this person actually recorded: what one
+minute of each workout label costs in active energy and steps, what the quiet
+hours outside sessions look like, when they are awake, and the range their
+resting level and apparent temperature cover.  Nothing here is a population
+value; every number is this subject's own recording, and the written file says
+so in "applies_to".
+
+The workout groups are read from the lamina's <day_view>: this tool names no
+workout type and no attribute id itself.  A group is whatever the wearable
+lamina declares an <event> for, and its workouts are the labels that event's
+indicator reads.
+
+DEFINITIONS
+
+  * A minute is WORN when its bundle row has ae_kcal_min not null.
+  * A SESSION is a maximal run of consecutive minutes carrying the same
+    non-null workout label.
+  * A day is USED when it has at least one worn minute.
+  * A qualifying session lasts at least 5 minutes and has at least 3 worn
+    minutes; its activity is the mean AE_rate over those worn minutes.
+
+OUTPUT
+
+``<bundle-dir>/<subject>/templates.json`` (or --out) holds, in addition to the
+identity fields, the per-workout, per-group and all-session summaries, 24
+hourly rates (with a fallback when an hour is thinly recorded), the daily steps
+outside sessions, the awake window, the resting level range and the apparent
+temperature range.  Floats are rounded to four decimals; the resting level and
+the temperature use one decimal because that is how they are read.
+
+Run from backend/:
+
+    python tools/make_activity_templates.py --bundle-dir bundles --subject subject_demo
+
+or from the repository root:
+
+    python backend/tools/make_activity_templates.py --bundle-dir backend/bundles --subject subject_demo
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+import numpy as np
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
+from bundles import read_subject_label  # noqa: E402
+from tools.fit_hr_model import (  # noqa: E402
+    WEARABLE_XML,
+    day_inputs,
+    load_days,
+    load_twin,
+)
+from universal_twin import parse_replay_field  # noqa: E402
+
+SCHEMA_VERSION = 1
+LAMINA_ID = "lamina_wearable"
+
+SESSION_MIN_MINUTES = 5
+SESSION_MIN_WORN = 3
+WORKOUT_DIRECT_MINUTES = 30
+GROUP_MIN_MINUTES = 10
+OFFERED_SESSIONS = 5
+HOURLY_MIN_MINUTES = 30
+USED_DAY_MIN_WORN = 720
+AWAKE_ROUND_MINUTES = 5
+ROUND_DECIMALS = 4
+LEVEL_DECIMALS = 1
+
+
+def _r4(value) -> float:
+    return round(float(value), ROUND_DECIMALS)
+
+
+def _r1(value) -> float:
+    return round(float(value), LEVEL_DECIMALS)
+
+
+def _nearest(value, step: int) -> int:
+    return int(round(float(value) / step) * step)
+
+
+def kind_groups(twin) -> dict[str, dict]:
+    """
+    The lamina's workout groups: group id -> indicator, label and labels.
+
+    Each <event> in the lamina's <day_view> names an indicator whose
+    replay_field is a membership field.  Its labels are the workouts in that
+    group.  A lamina without a day view, or an indicator without a membership
+    field, is refused by name rather than producing empty groups.
+    """
+    day_view = getattr(twin, "day_view", None)
+    if not day_view:
+        raise ValueError(
+            f"Lamina {twin.lamina_id} declares no <day_view>, so its workout "
+            f"groups cannot be read. Add a <day_view> block with one <event> "
+            f"per group."
+        )
+
+    groups: dict[str, dict] = {}
+    for event in day_view["events"]:
+        indicator = event["indicator"]
+        group_id = event["group"]
+        attr = twin.attributes.get(indicator)
+        field = None if attr is None else attr.replay_field
+        if field is None:
+            raise ValueError(
+                f"Lamina {twin.lamina_id}: indicator '{indicator}' for group "
+                f"'{group_id}' declares no replay_field. An event indicator "
+                f"must read a membership field 'sample.<field> in A, B'."
+            )
+        _path, labels = parse_replay_field(field)
+        if labels is None:
+            raise ValueError(
+                f"Lamina {twin.lamina_id}: indicator '{indicator}' for group "
+                f"'{group_id}' has replay_field '{field}', which is not a "
+                f"membership field. Use 'sample.<field> in A, B'."
+            )
+        groups[group_id] = {
+            "indicator": indicator,
+            "label": event["label"],
+            "workouts": sorted(labels),
+        }
+    return groups
+
+
+def _empty_acc() -> dict:
+    return {
+        "minutes": 0,
+        "ae": 0.0,
+        "steps": 0.0,
+        "sessions": 0,
+        "session_ae": [],
+    }
+
+
+def _stats(acc: dict) -> dict:
+    minutes = int(acc["minutes"])
+    if minutes > 0:
+        ae_mean = _r4(acc["ae"] / minutes)
+        steps_mean = _r4(acc["steps"] / minutes)
+    else:
+        ae_mean = None
+        steps_mean = None
+
+    sessions = int(acc["sessions"])
+    if sessions > 0:
+        p10, p50, p90 = np.percentile(acc["session_ae"], [10, 50, 90])
+        session_ae = {
+            "p10": _r4(p10),
+            "p50": _r4(p50),
+            "p90": _r4(p90),
+        }
+    else:
+        session_ae = None
+
+    return {
+        "minutes": minutes,
+        "ae_mean": ae_mean,
+        "steps_mean": steps_mean,
+        "sessions": sessions,
+        "session_ae": session_ae,
+    }
+
+
+def _session_runs(labels) -> list[dict]:
+    runs: list[dict] = []
+    n = len(labels)
+    index = 0
+    while index < n:
+        raw = labels[index]
+        if raw is None:
+            index += 1
+            continue
+        label = str(raw)
+        end = index + 1
+        while (
+            end < n
+            and labels[end] is not None
+            and str(labels[end]) == label
+        ):
+            end += 1
+        runs.append({
+            "label": label,
+            "start": index,
+            "end": end,
+            "length": end - index,
+        })
+        index = end
+    return runs
+
+
+def _steps_of(row: dict) -> float:
+    value = row.get("steps_min")
+    return 0.0 if value is None else float(value)
+
+
+def _check_non_negative(value, field: str, date: str, index: int) -> None:
+    if value is None:
+        return
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = float("nan")
+    if not math.isfinite(number) or number < 0.0:
+        raise ValueError(
+            f"{date}: sample row {index} has {field}={value!r}. Activity "
+            f"templates need null or a non-negative finite number; fix the "
+            f"bundle or leave that day out."
+        )
+
+
+def build_templates(days: list[dict], groups: dict[str, dict]) -> dict:
+    """
+    Summarise the worn minutes of these validated day bundles.
+
+    Only worn minutes inside sessions feed the workout, group and all-session
+    summaries.  Hours, daily step totals and the awake window are measured
+    outside sessions, where the day is not already explained by a workout.
+    Every group in `groups` appears even when it has no minutes.
+    """
+    if not days:
+        raise ValueError(
+            "No day bundles were supplied, so no activity templates can be "
+            "built. Pass at least one <subject>/<date>.json bundle."
+        )
+
+    subjects = {bundle.get("subject") for bundle in days}
+    if len(subjects) != 1:
+        shown = ", ".join(sorted(str(name) for name in subjects))
+        raise ValueError(
+            f"Activity templates are built for one subject, but these days "
+            f"belong to: {shown}. Load the days of a single subject."
+        )
+
+    label_group: dict[str, str] = {}
+    for group_id, spec in groups.items():
+        for workout in spec["workouts"]:
+            label_group.setdefault(workout, group_id)
+
+    label_acc: dict[str, dict] = {}
+    group_acc = {group_id: _empty_acc() for group_id in groups}
+    all_acc = _empty_acc()
+
+    hourly_minutes = [0] * 24
+    hourly_ae = [0.0] * 24
+    hourly_steps = [0.0] * 24
+    outside_minutes = 0
+    outside_ae = 0.0
+    outside_steps = 0.0
+
+    outside_day_steps: list[float] = []
+    awake_starts: list[int] = []
+    awake_ends: list[int] = []
+    level_values: list[float] = []
+    t_app_values: list[float] = []
+    used_days = 0
+
+    for bundle in days:
+        date = bundle["date"]
+        samples = bundle["samples"]
+        for index, row in enumerate(samples):
+            _check_non_negative(
+                row.get("ae_kcal_min"), "ae_kcal_min", date, index
+            )
+            _check_non_negative(row.get("steps_min"), "steps_min", date, index)
+
+        inputs = day_inputs(bundle)
+        labels = inputs["workout"]
+        hours = inputs["hour_local"]
+        ae_rate = inputs["AE_rate"]
+        n = len(samples)
+
+        worn = np.array(
+            [row.get("ae_kcal_min") is not None for row in samples],
+            dtype=bool,
+        )
+        in_session = np.array(
+            [label is not None for label in labels], dtype=bool
+        )
+        worn_count = int(worn.sum())
+        if worn_count > 0:
+            used_days += 1
+
+        for run in _session_runs(labels):
+            label = run["label"]
+            label_acc.setdefault(label, _empty_acc())
+            worn_indices = [
+                minute
+                for minute in range(run["start"], run["end"])
+                if worn[minute]
+            ]
+            ae_values = [float(ae_rate[minute]) for minute in worn_indices]
+            step_values = [
+                _steps_of(samples[minute]) for minute in worn_indices
+            ]
+
+            targets = [label_acc[label], all_acc]
+            group_id = label_group.get(label)
+            if group_id is not None:
+                targets.append(group_acc[group_id])
+
+            for acc in targets:
+                acc["minutes"] += len(worn_indices)
+                acc["ae"] += float(sum(ae_values))
+                acc["steps"] += float(sum(step_values))
+
+            qualifies = (
+                run["length"] >= SESSION_MIN_MINUTES
+                and len(worn_indices) >= SESSION_MIN_WORN
+            )
+            if qualifies:
+                mean_ae = float(sum(ae_values)) / len(worn_indices)
+                for acc in targets:
+                    acc["sessions"] += 1
+                    acc["session_ae"].append(mean_ae)
+
+        outside = worn & ~in_session
+        # A day's steps outside sessions count every minute that is not in a
+        # session, worn or not: steps can be recorded while the watch is off
+        # (by the phone), and a planned day sets its total, not its wear.
+        outside_day_total = float(sum(
+            _steps_of(samples[minute])
+            for minute in range(n)
+            if not in_session[minute]
+        ))
+        for minute in np.nonzero(outside)[0]:
+            minute = int(minute)
+            hour_value = float(hours[minute])
+            if not math.isfinite(hour_value):
+                continue
+            hour = int(hour_value) % 24
+            ae_value = float(ae_rate[minute])
+            step_value = _steps_of(samples[minute])
+            hourly_minutes[hour] += 1
+            hourly_ae[hour] += ae_value
+            hourly_steps[hour] += step_value
+            outside_minutes += 1
+            outside_ae += ae_value
+            outside_steps += step_value
+
+        if worn_count >= USED_DAY_MIN_WORN:
+            outside_day_steps.append(outside_day_total)
+            first = int(np.argmax(worn))
+            last = n - 1 - int(np.argmax(worn[::-1]))
+            awake_starts.append(
+                int(round(float(hours[first]) * 60.0))
+            )
+            awake_ends.append(
+                int(round(float(hours[last]) * 60.0)) + 1
+            )
+
+        level = bundle["day"].get("hr_level_rts")
+        if level is not None:
+            level_values.append(float(level))
+
+        for minute in range(n):
+            if not worn[minute]:
+                continue
+            raw = samples[minute].get("t_app_c")
+            if raw is not None:
+                t_app_values.append(float(raw))
+
+    if used_days == 0:
+        raise ValueError(
+            "None of these days has a worn minute (ae_kcal_min not null), so "
+            "there is nothing to build activity templates from. Add a day the "
+            "watch recorded something for."
+        )
+
+    workouts: dict[str, dict] = {}
+    for label, acc in label_acc.items():
+        entry = _stats(acc)
+        entry["group"] = label_group.get(label)
+        workouts[label] = entry
+
+    group_entries: dict[str, dict] = {}
+    for group_id, spec in groups.items():
+        entry = _stats(group_acc[group_id])
+        entry["label"] = spec["label"]
+        entry["offered"] = entry["sessions"] >= OFFERED_SESSIONS
+        group_entries[group_id] = entry
+
+    hourly: list[dict] = []
+    for hour in range(24):
+        count = hourly_minutes[hour]
+        if count >= HOURLY_MIN_MINUTES:
+            ae_mean = _r4(hourly_ae[hour] / count)
+            steps_mean = _r4(hourly_steps[hour] / count)
+            fallback = False
+        else:
+            if outside_minutes > 0:
+                ae_mean = _r4(outside_ae / outside_minutes)
+                steps_mean = _r4(outside_steps / outside_minutes)
+            elif all_acc["minutes"] > 0:
+                ae_mean = _r4(all_acc["ae"] / all_acc["minutes"])
+                steps_mean = _r4(all_acc["steps"] / all_acc["minutes"])
+            else:
+                ae_mean = 0.0
+                steps_mean = 0.0
+            fallback = True
+        hourly.append({
+            "hour": hour,
+            "ae_mean": ae_mean,
+            "steps_mean": steps_mean,
+            "minutes": int(count),
+            "fallback": fallback,
+        })
+
+    if outside_day_steps:
+        p10, p50, p90 = np.percentile(outside_day_steps, [10, 50, 90])
+        steps_outside = {
+            "p10": int(round(float(p10))),
+            "p50": int(round(float(p50))),
+            "p90": int(round(float(p90))),
+            "days": len(outside_day_steps),
+        }
+    else:
+        steps_outside = {"p10": 0, "p50": 0, "p90": 0, "days": 0}
+
+    if awake_starts:
+        awake = {
+            "start": _nearest(np.median(awake_starts), AWAKE_ROUND_MINUTES),
+            "end": _nearest(np.median(awake_ends), AWAKE_ROUND_MINUTES),
+            "days": len(awake_starts),
+        }
+    else:
+        awake = {"start": 0, "end": 0, "days": 0}
+
+    if level_values:
+        median = _r1(np.median(level_values))
+        p5, p95 = np.percentile(level_values, [5, 95])
+        recorded = [
+            int(math.floor(float(p5))),
+            int(math.ceil(float(p95))),
+        ]
+    else:
+        median = 0.0
+        recorded = [0, 0]
+    level = {
+        "median": median,
+        "recorded": recorded,
+        "days": len(level_values),
+    }
+
+    if t_app_values:
+        p5, p50, p95 = np.percentile(t_app_values, [5, 50, 95])
+        t_app = {"p5": _r1(p5), "p50": _r1(p50), "p95": _r1(p95)}
+    else:
+        t_app = {"p5": 0.0, "p50": 0.0, "p95": 0.0}
+
+    return {
+        "workouts": workouts,
+        "groups": group_entries,
+        "all_sessions": _stats(all_acc),
+        "hourly": hourly,
+        "steps_outside": steps_outside,
+        "awake": awake,
+        "level": level,
+        "t_app": t_app,
+        "days": len(days),
+        "first_date": days[0]["date"],
+        "last_date": days[-1]["date"],
+    }
+
+
+def session_rate(templates: dict, workout: str) -> tuple[float, float]:
+    """
+    The (AE, steps) rate of one minute in a session with this label.
+
+    A well-recorded workout is its own best answer; a thin one borrows its
+    group; anything else falls back to all sessions.  The chosen entry must
+    have minutes, otherwise there is no rate to return.
+    """
+    workout_entry = templates.get("workouts", {}).get(workout)
+    if (
+        workout_entry is not None
+        and workout_entry["minutes"] >= WORKOUT_DIRECT_MINUTES
+    ):
+        chosen = workout_entry
+    else:
+        group_id = (
+            None if workout_entry is None else workout_entry.get("group")
+        )
+        group_entry = (
+            None if group_id is None
+            else templates.get("groups", {}).get(group_id)
+        )
+        if (
+            group_entry is not None
+            and group_entry["minutes"] >= GROUP_MIN_MINUTES
+        ):
+            chosen = group_entry
+        else:
+            chosen = templates["all_sessions"]
+
+    if chosen["minutes"] <= 0:
+        raise ValueError(
+            f"No recorded minutes exist for workout '{workout}', its group or "
+            f"all sessions, so there is no rate to return."
+        )
+    if chosen["ae_mean"] is None or chosen["steps_mean"] is None:
+        raise ValueError(
+            f"The chosen template for workout '{workout}' has minutes but no "
+            f"activity mean; rebuild the templates."
+        )
+    return float(chosen["ae_mean"]), float(chosen["steps_mean"])
+
+
+def hour_rate(templates: dict, hour: int) -> tuple[float, float]:
+    """The (AE, steps) rate for a local clock hour from templates["hourly"]."""
+    if (
+        isinstance(hour, bool)
+        or not isinstance(hour, int)
+        or hour < 0
+        or hour > 23
+    ):
+        raise ValueError(
+            f"hour must be an integer from 0 to 23, got {hour!r}."
+        )
+    entry = templates["hourly"][hour]
+    return float(entry["ae_mean"]), float(entry["steps_mean"])
+
+
+def _format_number(value) -> str:
+    return "None" if value is None else f"{float(value):.4f}"
+
+
+def _format_session(session_ae) -> str:
+    if session_ae is None:
+        return "None"
+    return (
+        f"{session_ae['p10']:.4f}/{session_ae['p50']:.4f}/"
+        f"{session_ae['p90']:.4f}"
+    )
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Build one subject's activity templates from their days."
+    )
+    parser.add_argument(
+        "--bundle-dir", required=True,
+        help="Directory holding <subject>/<date>.json bundles.",
+    )
+    parser.add_argument(
+        "--subject", required=True,
+        help="Subject folder name to summarise.",
+    )
+    parser.add_argument(
+        "--out", default=None,
+        help="Output path (default: <bundle-dir>/<subject>/templates.json).",
+    )
+    args = parser.parse_args(argv)
+
+    bundle_dir = Path(args.bundle_dir)
+    subject_dir = bundle_dir / args.subject
+    out_path = (
+        Path(args.out) if args.out
+        else subject_dir / "templates.json"
+    )
+    if not out_path.parent.is_dir():
+        raise ValueError(
+            f"Refusing to write {out_path}: its parent directory "
+            f"{out_path.parent} does not exist. Create it first."
+        )
+
+    days = load_days(bundle_dir, args.subject)
+    twin = load_twin(WEARABLE_XML)
+    groups = kind_groups(twin)
+    templates = build_templates(days, groups)
+
+    label = read_subject_label(subject_dir, args.subject)
+
+    dropped = False
+    if out_path.exists():
+        try:
+            existing = json.loads(out_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            existing = None
+        if isinstance(existing, dict) and "projection_report" in existing:
+            dropped = True
+
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "subject": args.subject,
+        "label": label,
+        "applies_to": (
+            f"{label} only: from {label}'s recordings; not a population value"
+        ),
+        "lamina": LAMINA_ID,
+        "made_at": datetime.now(timezone.utc).isoformat(),
+        **templates,
+    }
+    out_path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+    if dropped:
+        print(
+            "projection_report dropped: rerun "
+            "tools/backtest_planned_day.py"
+        )
+
+    for group_id, entry in templates["groups"].items():
+        print(
+            f"{group_id}: sessions {entry['sessions']}, minutes "
+            f"{entry['minutes']}, ae_mean {_format_number(entry['ae_mean'])}, "
+            f"session_ae {_format_session(entry['session_ae'])}, offered "
+            f"{entry['offered']}"
+        )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

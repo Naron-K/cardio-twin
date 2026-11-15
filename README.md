@@ -11,7 +11,7 @@ CardioTwin is a browser-based physiological digital twin for the cardiovascular 
 
 ## Overview
 
-> **This branch (`feature/wearable-lamina`) is the Day view only.** The page opens straight on one recorded day for a specialist (cardiologist, nutritionist, coach) to read. The full modelling dashboard (animated heart, inputs, outcomes, feedback loop, Inspect) lives on `deploy/render-touch-board` and `main`; the backend here is unchanged and still serves every lamina and the live stream.
+> **This branch (`feature/wearable-lamina`) is two pages behind tabs: Plan a day and Recorded days.** **Plan a day** opens first. A reader sets up a day with sliders (waking hours, temperature, resting level, and sessions of a kind, start, length, level and steps), presses Run, and the model draws the projected heart rate, energy and steps through the day. **Recorded days** opens one recorded day for a specialist (cardiologist, nutritionist, coach) to read. The full modelling dashboard (animated heart, inputs, outcomes, feedback loop, Inspect) lives on `deploy/render-touch-board` and `main`; the backend here is unchanged and still serves every lamina and the live stream.
 
 The page shows one person's day:
 
@@ -68,11 +68,14 @@ cardio-twin/
 │
 ├── frontend/
 │   └── src/
-│       ├── App.tsx                # The page: header, subject and day pickers, URL state
+│       ├── App.tsx                # The shell: Plan a day / Recorded days tabs, view in the URL
+│       ├── components/plan/       # Plan a day: slider editor, Run, projected day and playback
+│       ├── components/recorded/   # Recorded days: subject and day pickers, URL state
 │       ├── components/day/        # Day view: figures, whole-day chart, rate strip, sessions
+│       ├── twin/planDay.ts        # Plan options, edits, the settle-table link, URL encoding
 │       ├── twin/dayView.ts        # Parses and checks /api/day; verdicts, clock, bins
 │       ├── twin/sources.ts        # Recorded days on offer, and the day the URL names
-│       └── utils/api.ts           # /api/laminae, /api/sources and /api/day client
+│       └── utils/api.ts           # /api/laminae, /api/sources, /api/day and plan client
 │
 ├── presets/                       # Example patient XML files
 ├── test_dataset/                  # Synthetic patient profiles
@@ -251,6 +254,8 @@ The dashboard uses the first three; the rest remain available for scripts.
 | WS | `/ws/feedback` | Live stream: one model snapshot per cycle; accepts `set_sensor`, `pause`, `resume`, `reset`; `source=replay` or `scenario` for the wearable lamina |
 | GET | `/api/sources` | The feeds a lamina offers: replay days, speeds, scenario presets |
 | GET | `/api/day` | One recorded day, computed whole from the lamina's `<day_view>` roles (`lamina`, `subject`, `date`) |
+| GET | `/api/plan/options` | What the Plan a day editor draws: kinds, level ranges, the settle table for every hour, defaults, the backtest's error (`lamina`, `subject`, optional `level`, `ambient`) |
+| POST | `/api/day/plan` | Runs a planned day through the lamina; returns the `/api/day` shape plus `planned: true`; 422 names a refused field |
 | GET | `/api/organisms`, `/api/organism` | Bodies of several laminae and the channels between them |
 | WS | `/ws/organism` | Live stream for a body |
 | POST | `/api/compute` | Accepts sensor values, returns computed results and vectors |
@@ -317,6 +322,7 @@ This is the format `POST /api/upload` accepts. The files in `presets/` demonstra
 - **Q and CO disagree:** Q divides by R, a single-segment Poiseuille estimate, so at baseline Q is about 2.2 L/min while CO is about 4.75 L/min. Trust Q's trend, not its magnitude. SVR = (MAP − CVP) / CO is the resistance that moves with the pump.
 - **Outcomes outside tolerance at a healthy baseline:** SVR (≈18.6 against a target of 14 ± 4) and lambda read outside tolerance with every input at its declared baseline. These are open questions about the targets and units, listed in `docs/circulatory_functions_review.xml`.
 - **Recorded days are not live data:** the wearable lamina replays exported Apple Watch days; nothing streams from a device. Heart rate exists on only a fraction of a day's minutes (the watch is often off at night), and the model's usual error for one person was about 12.6 bpm. Besides the synthetic demo day, the repository holds one real subject, shown as Subject demo (`backend/bundles/subject_demo`: 132 days and the coefficients fitted on them), published with the owner's approval; any other subject is read from `CARDIOTWIN_BUNDLE_DIR` and stays local. A folder there named `subject_demo` replaces the committed days; under any other name the same person appears as a second subject. The screen shows a subject's label from an optional `subject.json` (`{"label": "Subject demo"}`) beside its days, never the folder name.
+- **A planned day is a projection, not a forecast:** it is one person's model filled from that person's activity templates. On the days held back for testing it missed daily energy by 51 kcal and heart rate by 10.8 bpm per minute, and session peaks by 4 (strength) to 34 (cardio) bpm. Steps outside sessions are what the reader sets. It has no fatigue, recovery, sleep or night. The page shows these limits under "Limits". Rebuild the templates and the backtest with `backend/tools/make_activity_templates.py` and `backend/tools/backtest_planned_day.py`.
 - **Windows terminal encoding:** The Omega character in console output may render incorrectly on some Windows terminals. This is cosmetic and does not affect computation.
 - **No authentication or database:** a hosted copy (see *Hosting it online*) is open to anyone with its address, and keeps nothing between sessions.
 

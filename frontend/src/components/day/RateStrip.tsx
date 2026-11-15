@@ -1,5 +1,5 @@
 import type { DaySummary } from '../../twin/dayView'
-import { binSums, clock } from '../../twin/dayView'
+import { binSums, clock, timeStep } from '../../twin/dayView'
 
 interface Props {
   day: DaySummary
@@ -64,7 +64,7 @@ export function RateStrip({ day, from, to, width = DEFAULT_WIDTH, until = null }
 
   const H = TOP + LANE * day.rates.length + BOTTOM
   const x = (minute: number) => L + ((minute - lo) / span) * (W - L - R)
-  const xStep = span > 720 ? 120 : span > 180 ? 30 : 10
+  const xStep = timeStep(span, W - L - R)
   const xTicks: number[] = []
   for (let minute = Math.ceil(lo / xStep) * xStep; minute <= hi; minute += xStep) {
     xTicks.push(minute)

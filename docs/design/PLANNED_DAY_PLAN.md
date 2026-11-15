@@ -371,12 +371,61 @@ Each phase ends with its own tests and the whole suite green: the backend tests,
 | 1 | Rename of section 3 | done 2026-11-15 (section 3) |
 | 2 | Templates tool and backtest tool, with tests on generated days | done 2026-11-15: `tools/make_activity_templates.py`, `tools/backtest_planned_day.py`; `bundles/subject_demo/templates.json` holds both, tracked |
 | 3 | `<plan_view>` roles and `GET /api/plan/options` | done 2026-11-15 (as built under 4.4) |
-| 4 | `planned_day.py`, `POST /api/day/plan`, `day_summary` for a planned day | a plan copied from a recorded day's sessions reproduces that day's session energy; every guard has a test |
-| 5 | The two tabs, the plan route and its URL encoding; Recorded days unchanged | screenshots of a recorded day before and after are the same; an old link still opens its day |
-| 6 | The editor of 4.5 with its pure logic in `frontend/src/twin/planDay.ts` and a `plan-check.ts` script (linking Level and Target, overlap rules, the URL encoding) | the linked sliders agree with the settle table both ways; an overlap cannot be made |
-| 7 | Run and playback of 4.6, and the states: loading, refused plan (the field named), server failed with a retry, setup changed, no templates for the subject | every state has a screenshot; usable by touch at the LG board's size |
+| 4 | `planned_day.py`, `POST /api/day/plan`, `day_summary` for a planned day | done 2026-11-16 (section 6.1) |
+| 5 | The two tabs, the plan route and its URL encoding; Recorded days unchanged | done 2026-11-16 (section 6.1) |
+| 6 | The editor of 4.5 with its pure logic in `frontend/src/twin/planDay.ts` and a `plan-check.ts` script (linking Level and Target, overlap rules, the URL encoding) | done 2026-11-16 (section 6.1) |
+| 7 | Run and playback of 4.6, and the states: loading, refused plan (the field named), server failed with a retry, setup changed, no templates for the subject | done 2026-11-16 (section 6.1) |
 | 8, optional | On a recorded day, "Project from its schedule": the projection beside what was measured | both lines drawn together |
 | 9, optional | Session shapes (warm-up, intervals) to recover peaks | peak bias halves on the test sessions, or it is not shipped |
+
+### 6.1 As built (phases 4 to 7, 2026-11-16)
+
+Phase 4, backend:
+- `day_summary.summarise_bundle` runs any bundle. Recorded days still go through `_build`,
+  and a test checks their JSON is unchanged.
+- `planned_day.py` builds a planned bundle (UTC, date 2000-01-01, `synthetic: true`) and
+  runs it. The planned flag lives in the response, not the bundle, because the bundle
+  schema refuses unknown keys.
+- `/api/plan/options` also returns `default_plan`: a typical walk at waking + 70 min for
+  30 min, and the second kind at the end of waking − 265 min for 45 min (07:30 and 18:00
+  for Subject demo).
+- Each default target is interpolated at the kind's typical level. Reading the table's
+  middle point was a mistake caught by measuring: that point is the midpoint of the
+  10th–90th range, not the typical level, and it set Strength 6 bpm below what the model
+  reached.
+- A refused `level` or `ambient` now names its field too.
+- The acceptance test passes: a plan copied from 2025-04-03's sessions reproduces their
+  energy to 1e-6.
+
+Phase 5, tabs:
+- The tab row sits above both views, top left. The recorded view's own header is
+  unchanged.
+- Compared with the build before this phase and shifted by the 68 px tab row, a recorded
+  day differs in 18 pixels of anti-aliasing.
+- An old `?subject=&date=` link opens Recorded days on that day.
+
+Phases 6 and 7, frontend:
+- The editor and the result follow the approved mockup.
+- To keep Setup, Run, the figures and the heart-rate chart within one 1920×1080 screen,
+  the page title is for screen readers only and the subject's chip sits beside "Setup".
+  The selected tab already reads "Plan a day".
+- Units are written for display (`degC` → `°C`).
+- `DayChart` takes an optional `gapLabel` ("No projection" here; "No data" stays the
+  default).
+- The time axis of `DayChart` and `RateStrip` widens its ticks when drawn narrow, so
+  labels no longer overlap on a phone. At the recorded view's desktop widths the step is
+  the old one.
+- Every state was driven in headless Chrome:
+  - before Run, running, playing, done, setup changed;
+  - refused (the message under the control the field names);
+  - server failed and retried;
+  - no templates, options failed, an unreadable plan link.
+  Server failures were simulated in the browser, not on the server.
+- Checks: 945 backend tests; `npm run lint`, `npm run build` and the four
+  `scripts/*-check.ts`.
+
+Who wrote what: OpenCode wrote phases 4 to 7 from specs written here. The fixes listed
+above were found by measuring and screenshots, and made by hand.
 
 ## 7. Not in this plan
 

@@ -19,7 +19,7 @@ export type DayVerdict =
   | 'lower'
   | 'too_few'
 
-export type DaySdSource = 'fitted' | 'this day' | 'default'
+export type DaySdSource = 'fitted' | 'this day' | 'default' | 'projection'
 
 export interface DayPair {
   label: string
@@ -107,7 +107,12 @@ const VERDICTS: readonly DayVerdict[] = [
   'too_few',
 ]
 
-const SD_SOURCES: readonly DaySdSource[] = ['fitted', 'this day', 'default']
+const SD_SOURCES: readonly DaySdSource[] = [
+  'fitted',
+  'this day',
+  'default',
+  'projection',
+]
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -641,6 +646,23 @@ export function groupColourIndex(
 // it, so nothing here asks the server for anything.
 
 /** Playback speeds, as on a replay: ×60 is one minute of the day a second. */
+/**
+ * Minutes between labelled ticks on a time axis.  The step the span calls for
+ * (2 h for a day, 30 min for a few hours, 10 min below that), widened until
+ * every "HH:MM" label gets about 52 units, so a chart drawn narrow (a phone)
+ * does not print its labels on top of each other.  At the widths the
+ * recorded view draws a day, the result is the old fixed step.
+ */
+export function timeStep(span: number, plotWidth: number): number {
+  const base = span > 720 ? 120 : span > 180 ? 30 : 10
+  if (!(span > 0) || !(plotWidth > 0)) return base
+  const steps = [10, 30, 60, 120, 180, 240, 360, 720]
+  for (const step of steps) {
+    if (step >= base && (span / step) * 52 <= plotWidth) return step
+  }
+  return 720
+}
+
 export const PLAY_SPEEDS = [60, 600, 3600] as const
 
 /**

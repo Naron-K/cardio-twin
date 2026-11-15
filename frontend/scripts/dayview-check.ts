@@ -11,6 +11,7 @@
 import assert from 'node:assert/strict'
 import {
   PLAY_SPEEDS,
+  timeStep,
   advanceMinute,
   binSums,
   clock,
@@ -258,6 +259,15 @@ const rates = wrongRateLength.rates as Record<string, unknown>[]
 ;(rates[0].values as unknown[]).pop()
 assert.throws(() => parseDaySummary(wrongRateLength), /rates\[0\]\.values/)
 
+// A projected day's usual error is its own source; an unknown one is refused.
+const projected = sampleDay()
+;(projected.model as Record<string, unknown>).sd_source = 'projection'
+assert.equal(parseDaySummary(projected).model.sd_source, 'projection')
+
+const nonsenseSource = sampleDay()
+;(nonsenseSource.model as Record<string, unknown>).sd_source = 'nonsense'
+assert.throws(() => parseDaySummary(nonsenseSource), /sd_source/)
+
 // ── Playback ─────────────────────────────────────────────────────────────────
 
 // x60 is one minute of the day a second; the cursor stops at the end.
@@ -306,3 +316,13 @@ assert.equal(sessionAt(playSessions, 1439), 1)
 assert.equal(sessionAt([], 300), -1)
 
 console.log('dayview-check ok')
+
+// ── Time-axis ticks: the recorded view's step at its widths, wider when narrow ──
+assert.equal(timeStep(1440, 918), 120) // a whole day at the default width: 2 h, as before
+assert.equal(timeStep(1440, 1600), 120)
+assert.equal(timeStep(240, 918), 30) // a few hours: 30 min, as before
+assert.equal(timeStep(60, 918), 10)
+assert.equal(timeStep(1440, 260), 360) // a phone-width day: 6 h, labels do not touch
+assert.ok((1440 / timeStep(1440, 300)) * 52 <= 300)
+assert.equal(timeStep(1440, 0), 120) // GUARD: a width of nothing keeps the base step
+assert.equal(timeStep(Number.NaN, 500), 10) // GUARD: no span: the smallest step, never NaN

@@ -69,6 +69,15 @@ body {
     letter-spacing: 0.05em;
   }
 
+  /* The swatch that says "no projection": a hatched box, not a colour. */
+  .plan-hatch {
+    background-image: repeating-linear-gradient(
+      45deg,
+      transparent 0 3px,
+      rgb(216 227 251 / 0.14) 3px 5px
+    );
+  }
+
   /* The visible viewport height, set by display.ts; 100dvh is the fallback. */
   .h-app {
     height: 100vh;
@@ -137,6 +146,56 @@ input[type='range']::-moz-range-thumb {
   border-radius: 50%;
   background: #22d3ee;
   cursor: pointer;
+}
+
+/* The plan editor's sliders: a 6px track in a 44px hit area with a 24px
+   thumb, matching the approved mockup.  The attribute-and-class selectors
+   deliberately outweigh the generic range rules above, including the
+   coarse-pointer block below. */
+input[type='range'].plan-range {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 44px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+input[type='range'].plan-range::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: #111c2d;
+  border: 1px solid rgb(216 227 251 / 0.14);
+}
+input[type='range'].plan-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  margin-top: -10px;
+  border-radius: 50%;
+  background: #d8e3fb;
+  border: 3px solid #00e3fd;
+  cursor: pointer;
+}
+input[type='range'].plan-range::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: #111c2d;
+  border: 1px solid rgb(216 227 251 / 0.14);
+}
+input[type='range'].plan-range::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #d8e3fb;
+  border: 3px solid #00e3fd;
+  cursor: pointer;
+}
+input[type='range'].plan-range:focus-visible {
+  outline: 2px solid #00e3fd;
+  outline-offset: 2px;
 }
 
 /* A 14px thumb is a mouse target.  Under a finger the control needs a thumb

@@ -31,13 +31,16 @@ export interface DayRoute {
   date: string
 }
 
+/** The two pages behind the tabs at the top of the app. */
+export type PageView = 'plan' | 'recorded'
+
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const SUBJECT_RE = /^[a-z0-9_]{1,32}$/
 /** The backend refuses a longer label; anything longer here is not one. */
 const LABEL_MAX = 40
 
-/** Parameters an older link may carry; they name nothing on this page. */
-const ROUTE_KEYS = ['source', 'subject', 'date', 'speed', 'preset'] as const
+/** Parameters an older link may carry, and the view keys this page writes. */
+const ROUTE_KEYS = ['source', 'subject', 'date', 'speed', 'preset', 'view', 'plan'] as const
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -127,8 +130,46 @@ export function routeFromSearch(search: string): DayRoute | null {
 }
 
 /**
- * `search` with the day written in and every older feed parameter removed;
- * anything unrelated (scale, for the display profile) stays.
+ * The view the query string names.  An old link with only a subject and date
+ * opens the recorded day it names; anything unreadable reads as the plan view.
+ */
+export function viewFromSearch(search: string): PageView {
+  try {
+    const query = new URLSearchParams(search)
+    const view = query.get('view')
+    if (view === 'recorded') return 'recorded'
+    if (view === null && routeFromSearch(search) !== null) return 'recorded'
+    return 'plan'
+  } catch {
+    return 'plan'
+  }
+}
+
+/**
+ * The query for switching to `view`: it sets the view, keeps the day only on
+ * the recorded view, keeps a plan only on the plan view, and leaves every
+ * unrelated parameter (scale, for the display profile) alone.
+ */
+export function searchForView(view: PageView, search: string): string {
+  let query: URLSearchParams
+  try {
+    query = new URLSearchParams(search)
+  } catch {
+    query = new URLSearchParams()
+  }
+  if (view === 'plan') {
+    query.delete('subject')
+    query.delete('date')
+  } else {
+    query.delete('plan')
+  }
+  query.set('view', view)
+  return `?${query.toString()}`
+}
+
+/**
+ * `search` with the recorded view and day written in and every older feed
+ * parameter removed; anything unrelated (scale, for the display profile) stays.
  */
 export function routeToSearch(route: DayRoute, search: string): string {
   let query: URLSearchParams
@@ -138,6 +179,7 @@ export function routeToSearch(route: DayRoute, search: string): string {
     query = new URLSearchParams()
   }
   for (const key of ROUTE_KEYS) query.delete(key)
+  query.set('view', 'recorded')
   query.set('subject', route.subject)
   query.set('date', route.date)
   return `?${query.toString()}`

@@ -16,7 +16,9 @@ import {
   pickDay,
   routeFromSearch,
   routeToSearch,
+  searchForView,
   subjectLabel,
+  viewFromSearch,
 } from '../src/twin/sources.ts'
 
 const sources = parseSources({
@@ -134,15 +136,50 @@ for (const bad of [
   assert.equal(routeFromSearch(bad), null, bad)
 }
 
-// Writing the day keeps unrelated parameters and drops the old feed ones.
+// Writing the day keeps unrelated parameters, drops the old feed ones, and
+// names the recorded view.
 assert.equal(
   routeToSearch(
     { subject: 'demo', date: '2025-06-01' },
     '?scale=1.5&source=replay&speed=600&preset=walk&subject=s9&date=2025-01-02',
   ),
-  '?scale=1.5&subject=demo&date=2025-06-01',
+  '?scale=1.5&view=recorded&subject=demo&date=2025-06-01',
 )
-assert.equal(routeToSearch({ subject: 'demo', date: '2025-06-01' }, ''), '?subject=demo&date=2025-06-01')
+assert.equal(
+  routeToSearch({ subject: 'demo', date: '2025-06-01' }, '?view=plan&plan=abc'),
+  '?view=recorded&subject=demo&date=2025-06-01',
+)
+assert.equal(
+  routeToSearch({ subject: 'demo', date: '2025-06-01' }, ''),
+  '?view=recorded&subject=demo&date=2025-06-01',
+)
+
+// ── Which view the URL names ─────────────────────────────────────────────────
+
+assert.equal(viewFromSearch(''), 'plan')
+assert.equal(viewFromSearch('?view=plan'), 'plan')
+assert.equal(viewFromSearch('?view=recorded'), 'recorded')
+// An old link with only a subject and date still opens its recorded day.
+assert.equal(viewFromSearch('?subject=subject_demo&date=2025-04-03'), 'recorded')
+assert.equal(viewFromSearch('?view=nonsense'), 'plan')
+// GUARD: a malformed query reads as the plan view rather than throwing.
+assert.equal(viewFromSearch('?%%%&view=%E0%A4%A'), 'plan')
+
+// Switching view keeps scale, drops the other view's keys, and sets the view.
+assert.equal(
+  searchForView('plan', '?view=recorded&subject=demo&date=2025-06-01&scale=1.5'),
+  '?view=plan&scale=1.5',
+)
+assert.equal(
+  searchForView('plan', '?view=recorded&plan=abc&scale=1.5'),
+  '?view=plan&plan=abc&scale=1.5',
+)
+assert.equal(
+  searchForView('recorded', '?view=plan&subject=demo&date=2025-06-01&plan=abc&scale=1.5'),
+  '?view=recorded&subject=demo&date=2025-06-01&scale=1.5',
+)
+assert.equal(searchForView('recorded', '?view=plan&plan=abc'), '?view=recorded')
+assert.equal(searchForView('plan', ''), '?view=plan')
 
 // ── Which day opens ──────────────────────────────────────────────────────────
 

@@ -1,5 +1,11 @@
 import type { DayPoint, DaySummary } from '../../twin/dayView'
-import { clock, groupColourIndex, measuredRuns, modelledDisplay } from '../../twin/dayView'
+import {
+  clock,
+  groupColourIndex,
+  measuredRuns,
+  modelledDisplay,
+  timeStep,
+} from '../../twin/dayView'
 
 interface Props {
   day: DaySummary
@@ -19,6 +25,8 @@ interface Props {
    * and a line marks it; null or absent draws the whole day.
    */
   until?: number | null
+  /** The text a gap carries; the recorded view keeps its "No data". */
+  gapLabel?: string
 }
 
 const DEFAULT_WIDTH = 1000
@@ -79,6 +87,7 @@ export function DayChart({
   labels = true,
   selected = null,
   until = null,
+  gapLabel = 'No data',
 }: Props) {
   const H = height
   const W = Number.isFinite(width) && width >= 300 ? width : DEFAULT_WIDTH
@@ -102,8 +111,9 @@ export function DayChart({
   const first = Math.floor(lo)
   const last = Math.ceil(hi)
   const hasMeasured = day.pair.measured.some((value) => isFiniteNumber(value))
+  const hasModelled = day.pair.modelled.some((value) => isFiniteNumber(value))
 
-  if (!hasMeasured) {
+  if (!hasMeasured && !hasModelled) {
     return (
       <p className="rounded-el border border-white/10 bg-surface-lowest/60 px-3 py-2 font-body text-[13px] text-ink/70">
         {day.pair.label}: no data
@@ -142,7 +152,7 @@ export function DayChart({
     yTicks.push(value)
   }
 
-  const xStep = span > 720 ? 120 : span > 180 ? 30 : 10
+  const xStep = timeStep(span, W - L - R)
   const xTicks: number[] = []
   for (let minute = Math.ceil(lo / xStep) * xStep; minute <= hi; minute += xStep) {
     xTicks.push(minute)
@@ -188,7 +198,7 @@ export function DayChart({
                 className="fill-ink"
                 fillOpacity={0.7}
               >
-                No data
+                {gapLabel}
               </text>
             )}
           </g>

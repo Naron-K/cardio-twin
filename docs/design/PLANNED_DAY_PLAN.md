@@ -1,9 +1,53 @@
 # Plan a day: set a day up with sliders, run it, and watch the model draw it
 
-Written 2026-11-15, revised the same day (version 2, after the user's direction). Nothing
-here is built. This is a handoff plan: whoever builds it needs only this file and the
-repository. Branch `feature/wearable-lamina`; it follows `WEARABLE_LAMINA_PLAN.md` and
-`DAY_VIEW_PLAN.md`.
+Written 2026-11-15, revised the same day (version 2, after the user's direction). Phase 0
+(the mockup) is done and approved; nothing of the feature itself is built. This is a
+handoff plan: whoever builds it needs only this file and the repository. Branch
+`feature/wearable-lamina`; it follows `WEARABLE_LAMINA_PLAN.md` and `DAY_VIEW_PLAN.md`.
+
+## 0. The approved mockup
+
+Approved by the user on 2026-11-15. It is the visual reference for phases 5 to 7: layout,
+controls, states and copy. Rebuild it with:
+
+```bash
+cd backend
+python ../tools/mockups/build_plan_mockup.py ../tools/mockups/plan_day_template.html s2 ../docs/design/mockups/plan-day-demo.html
+node ../tools/mockups/plan-model-check.mjs ../docs/design/mockups/plan-day-demo.html
+```
+
+(After the rename of section 3, pass `subject_demo` instead of `s2`.) The built page is
+gitignored, like every mockup built from a real person's days. Open it in a browser; Run
+plays the projection.
+
+- `tools/mockups/build_plan_mockup.py` derives the activity templates of 4.2 from the
+  recorded days and embeds them with the fitted coefficients. Its `project()` is the
+  reference for 4.7: it fills a planned day the same way and runs it through
+  `fit_hr_model.simulate_day`. Phase 2's templates tool and phase 4's `planned_day.py`
+  should reproduce its numbers.
+- `tools/mockups/plan_day_template.html` holds the page. Its `<script id="model">` runs the
+  model in the browser so the mockup works without a server. **The product must not do
+  this**: section 5 keeps formulas on the server. Copy the layout, not the model.
+- `tools/mockups/plan-model-check.mjs` checks that the page's model matches Python on
+  three reference plans. At approval the largest difference was 5e-5 bpm.
+
+What the approved mockup settled beyond section 4:
+
+- Each column is 440 px wide with its sliders in two sub-columns, and one column under
+  760 px. That way, at 1920x1080, Setup, Run, the figures and the heart-rate chart are
+  visible without scrolling.
+- The Kind buttons have no label row. The steps slider in a session is labelled "Steps"
+  with the note "no effect on heart rate".
+- A note sits directly under its own slider ("recorded 75–79", "p10 · p90").
+- On the Level slider, an end label that would collide with "typical" is left out.
+- When a session band is too narrow for its name, the timeline writes the name beside it.
+- The readout never shows a minute outside the waking hours. At the end of a run it stops
+  on the last projected minute.
+- At the approved defaults the mockup shows the following, and phase 4's endpoint should
+  reproduce them:
+  - Walk 07:30 (30 min, 3.13 kcal/min) settles at 107 bpm.
+  - Strength 18:00 (45 min, 4.29 kcal/min) settles at 109 bpm.
+  - The day totals 829 kcal and 14,635 steps.
 
 ## 1. Decisions already made (by the user, 2026-11-15)
 
@@ -264,7 +308,7 @@ Each phase ends with its own tests and the whole suite green: the backend tests,
 
 | Phase | Work | Accept when |
 |---|---|---|
-| 0 | A static mockup of the plan page (columns, timeline, Run, the chart after a run) at 1920x1080 and at phone width; the user approves it | approved |
+| 0 | A static mockup of the plan page (columns, timeline, Run, the chart after a run) at 1920x1080 and at phone width; the user approves it | done 2026-11-15 (section 0) |
 | 1 | Rename of section 3 | the acceptance line of section 3 |
 | 2 | Templates tool and backtest tool, with tests on generated days | on Subject demo the report reproduces section 2 within rounding |
 | 3 | `<plan_view>` roles and `GET /api/plan/options` | bad ids are refused at load; the other laminae are unchanged; the settle table equals the lamina's own value at each point to 1e-9 |

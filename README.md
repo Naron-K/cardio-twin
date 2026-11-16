@@ -157,10 +157,17 @@ WebSocket share one origin and nothing in the frontend needs a URL.
 [render.yaml](./render.yaml) describes the service on Render's $7/month plan
 (`0.5c-512mb`). A workspace needs a card on file before it can use it.
 
+On this branch the service is **`daily-activity-twin`** (Plan a day and
+Recorded days), with its own address. The cardio dashboard is a separate
+service, `cardio-twin`, deployed from `deploy/render-touch-board`. This
+branch's `render.yaml` names a different service and pins its own branch, so
+applying it cannot change the dashboard.
+
 1. Push this repository to GitHub.
-2. In [Render](https://render.com), sign in with GitHub, choose **New → Blueprint**
-   and pick the repository. Render reads `render.yaml`, builds the image and
-   gives the service an `https://….onrender.com` address.
+2. In [Render](https://render.com), sign in with GitHub, choose **New → Blueprint**,
+   pick the repository and the branch `feature/wearable-lamina`. Render reads
+   `render.yaml`, builds the image and gives the service an
+   `https://daily-activity-twin….onrender.com` address.
 3. Every push to the branch you linked redeploys. An open dashboard notices the
    new version and offers to reload.
 
@@ -183,6 +190,10 @@ What this means for whoever is looking at the screen, and for the bill:
 - **Nothing runs without an open page.** Each page gets its own session, which
   ends when the page goes. The process itself stays up, at about 60 MB of RAM
   and almost no CPU. `/health` reports `streams`, the number open right now.
+- **The two services share the workspace's 5 GB.** These pages stream
+  nothing: a recorded day is about 6 kB and a plan run about 2 kB (gzipped), so
+  `render.yaml` here sets `CARDIOTWIN_MONTHLY_GB` to 0.5 and leaves 4.5 to the
+  dashboard, whose stream is what the points below are about.
 - **Bandwidth is the real cost.** Render does not pass WebSocket compression
   through, so one open dashboard at 10 frames a second uses about 264 MB an hour
   (measured on the live service). The Hobby workspace includes 5 GB a month and

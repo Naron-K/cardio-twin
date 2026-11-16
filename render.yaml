@@ -1,11 +1,18 @@
-# Render Blueprint: one web service built from the Dockerfile. 0.5c-512mb is
-# the $7/month plan: unlike free, it does not spin down when idle.
-# In Render: New → Blueprint → pick this repository.  Every push to the
-# linked branch redeploys.  Pick the region nearest the display; it cannot change later.
+# Render Blueprint for this branch: Plan a day and Recorded days, as its own
+# web service with its own address.  The cardio dashboard is a different
+# service, `cardio-twin`, deployed from the branch deploy/render-touch-board;
+# this file names a different service and pins its branch, so applying it can
+# never touch that one.
+#
+# In Render: New → Blueprint → pick this repository and the branch
+# feature/wearable-lamina.  Every push to that branch then redeploys this
+# service.  0.5c-512mb is the $7/month plan: unlike free, it does not spin down
+# when idle.  Pick the region nearest the display; it cannot change later.
 services:
   - type: web
-    name: cardio-twin
+    name: daily-activity-twin
     runtime: docker
+    branch: feature/wearable-lamina
     plan: 0.5c-512mb
     region: singapore
     dockerfilePath: ./Dockerfile
@@ -14,11 +21,12 @@ services:
     envVars:
       - key: CARDIOTWIN_ECHO_LOG
         value: "0"
-      # Streams stop by themselves at this many GB in a UTC month, a little under
-      # the 5 GB the workspace includes. Each GB above 5 costs $0.15.
+      # The workspace's 5 GB a month is shared with the cardio dashboard, which
+      # keeps 4.5 of it for its live stream.  These pages stream nothing: a
+      # recorded day is about 6 kB, a plan run about 2 kB (gzipped, measured
+      # 2026-11-16), so this limit only matters if someone opens /ws by hand.
       - key: CARDIOTWIN_MONTHLY_GB
-        value: "4.5"
-      # Send every 5th snapshot: 2 a second, about 53 MB an hour per open page
-      # instead of 264. The model still runs every cycle.
+        value: "0.5"
+      # Send every 5th snapshot if a stream is opened at all.
       - key: CARDIOTWIN_EMIT_EVERY
         value: "5"

@@ -157,7 +157,7 @@ WebSocket share one origin and nothing in the frontend needs a URL.
 [render.yaml](./render.yaml) describes the service on Render's $7/month plan
 (`0.5c-512mb`). A workspace needs a card on file before it can use it.
 
-On this branch the service is **`daily-activity-twin`** (Plan a day and
+On this branch the service is **`activity-twin`** (Plan a day and
 Recorded days), with its own address. The cardio dashboard is a separate
 service, `cardio-twin`, deployed from `deploy/render-touch-board`. This
 branch's `render.yaml` names a different service and pins its own branch, so
@@ -167,7 +167,7 @@ applying it cannot change the dashboard.
 2. In [Render](https://render.com), sign in with GitHub, choose **New → Blueprint**,
    pick the repository and the branch `feature/wearable-lamina`. Render reads
    `render.yaml`, builds the image and gives the service an
-   `https://daily-activity-twin….onrender.com` address.
+   `https://activity-twin….onrender.com` address.
 3. Every push to the branch you linked redeploys. An open dashboard notices the
    new version and offers to reload.
 

@@ -10,7 +10,7 @@
 # when idle.  Pick the region nearest the display; it cannot change later.
 services:
   - type: web
-    name: daily-activity-twin
+    name: activity-twin
     runtime: docker
     branch: feature/wearable-lamina
     plan: 0.5c-512mb

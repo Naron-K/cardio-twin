@@ -7,6 +7,8 @@
  * container's measured width so its 13 px labels keep their size.
  */
 import { useEffect, useId, useRef, useState } from 'react'
+import type { KeyboardEvent } from 'react'
+import type { AssessmentAnswer } from '../../twin/assessment'
 import type { DaySummary } from '../../twin/dayView'
 import {
   PLAY_SPEEDS,
@@ -19,6 +21,9 @@ import type { PlanOptions, PlannedExtras } from '../../twin/planDay'
 import { unitText } from '../../twin/planDay'
 import { DayChart } from '../day/DayChart'
 import { RateStrip } from '../day/RateStrip'
+import { WeekRisk } from './WeekRisk'
+
+type ResultTab = 'day' | 'week'
 
 interface Props {
   day: DaySummary
@@ -33,6 +38,11 @@ interface Props {
   onSeek: (minute: number) => void
   /** The setup changed since this result: draw it faintly. */
   dimmed?: boolean
+  /** The assessed answer, when the lamina can show the week and its risk. */
+  answer?: AssessmentAnswer | null
+  tab?: ResultTab
+  onTab?: (tab: ResultTab) => void
+  onEnterWeek?: (attribute: string | null) => void
 }
 
 const KIND_BORDER = [
@@ -146,11 +156,41 @@ export function PlanResult({
   onSpeed,
   onSeek,
   dimmed = false,
+  answer = null,
+  tab = 'day',
+  onTab,
+  onEnterWeek,
 }: Props) {
   const host = useRef<HTMLDivElement | null>(null)
   const [width, setWidth] = useState(0)
   const [limitsOpen, setLimitsOpen] = useState(false)
   const limitsId = useId()
+  const tabBase = useId()
+  const tabRefs = useRef<Record<ResultTab, HTMLButtonElement | null>>({
+    day: null,
+    week: null,
+  })
+  const showWeek = answer !== null && tab === 'week'
+
+  const moveTab = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (answer === null || !onTab) return
+    let next: ResultTab | null = null
+    if (event.key === 'ArrowLeft') next = tab === 'day' ? 'week' : 'day'
+    else if (event.key === 'ArrowRight') next = tab === 'week' ? 'day' : 'week'
+    else if (event.key === 'Home') next = 'day'
+    else if (event.key === 'End') next = 'week'
+    if (next === null) return
+    event.preventDefault()
+    onTab(next)
+    tabRefs.current[next]?.focus()
+  }
+
+  const tabClass = (selected: boolean) =>
+    `inline-flex min-h-[44px] items-center gap-2 rounded-el border px-4 font-body text-[14px] font-semibold transition-colors ${FOCUS_CLASS} ${
+      selected
+        ? 'border-oxy-container/60 bg-oxy-container/15 text-oxy'
+        : 'border-white/10 bg-surface-lowest text-ink/70 hover:text-ink'
+    }`
 
   useEffect(() => {
     const node = host.current
@@ -164,7 +204,9 @@ export function PlanResult({
     const observer = new ResizeObserver(measure)
     observer.observe(node)
     return () => observer.disconnect()
-  }, [])
+    // The chart's host is unmounted while the week tab is shown, so the
+    // measurement is taken again each time the day tab comes back.
+  }, [showWeek])
 
   const W = Math.max(300, width || 720)
   const sd = amount(day.model.sd, day.pair.unit)
@@ -214,12 +256,59 @@ export function PlanResult({
     </button>
   )
 
+  const dimClass = dimmed ? 'pointer-events-none opacity-35' : ''
+
   return (
-    <div
-      className={`grid gap-4 fit:grid-cols-[minmax(0,1.7fr)_minmax(360px,1fr)] ${
-        dimmed ? 'pointer-events-none opacity-35' : ''
-      }`}
-    >
+    <div>
+      {answer !== null && onTab && (
+        <div
+          role="tablist"
+          aria-label="Result view"
+          onKeyDown={moveTab}
+          className="mb-3 flex flex-wrap gap-2"
+        >
+          {(['day', 'week'] as const).map((value) => {
+            const selected = tab === value
+            return (
+              <button
+                key={value}
+                ref={(node) => {
+                  tabRefs.current[value] = node
+                }}
+                type="button"
+                role="tab"
+                id={`${tabBase}-tab-${value}`}
+                aria-selected={selected}
+                aria-controls={`${tabBase}-panel-${value}`}
+                tabIndex={selected ? 0 : -1}
+                onClick={() => onTab(value)}
+                className={tabClass(selected)}
+              >
+                {selected && (
+                  <span aria-hidden="true" className="text-[9px]">
+                    ●
+                  </span>
+                )}
+                {value === 'day' ? 'The day' : 'The week and risk'}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      <div
+        role={answer !== null ? 'tabpanel' : undefined}
+        id={answer !== null ? `${tabBase}-panel-${tab}` : undefined}
+        aria-labelledby={answer !== null ? `${tabBase}-tab-${tab}` : undefined}
+      >
+        {showWeek && answer !== null ? (
+          <div className={dimClass}>
+            <WeekRisk answer={answer} onEnter={onEnterWeek ?? (() => {})} />
+          </div>
+        ) : (
+          <div
+            className={`grid gap-4 fit:grid-cols-[minmax(0,1.7fr)_minmax(360px,1fr)] ${dimClass}`}
+          >
       <section className="rounded-card border border-white/10 bg-surface-low/80 p-5">
         <h2 className="font-display text-[17px] font-semibold text-ink">
           {day.pair.label} · projection
@@ -413,6 +502,9 @@ export function PlanResult({
           )}
         </div>
       </section>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

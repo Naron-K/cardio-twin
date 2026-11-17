@@ -187,6 +187,31 @@ export type StatusTone = 'placeholder' | 'draft' | 'reviewed' | 'none'
 
 export const DAYS_PER_WEEK_RANGE: readonly [number, number] = [0, 7]
 
+/** The typical number of session days the link opens with. */
+export const DEFAULT_DAYS_PER_WEEK = 3
+
+/** The link's `days` parameter: an integer 0..7, or the typical 3. */
+export function readDaysParam(search: string): number {
+  const raw = new URLSearchParams(search).get('days')
+  if (raw === null || !/^\d+$/.test(raw)) return DEFAULT_DAYS_PER_WEEK
+  const value = Number(raw)
+  if (
+    !Number.isInteger(value) ||
+    value < DAYS_PER_WEEK_RANGE[0] ||
+    value > DAYS_PER_WEEK_RANGE[1]
+  ) {
+    return DEFAULT_DAYS_PER_WEEK
+  }
+  return value
+}
+
+/** The same query with `days` written as a clamped whole number. */
+export function writeDaysParam(search: string, days: number): string {
+  const query = new URLSearchParams(search)
+  query.set('days', String(clampDays(days)))
+  return query.toString()
+}
+
 // ── Reading untrusted JSON ───────────────────────────────────────────────────
 
 type Bad = (field: string, expected: string) => never

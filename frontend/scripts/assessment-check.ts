@@ -14,6 +14,7 @@
 import assert from 'node:assert/strict'
 import {
   DAYS_PER_WEEK_RANGE,
+  DEFAULT_DAYS_PER_WEEK,
   changeText,
   clampDays,
   clearEntries,
@@ -25,10 +26,12 @@ import {
   groupProgress,
   parseAssessmentAnswer,
   parseAssessmentOptions,
+  readDaysParam,
   scaleTop,
   setEntry,
   statusText,
   totalProgress,
+  writeDaysParam,
 } from '../src/twin/assessment.ts'
 import type {
   AssessmentOptions,
@@ -512,6 +515,25 @@ equal(DAYS_PER_WEEK_RANGE, [0, 7], 'DAYS_PER_WEEK_RANGE')
 equal(clampDays(-1), 0, 'clampDays: -1')
 equal(clampDays(3.6), 4, 'clampDays: 3.6')
 equal(clampDays(9), 7, 'clampDays: 9')
+
+// ── The `days` parameter in the link ─────────────────────────────────────────
+
+equal(DEFAULT_DAYS_PER_WEEK, 3, 'days: default')
+equal(readDaysParam('?days=0'), 0, 'days: 0 is read')
+equal(readDaysParam('?days=3'), 3, 'days: 3 is read')
+equal(readDaysParam('?days=7'), 7, 'days: 7 is read')
+equal(readDaysParam('?plan=x&days=5'), 5, 'days: read beside the plan')
+equal(readDaysParam('?days=8'), 3, 'days: above 7 is ignored')
+equal(readDaysParam('?days=-1'), 3, 'days: below 0 is ignored')
+equal(readDaysParam('?days=3.5'), 3, 'days: a fraction is ignored')
+equal(readDaysParam('?days=abc'), 3, 'days: text is ignored')
+equal(readDaysParam('?days='), 3, 'days: empty is ignored')
+equal(readDaysParam('?plan=x'), 3, 'days: absent is the typical 3')
+equal(readDaysParam(''), 3, 'days: no query is the typical 3')
+
+equal(writeDaysParam('?plan=x', 5), 'plan=x&days=5', 'days: written beside the plan')
+equal(writeDaysParam('?days=2&plan=x', 4), 'days=4&plan=x', 'days: rewritten in place')
+equal(writeDaysParam('?days=2', 9), 'days=7', 'days: clamped when written')
 
 // ── Display units ────────────────────────────────────────────────────────────
 

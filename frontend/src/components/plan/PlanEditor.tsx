@@ -10,6 +10,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Chip } from '../ui'
+import type { AssessmentOptions, Entries } from '../../twin/assessment'
+import { DAYS_PER_WEEK_RANGE } from '../../twin/assessment'
+import { HealthColumn } from './HealthColumn'
 import type { Plan, PlanEdit, PlanOptions } from '../../twin/planDay'
 import {
   AWAKE_END_RANGE,
@@ -41,6 +44,19 @@ interface Props {
   status: string
   /** A refused plan, under the control its field maps to. */
   refused?: { control: string | null; message: string } | null
+  /** The health column and its entries, when the lamina declares the view. */
+  health?: {
+    options: AssessmentOptions
+    entries: Entries
+    onEdit: () => void
+    onFillExample: () => void
+    onClear: () => void
+  } | null
+  /** Session days a week, when the assessment view is available. */
+  daysPerWeek?: {
+    value: number
+    onChange: (value: number) => void
+  } | null
 }
 
 const KIND_FILL = [
@@ -114,7 +130,7 @@ function sessionsKeys(count: number): string[] {
   return keys
 }
 
-const FOCUS_CLASS =
+export const FOCUS_CLASS =
   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-oxy-container'
 
 interface SliderProps {
@@ -318,6 +334,8 @@ export function PlanEditor({
   running,
   status,
   refused = null,
+  health = null,
+  daysPerWeek = null,
 }: Props) {
   const [messages, setMessages] = useState<Record<string, string>>({})
 
@@ -363,6 +381,16 @@ export function PlanEditor({
       </div>
 
       <div className="flex items-stretch gap-4 overflow-x-auto pb-1.5 phone:flex-col phone:overflow-visible">
+        {health && (
+          <HealthColumn
+            options={health.options}
+            entries={health.entries}
+            onEdit={health.onEdit}
+            onFillExample={health.onFillExample}
+            onClear={health.onClear}
+          />
+        )}
+
         <div className="w-[440px] flex-none rounded-xl border border-white/10 bg-surface-mid px-4 pb-2 pt-3 phone:w-full">
           <div className="mb-1 flex min-h-[44px] items-center">
             <h3 className="font-display text-[16px] font-semibold text-ink">Day</h3>
@@ -625,6 +653,35 @@ export function PlanEditor({
         >
           Run
         </button>
+        {daysPerWeek && (
+          <>
+            <span className="font-body text-[14px] text-ink/70">Repeat this day</span>
+            <span className="inline-flex items-center gap-1.5">
+              <button
+                type="button"
+                aria-label="One day fewer"
+                disabled={daysPerWeek.value <= DAYS_PER_WEEK_RANGE[0]}
+                onClick={() => daysPerWeek.onChange(daysPerWeek.value - 1)}
+                className={`min-h-[44px] min-w-[44px] rounded-el border border-white/10 bg-surface-low text-[18px] font-bold leading-none text-ink/80 transition-colors hover:text-ink disabled:cursor-not-allowed disabled:opacity-50 ${FOCUS_CLASS}`}
+              >
+                −
+              </button>
+              <output className="min-w-[28px] text-center font-mono text-[18px] font-bold tabular-nums text-ink">
+                {daysPerWeek.value}
+              </output>
+              <button
+                type="button"
+                aria-label="One day more"
+                disabled={daysPerWeek.value >= DAYS_PER_WEEK_RANGE[1]}
+                onClick={() => daysPerWeek.onChange(daysPerWeek.value + 1)}
+                className={`min-h-[44px] min-w-[44px] rounded-el border border-white/10 bg-surface-low text-[18px] font-bold leading-none text-ink/80 transition-colors hover:text-ink disabled:cursor-not-allowed disabled:opacity-50 ${FOCUS_CLASS}`}
+              >
+                +
+              </button>
+            </span>
+            <span className="font-body text-[14px] text-ink/70">days a week</span>
+          </>
+        )}
         <button
           type="button"
           onClick={reset}

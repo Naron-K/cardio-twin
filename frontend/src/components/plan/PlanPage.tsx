@@ -7,13 +7,28 @@
  * offers "Run again" rather than rerunning by itself.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { HealthDrawer } from './HealthDrawer'
 import { PlanEditor } from './PlanEditor'
 import { PlanEmpty, PlanResult } from './PlanResult'
+import type {
+  AssessmentAnswer,
+  AssessmentOptions,
+  Entries,
+} from '../../twin/assessment'
+import {
+  clearEntries,
+  controlForEntryField,
+  entriesBody,
+  fillExample,
+  readDaysParam,
+  writeDaysParam,
+} from '../../twin/assessment'
 import type { Plan, PlanOptions, PlannedExtras } from '../../twin/planDay'
 import {
   controlForField,
   decodePlan,
   encodePlan,
+  parsePlannedDay,
   planBody,
   planFromOptions,
 } from '../../twin/planDay'
@@ -22,12 +37,15 @@ import { PLAY_SPEEDS, advanceMinute, clock } from '../../twin/dayView'
 import type { SourcesResponse } from '../../twin/sources'
 import { subjectLabel } from '../../twin/sources'
 import {
+  EntryRefusedError,
   PlanOptionsError,
   PlanRefusedError,
   failureMessage,
+  fetchAssessmentOptions,
   fetchPlanOptions,
   fetchSources,
   findPlanLamina,
+  runAssessment,
   runPlan,
 } from '../../utils/api'
 
@@ -46,6 +64,12 @@ type Boot =
   | { status: 'no-templates'; label: string | null }
   | { status: 'error'; message: string }
   | ({ status: 'ready' } & Ready)
+
+type AssessmentBoot =
+  | { status: 'loading' }
+  | { status: 'none' }
+  | { status: 'error' }
+  | { status: 'ready'; options: AssessmentOptions }
 
 type Phase = 'idle' | 'running' | 'ready' | 'refused' | 'failed'
 
@@ -79,9 +103,27 @@ export function PlanPage() {
   const [playing, setPlaying] = useState(false)
   const [cursor, setCursor] = useState(0)
   const [speed, setSpeed] = useState<number>(PLAY_SPEEDS[1])
+  const [assessment, setAssessment] = useState<AssessmentBoot>({
+    status: 'loading',
+  })
+  const [assessmentAttempt, setAssessmentAttempt] = useState(0)
+  const [entries, setEntries] = useState<Entries>({})
+  const [daysPerWeek, setDaysPerWeek] = useState(() =>
+    readDaysParam(window.location.search),
+  )
+  const [answer, setAnswer] = useState<AssessmentAnswer | null>(null)
+  const [resultTab, setResultTab] = useState<'day' | 'week'>('day')
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [focusAttribute, setFocusAttribute] = useState<string | null>(null)
+  const [entryRefused, setEntryRefused] = useState<{
+    attribute: string | null
+    message: string
+  } | null>(null)
   const minuteRef = useRef(0)
   const runRef = useRef(0)
   const editRef = useRef(0)
+  const openerRef = useRef<HTMLElement | null>(null)
+  const wasDrawerOpen = useRef(false)
 
   useEffect(() => {
     let live = true
@@ -162,6 +204,44 @@ export function PlanPage() {
   }, [attempt])
 
   const ready = boot.status === 'ready' ? boot : null
+  const readyKey = ready ? `${ready.lamina}\u0000${ready.subject}` : null
+  const assessmentOptions =
+    assessment.status === 'ready' ? assessment.options : null
+
+  // The health section is asked for only after the plan options have loaded.
+  // A throw leaves the plan page exactly as it was, with a retry of its own.
+  useEffect(() => {
+    if (readyKey === null) return
+
+    let live = true
+    const load = async () => {
+      try {
+        const options = await fetchAssessmentOptions()
+        if (!live) return
+        setAssessment(
+          options === null ? { status: 'none' } : { status: 'ready', options },
+        )
+      } catch {
+        if (!live) return
+        setAssessment({ status: 'error' })
+      }
+    }
+
+    void load()
+    return () => {
+      live = false
+    }
+  }, [readyKey, assessmentAttempt])
+
+  // Closing the drawer puts focus back on the control that opened it.
+  useEffect(() => {
+    if (wasDrawerOpen.current && !drawerOpen) {
+      const opener = openerRef.current
+      openerRef.current = null
+      if (opener && document.contains(opener)) opener.focus()
+    }
+    wasDrawerOpen.current = drawerOpen
+  }, [drawerOpen])
 
   // The settle tables depend on the day's level and temperature.  After the
   // reader stops moving either, ask again; the editor keeps working with the
@@ -218,33 +298,86 @@ export function PlanPage() {
   }, [laminaId, subjectId, level, ambient, planKey, tableKey])
 
   const encoded = ready ? encodePlan(ready.plan) : null
+  const daysInLink = assessmentOptions ? daysPerWeek : null
   useEffect(() => {
     if (encoded === null) return
-    const query = new URLSearchParams(window.location.search)
+    const search =
+      daysInLink === null
+        ? window.location.search
+        : writeDaysParam(window.location.search, daysInLink)
+    const query = new URLSearchParams(search)
     query.set('view', 'plan')
     query.set('plan', encoded)
     const next = `${window.location.pathname}?${query.toString()}`
     const current = `${window.location.pathname}${window.location.search}${window.location.hash}`
     if (current !== next) window.history.replaceState(null, '', next)
-  }, [encoded])
+  }, [encoded, daysInLink])
+
+  // Anything that changes the setup dims the last result without rerunning it,
+  // exactly as a slider move does.
+  const markChanged = useCallback(() => {
+    editRef.current += 1
+    setRefused(null)
+    setEntryRefused(null)
+    if (result) {
+      setStale(true)
+      setPlaying(false)
+      if (phase === 'refused') setPhase('ready')
+    } else if (phase === 'refused') {
+      setPhase('idle')
+    }
+  }, [result, phase])
 
   const changePlan = useCallback(
     (plan: Plan) => {
-      editRef.current += 1
+      markChanged()
       setBoot((current) =>
         current.status === 'ready' ? { ...current, plan } : current,
       )
-      setRefused(null)
-      if (result) {
-        setStale(true)
-        setPlaying(false)
-        if (phase === 'refused') setPhase('ready')
-      } else if (phase === 'refused') {
-        setPhase('idle')
-      }
     },
-    [result, phase],
+    [markChanged],
   )
+
+  const changeEntries = useCallback(
+    (next: Entries) => {
+      markChanged()
+      setEntries(next)
+    },
+    [markChanged],
+  )
+
+  const fillTheExample = useCallback(() => {
+    if (!assessmentOptions) return
+    markChanged()
+    setEntries(fillExample(assessmentOptions))
+  }, [assessmentOptions, markChanged])
+
+  const clearTheEntries = useCallback(() => {
+    markChanged()
+    setEntries(clearEntries())
+  }, [markChanged])
+
+  const changeDaysPerWeek = useCallback(
+    (value: number) => {
+      markChanged()
+      setDaysPerWeek(Math.min(7, Math.max(0, Math.round(value))))
+    },
+    [markChanged],
+  )
+
+  const openDrawer = useCallback((attribute: string | null) => {
+    openerRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null
+    setFocusAttribute(attribute)
+    setDrawerOpen(true)
+  }, [])
+
+  const closeDrawer = useCallback(() => {
+    setFocusAttribute(null)
+    setDrawerOpen(false)
+  }, [])
 
   // The day is already here; playing it only moves the cursor, frame by frame,
   // from the first waking minute and stops at the end of the waking window.
@@ -280,17 +413,36 @@ export function PlanPage() {
       setPhase('running')
       setPlaying(false)
       setRefused(null)
+      setEntryRefused(null)
       setFailure(null)
 
       try {
-        const answer = await runPlan(
-          ready.lamina,
-          planBody(plan, ready.subject, ready.options),
-        )
+        const body = planBody(plan, ready.subject, ready.options)
+        let day: DaySummary
+        let extras: PlannedExtras
+
+        if (assessmentOptions) {
+          const response = await runAssessment(ready.lamina, {
+            subject: ready.subject,
+            entries: entriesBody(assessmentOptions, entries),
+            plan: body,
+            days_per_week: daysPerWeek,
+          })
+          const planned = parsePlannedDay(response.day)
+          day = planned.day
+          extras = planned.extras
+          if (runRef.current !== id) return
+          setAnswer(response.answer)
+        } else {
+          const response = await runPlan(ready.lamina, body)
+          day = response.day
+          extras = response.extras
+        }
+
         if (runRef.current !== id) return
         setResult({
-          day: answer.day,
-          extras: answer.extras,
+          day,
+          extras,
           awake: [plan.awake[0], plan.awake[1]],
         })
         setPhase('ready')
@@ -301,6 +453,16 @@ export function PlanPage() {
         setPlaying(!changed)
       } catch (error) {
         if (runRef.current !== id) return
+        if (error instanceof EntryRefusedError) {
+          const attribute =
+            error.field === null ? null : controlForEntryField(error.field)
+          setRefused(null)
+          setEntryRefused({ attribute, message: error.message })
+          setPhase('refused')
+          setPlaying(false)
+          openDrawer(attribute)
+          return
+        }
         if (error instanceof PlanRefusedError) {
           setRefused({
             control: error.field === null ? null : controlForField(error.field),
@@ -315,7 +477,7 @@ export function PlanPage() {
         setPlaying(false)
       }
     },
-    [ready],
+    [ready, assessmentOptions, entries, daysPerWeek, openDrawer],
   )
 
   const togglePlay = useCallback(() => {
@@ -399,6 +561,30 @@ export function PlanPage() {
           </div>
         ) : (
           <>
+            {assessmentOptions && (
+              <p className="mb-3 rounded-el border border-warn-strong/60 bg-warn-strong/10 px-3 py-2 font-body text-[13px] text-warn">
+                Research demonstration · not medical advice
+                {assessmentOptions.notice !== null &&
+                  ` · ${assessmentOptions.notice}`}
+              </p>
+            )}
+            {assessment.status === 'error' && (
+              <div className="mb-3 flex flex-wrap items-center gap-3">
+                <p className="font-body text-[13px] text-warn">
+                  The health section could not be loaded.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAssessment({ status: 'loading' })
+                    setAssessmentAttempt((value) => value + 1)
+                  }}
+                  className={RETRY_CLASS}
+                >
+                  Retry
+                </button>
+              </div>
+            )}
             {boot.notice && (
               <p className="mb-3 rounded-el border border-warn-strong/60 bg-warn-strong/10 px-3 py-2 font-body text-[13px] text-warn">
                 {boot.notice}
@@ -412,6 +598,25 @@ export function PlanPage() {
               running={phase === 'running'}
               status={status}
               refused={refused}
+              health={
+                assessmentOptions
+                  ? {
+                      options: assessmentOptions,
+                      entries,
+                      onEdit: () => openDrawer(null),
+                      onFillExample: fillTheExample,
+                      onClear: clearTheEntries,
+                    }
+                  : null
+              }
+              daysPerWeek={
+                assessmentOptions
+                  ? {
+                      value: daysPerWeek,
+                      onChange: changeDaysPerWeek,
+                    }
+                  : null
+              }
             />
 
             <div className="relative mt-4">
@@ -442,6 +647,10 @@ export function PlanPage() {
                     onSpeed={setSpeed}
                     onSeek={seek}
                     dimmed={dimmed}
+                    answer={answer}
+                    tab={resultTab}
+                    onTab={setResultTab}
+                    onEnterWeek={openDrawer}
                   />
                   {overlay && (
                     <div className="absolute inset-0 z-10 flex items-center justify-center rounded-card bg-surface/35">
@@ -462,6 +671,18 @@ export function PlanPage() {
           </>
         )}
       </main>
+
+      {assessmentOptions && (
+        <HealthDrawer
+          open={drawerOpen}
+          options={assessmentOptions}
+          entries={entries}
+          onChange={changeEntries}
+          onClose={closeDrawer}
+          refused={entryRefused}
+          focusAttribute={focusAttribute}
+        />
+      )}
     </>
   )
 }

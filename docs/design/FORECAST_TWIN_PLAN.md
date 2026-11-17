@@ -319,29 +319,46 @@ The mockup of phase 0 is `tools/mockups/forecast_template.html`, built from the 
 endpoints by `tools/mockups/build_forecast_mockup.py` (run from `backend/`, as its
 docstring says). The user approved it on 2026-11-17.
 
-### 7.2 Frontend: where it stands (2026-11-17)
+### 7.2 As built: the page (F1 and F2, 2026-11-17 and 18)
 
-Done and committed (F1, pure logic, no component yet):
-- `frontend/src/twin/assessment.ts`: types, the two parsers, and the pure helpers the
-  page needs (typing a value, progress per group, the example, the request body, the
-  status and change wording, the axis top).
-- `frontend/src/utils/api.ts`: `findAssessmentLamina`, `fetchAssessmentOptions`,
-  `runAssessment`, `EntryRefusedError`. Entered values travel in the request body only.
-- `frontend/scripts/assessment-check.ts`: 82 checks. Real answers from the endpoints
-  parse; lint and build are clean.
+- `frontend/src/twin/assessment.ts` holds the types, the two parsers and every pure helper;
+  `utils/api.ts` holds `fetchAssessmentOptions`, `runAssessment` and `EntryRefusedError`.
+  Entered values travel in the request body only.
+- `HealthColumn` is the first column of Setup. `HealthDrawer` is the form (a dialog that
+  takes focus, closes on Escape and returns focus to the button that opened it).
+  `WeekRisk` draws the weekly activity, the risks and the flags.
+- Run goes through `POST /api/assessment` and gives its `day` to the existing parser, so
+  the chart and playback are unchanged. The result has two tabs, "The day" and "The week
+  and risk". The link gains `days=<n>`; nothing entered is in the URL or in storage.
+- Changing an entry, the example, Clear or the days a week marks the result "Setup
+  changed", like a slider.
+- With no lamina that declares the view, the page is as it was: compared with a screenshot
+  taken before this work, 0 of 1920×1080 pixels differ.
 
-Not started (nothing on screen has changed yet):
-1. **F2a**: `HealthColumn`, `HealthDrawer`, `WeekRisk`, from the approved mockup.
-2. **F2b**: wiring into `PlanPage`, `PlanEditor`, `PlanResult`: the health column, the
-   days-a-week stepper, Run through `POST /api/assessment`, the two result tabs, the
-   banner. With no assessment lamina the page must stay exactly as it is today.
-3. Drive every state in a real browser and compare with the mockup at 1920×1080 and phone
-   width. Then commit.
+Driven in headless Chrome on the real page, with no console error or warning in any of
+them: nothing entered; partly entered; example filled; 0, 3 and 7 days a week (7 raises
+the jump flag, 0 raises both risks); an out-of-range and a non-numeric value typed in the
+form; an entry refused by the server (the form opens on that field with the server's
+sentence); the server failing with a retry; the options request failing with a retry; no
+assessment lamina; phone width (no sideways scroll).
 
-The two delegation specs are in `FORECAST_FRONTEND_SPECS.md`, ready to run.
+Found by looking at the pixels and fixed by hand:
+- the Day column had lost its phone width and pushed the page sideways on a phone;
+- risks were shown to one decimal, so a small change read "7.0 → 7.0"; they now show two;
+- the heart-rate chart's text was stretched after visiting the week tab and coming back,
+  because its width was measured only once.
 
-Nothing has been pushed. Pushing this branch redeploys the public Render service; the page
-there would look the same until F2b lands, but the new endpoints would be reachable.
+Known trade-off: the banner and the result tabs take about 105 px, so at 1920×1080 less of
+the chart is above the fold than in the Plan a day layout approved earlier.
+
+Who wrote what: OpenCode wrote F1, the three components and the wiring from the specs in
+`FORECAST_FRONTEND_SPECS.md`; the fixes above were made by hand.
+
+Checks: `npm run lint`, `npm run build`, and the five `scripts/*-check.ts`
+(assessment-check has 97 checks).
+
+Nothing has been pushed. Pushing this branch redeploys the public Render service with the
+health section and its placeholder figures visible.
 
 ## 8. Not in this plan
 

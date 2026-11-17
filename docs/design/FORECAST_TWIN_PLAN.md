@@ -5,6 +5,11 @@ built. It follows `PLANNED_DAY_PLAN.md` on branch `feature/wearable-lamina` and 
 rules (section 5 there). This is a handoff plan: whoever builds a phase needs this file and
 the repository.
 
+> **Superseded in part (2026-11-18).** `ADAPTATION_TWIN_PLAN.md` replaces the
+> dose-response multiplier of this plan with risk factors that adapt over weeks, and
+> brings the person's fitness into the risk from the recordings. Where the two
+> disagree, that plan is the later decision.
+
 ## 1. Direction (the user, 2026-11-17)
 
 | Question | Decision |

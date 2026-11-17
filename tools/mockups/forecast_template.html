@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Forecast twin mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;800&family=Hanken+Grotesk:wght@400;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<!-- Every figure on this page comes from the backend (GET /api/assessment/options and
+     POST /api/assessment), captured by build_forecast_mockup.py. The page holds no model. -->
+<script>window.MOCK = /*DATA*/;</script>
+<style>
+:root{--bg:#081425;--card:#111c2d;--card2:#152031;--line:rgba(216,227,251,.14);--ink:#d8e3fb;--ink2:rgba(216,227,251,.72);--ink3:rgba(216,227,251,.52);
+--model:#4fe3f7;--band:rgba(0,227,253,.13);--walk:#2fbf9b;--strength:#f0a13c;--ok:#2fbf9b;--warn:#f0a13c;--bad:#ff525f;--measured:#d8e3fb}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Hanken Grotesk",system-ui,sans-serif}
+.wrap{max-width:1880px;margin:0 auto;padding:12px 24px}
+h2{font:600 17px Sora,system-ui,sans-serif;margin:0}
+h3{font:600 16px Sora,system-ui,sans-serif;margin:0}
+h4{font:600 14px "Hanken Grotesk",sans-serif;margin:0;color:var(--ink2)}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.tab,button{font:600 14px "Hanken Grotesk",system-ui,sans-serif;min-height:44px;padding:0 16px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink2);cursor:pointer;display:inline-flex;align-items:center;gap:8px}
+.tab[aria-selected="true"],button[aria-pressed="true"]{background:var(--model);color:#04202a;border-color:transparent}
+.tab[aria-selected="true"]::before{content:"●";font-size:9px}
+.primary{background:var(--model);color:#04202a;border-color:transparent;font-weight:700}
+.ghost{background:transparent}
+.chip{font:600 13px "Hanken Grotesk",sans-serif;color:var(--model);background:rgba(79,227,247,.12);border:1px solid rgba(79,227,247,.4);border-radius:999px;padding:4px 12px}
+.demo{margin:8px 0;padding:6px 14px;border:1px solid rgba(240,161,60,.5);background:rgba(240,161,60,.1);border-radius:10px;font-size:14px;color:var(--ink)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 20px;margin-top:10px}
+.colrow{display:flex;gap:16px;overflow-x:auto;padding-bottom:4px;align-items:stretch;margin-top:10px}
+.col{flex:0 0 440px;min-width:0;background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:12px 16px}
+.col.dim{opacity:.55}
+.small{color:var(--ink3);font-size:13px;margin:2px 0 0}
+.note{color:var(--ink2);font-size:14px;margin:4px 0 0}
+.mono{font-family:"JetBrains Mono",monospace}
+.grouprow{display:flex;justify-content:space-between;align-items:center;min-height:36px;border-top:1px solid var(--line);font-size:14px}
+.grouprow:first-of-type{border-top:0}
+.count{font:700 13px "JetBrains Mono",monospace;color:var(--ink2)}
+.count.full{color:var(--ok)}
+.stepper{display:inline-flex;align-items:center;gap:6px}
+.stepper button{min-width:44px;justify-content:center;padding:0}
+.stepper output{font:700 18px "JetBrains Mono",monospace;min-width:28px;text-align:center}
+.grid3{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1.25fr) minmax(0,.9fr);gap:16px;margin-top:12px}
+.panel{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:14px 16px;min-width:0}
+.kind{font:600 12px "Hanken Grotesk",sans-serif;letter-spacing:.02em;border-radius:6px;padding:2px 8px;border:1px solid var(--line);color:var(--ink2);white-space:nowrap}
+.kind.m::before{content:"■ "}.kind.p::before{content:"◆ ";color:var(--model)}.kind.pub::before{content:"▲ ";color:var(--warn)}
+.badge{display:inline-block;font:600 12px "Hanken Grotesk",sans-serif;border-radius:6px;padding:2px 8px;border:1px solid rgba(240,161,60,.6);background:rgba(240,161,60,.12);color:#ffd08a}
+.badge.reviewed{border-color:rgba(47,191,155,.6);background:rgba(47,191,155,.12);color:#8fe6cd}
+.scale{position:relative;height:112px;margin:14px 8px 4px}
+.axis{position:absolute;left:0;right:0;top:64px;height:10px;background:rgba(216,227,251,.08);border-radius:5px}
+.guide{position:absolute;top:56px;height:26px;background:rgba(47,191,155,.16);border:1px dashed rgba(47,191,155,.7);border-radius:6px}
+.sw{display:inline-block;width:22px;height:12px;vertical-align:-1px;margin-right:6px;background:rgba(47,191,155,.16);border:1px dashed rgba(47,191,155,.7);border-radius:3px}
+.whisk{position:absolute;top:67px;height:4px;background:var(--measured);opacity:.6;border-radius:2px}
+.mark{position:absolute;top:0;transform:translateX(-50%);text-align:center;white-space:nowrap;font-size:12px;color:var(--ink2)}
+.mark b{display:block;font:700 15px "JetBrains Mono",monospace;color:var(--ink)}
+.mark i{display:block;width:2px;height:28px;margin:2px auto 0;background:var(--measured)}
+.mark.plan i{background:var(--model);width:3px}.mark.plan b{color:var(--model)}
+.mark.plan{top:auto;bottom:-22px}.mark.plan i{margin:0 auto 2px;height:22px}
+.ticks{position:relative;height:16px;margin:14px 8px 0;font:12px "JetBrains Mono",monospace;color:var(--ink3)}
+.ticks span{position:absolute;transform:translateX(-50%)}
+.kv{display:flex;justify-content:space-between;gap:12px;font-size:14px;padding:4px 0;border-top:1px solid var(--line)}
+.kv b{font:700 14px "JetBrains Mono",monospace}
+.risk{border-top:1px solid var(--line);padding:12px 0;margin-top:10px}
+.risk + .risk{margin-top:0}
+.risk h3{font:600 15px "Hanken Grotesk",sans-serif}
+.pair{display:flex;gap:18px;align-items:flex-end;margin-top:6px;flex-wrap:wrap}
+.fig{min-width:120px}
+.fig span{display:block;font-size:13px;color:var(--ink3)}
+.fig b{font:700 30px "JetBrains Mono",monospace}
+.fig.plan b{color:var(--model)}
+.delta{font:700 14px "JetBrains Mono",monospace;padding:4px 10px;border-radius:8px;border:1px solid var(--line)}
+.delta.down{color:#8fe6cd;border-color:rgba(47,191,155,.5)}.delta.up{color:#ffb3b8;border-color:rgba(255,82,95,.5)}
+.needs{margin-top:6px;padding:8px 12px;border:1px dashed var(--line);border-radius:8px;font-size:14px;color:var(--ink2)}
+details{margin-top:8px;font-size:13px;color:var(--ink2)}
+summary{cursor:pointer;min-height:32px;display:flex;align-items:center;color:var(--ink2)}
+.flag{display:flex;gap:10px;padding:10px 0;border-top:1px solid var(--line);font-size:14px}
+.flag:first-of-type{border-top:0}
+.flag .ic{flex:0 0 26px;height:26px;border-radius:6px;display:grid;place-items:center;font-weight:700;font-size:13px}
+.flag.raised .ic{background:rgba(240,161,60,.2);color:#ffd08a;border:1px solid rgba(240,161,60,.6)}
+.flag.clear .ic{background:rgba(47,191,155,.14);color:#8fe6cd;border:1px solid rgba(47,191,155,.5)}
+.flag.na .ic{background:transparent;color:var(--ink3);border:1px dashed var(--line)}
+.flag b{display:block}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:560px;max-width:100vw;background:var(--card);border-left:1px solid var(--line);padding:18px 22px;overflow:auto;transform:translateX(100%);transition:transform .18s;z-index:5}
+.drawer.open{transform:none}
+.field{display:grid;grid-template-columns:1fr 190px;gap:4px 14px;align-items:center;padding:8px 0;border-top:1px solid var(--line)}
+.field label{font-weight:600;font-size:15px}
+.field .why{grid-column:1/-1;font-size:13px;color:var(--ink3);margin:0}
+.inp{display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--line);border-radius:10px;min-height:44px;padding:0 12px}
+.inp input{all:unset;width:100%;font:700 16px "JetBrains Mono",monospace;color:var(--ink)}
+.inp span{font-size:13px;color:var(--ink3);white-space:nowrap}
+.inp.empty{border-style:dashed}
+.seg{display:flex;gap:6px}
+.seg button{flex:1;justify-content:center;padding:0 8px}
+.legend{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+.states{position:sticky;top:0;z-index:4;background:#0b1a30;border-bottom:1px solid var(--line);padding:8px 24px;font-size:13px;color:var(--ink3)}
+.states button{min-height:32px;font-size:13px;padding:0 10px}
+@media (max-width:1100px){.grid3{grid-template-columns:1fr}.colrow{flex-direction:column}.col{flex:1 1 auto}.legend{margin:8px 0 0 0 !important}.field{grid-template-columns:1fr}.wrap{padding:14px}}
+</style>
+</head>
+<body>
+<div class="states row">Mockup only · show state:
+  <button data-state="empty">Nothing entered</button>
+  <button data-state="partial">Partly entered</button>
+  <button data-state="example" aria-pressed="true">Example filled</button>
+  <button data-state="less">Example, plan below habit</button>
+  <button data-state="flags">Flags raised</button>
+  <button id="toggleDrawer" class="ghost">Open / close “Your health”</button>
+</div>
+<div class="wrap">
+  <div class="row">
+    <span class="tab" role="tab" aria-selected="true">Plan a day</span>
+    <span class="tab" role="tab" aria-selected="false">Recorded days</span>
+  </div>
+  <div class="demo">Research demonstration · not medical advice · <span id="notice"></span></div>
+
+  <section class="card">
+    <div class="row"><h2>Setup</h2><span class="chip" id="subject"></span></div>
+    <div class="colrow">
+      <div class="col" id="healthCol">
+        <div class="row" style="justify-content:space-between;min-height:44px">
+          <h3>Your health</h3><span class="count" id="enteredCount"></span>
+        </div>
+        <div id="groupRows"></div>
+        <div class="row" style="margin-top:10px">
+          <button class="primary" id="editHealth">Enter or edit</button>
+          <button id="fillExample">Fill with invented example</button>
+        </div>
+        <p class="small">Held on this device only. Not saved on the server and not part of the link.</p>
+      </div>
+      <div class="col dim"><h3>Day</h3><p class="note">Awake, temperature, resting level, steps: as today.</p></div>
+      <div class="col dim"><h3>Walk · 07:30</h3><p class="note">Kind, start, length, level, target: as today.</p></div>
+      <div class="col dim"><h3>Strength · 18:00</h3><p class="note">As today.</p></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="primary">Run</button>
+      <span class="note" style="margin:0">Repeat this day</span>
+      <span class="stepper"><button aria-label="One day fewer">−</button><output id="days"></output><button aria-label="One day more">+</button></span>
+      <span class="note" style="margin:0">days a week</span>
+      <button class="ghost">Reset to a typical day</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="row">
+      <span class="tab" role="tab" aria-selected="false">The day</span>
+      <span class="tab" role="tab" aria-selected="true">The week and risk</span>
+      <div class="legend" style="margin:0 0 0 auto">
+        <span class="kind m">Measured from recordings</span>
+        <span class="kind p">Projected by this person’s model</span>
+        <span class="kind pub">Population model applied to you</span>
+      </div>
+    </div>
+    <div class="grid3">
+      <div class="panel">
+        <div class="row" style="justify-content:space-between"><h3>Weekly activity</h3><span class="small mono" id="doseUnit"></span></div>
+        <div class="ticks" id="ticks"></div>
+        <div class="scale" id="scale"></div>
+        <div style="margin-top:30px" id="doseRows"></div>
+        <p class="small" id="habitRule"></p>
+      </div>
+      <div class="panel">
+        <div class="row" style="justify-content:space-between"><h3>Risk of disease</h3><span class="kind pub">Population model applied to you</span></div>
+        <div id="risks"></div>
+      </div>
+      <div class="panel">
+        <h3>Flags</h3>
+        <div id="flags"></div>
+        <p class="small">A flag repeats what guidance says for what you entered. No flag is not a statement that exercise is safe.</p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<aside class="drawer" id="drawer" aria-label="Your health">
+  <div class="row" style="justify-content:space-between">
+    <h2>Your health</h2><button id="closeDrawer">Done</button>
+  </div>
+  <p class="note">Enter what you know. Anything left empty is asked for by the result that needs it; nothing is assumed.</p>
+  <div id="form"></div>
+</aside>
+
+<script>
+(function () {
+  'use strict';
+  var M = window.MOCK, state = 'example';
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); };
+  var unit = function (u) { return u === '1' ? '' : u; };
+  var fmt = function (v, d) { return v === null || v === undefined ? '–' : Number(v).toFixed(d === undefined ? 1 : d); };
+  var statusBadge = function (s) {
+    if (s === 'reviewed') return '<span class="badge reviewed">Reviewed model</span>';
+    if (s === 'draft') return '<span class="badge">Draft model · not yet reviewed</span>';
+    return '<span class="badge">Placeholder model · not validated</span>';
+  };
+
+  function render() {
+    var S = M.states[state], O = M.options, A = S.response.assessment, D = S.response.dose, given = S.entries;
+    $('subject').textContent = S.response.subject_label;
+    $('notice').textContent = A.notice || '';
+    $('days').textContent = S.days_per_week;
+    $('enteredCount').textContent = A.entered.given + ' of ' + A.entered.of + ' entered';
+    $('enteredCount').className = 'count' + (A.entered.given === A.entered.of ? ' full' : '');
+
+    $('groupRows').innerHTML = O.groups.map(function (g) {
+      var n = g.entries.filter(function (e) { return given[e.attribute] !== undefined; }).length;
+      return '<div class="grouprow"><span>' + esc(g.label) + '</span><span class="count' + (n === g.entries.length ? ' full' : '') + '">' +
+        (n === g.entries.length ? '✓ ' : '') + n + ' / ' + g.entries.length + '</span></div>';
+    }).join('');
+
+    $('form').innerHTML = O.groups.map(function (g) {
+      return '<h3 style="margin-top:18px">' + esc(g.label) + '</h3>' + g.entries.map(function (e) {
+        var v = given[e.attribute], has = v !== undefined, ctl;
+        if (e.kind === 'number') {
+          ctl = '<div class="inp' + (has ? '' : ' empty') + '"><input inputmode="decimal" value="' + (has ? v : '') + '" placeholder="' + e.min + ' – ' + e.max + '"><span>' + esc(unit(e.unit)) + '</span></div>';
+        } else {
+          var opts = e.kind === 'yesno' ? [{value: 1, label: 'Yes'}, {value: 0, label: 'No'}] : e.options;
+          ctl = '<div class="seg">' + opts.map(function (o) {
+            return '<button aria-pressed="' + (has && Number(v) === Number(o.value)) + '">' + esc(o.label) + '</button>';
+          }).join('') + '</div>';
+        }
+        return '<div class="field"><label>' + esc(e.label) + '</label>' + ctl + '<p class="why">' + esc(e.why) + (has ? '' : ' · <b>not entered</b>') + '</p></div>';
+      }).join('');
+    }).join('');
+
+    // Weekly activity scale
+    var cur = D.current, pl = D.planned, rng = A.range, top = 25;
+    [cur && cur.p90, pl && pl.value, rng && rng.high].forEach(function (v) { if (v && v * 1.15 > top) top = Math.ceil(v * 1.15 / 5) * 5; });
+    var x = function (v) { return (100 * v / top) + '%'; };
+    var h = '<div class="axis"></div>';
+    if (rng) h += '<div class="guide" style="left:' + x(rng.low) + ';width:' + x(rng.high - rng.low) + '"></div>';
+    if (cur) h += '<div class="whisk" style="left:' + x(cur.p10) + ';width:' + x(cur.p90 - cur.p10) + '"></div>' +
+      '<div class="mark" style="left:' + x(cur.p50) + '">Now<b>' + fmt(cur.p50) + '</b><i></i></div>';
+    if (pl) h += '<div class="mark plan" style="left:' + x(pl.value) + '"><i></i><b>' + fmt(pl.value) + '</b>With this plan</div>';
+    $('scale').innerHTML = h;
+    var t = ''; for (var k = 0; k <= top; k += 5) t += '<span style="left:' + x(k) + '">' + k + '</span>';
+    $('ticks').innerHTML = t;
+    $('doseUnit').textContent = D.unit;
+    var rows = '';
+    if (cur) rows += '<div class="kv"><span><span class="kind m">Measured</span> Now, median of ' + cur.weeks + ' weeks</span><b>' + fmt(cur.p50) + ' <span class="small">(' + fmt(cur.p10) + '–' + fmt(cur.p90) + ')</span></b></div>';
+    if (pl) rows += '<div class="kv"><span><span class="kind p">Projected</span> Sessions, ' + pl.days_per_week + ' × ' + fmt(pl.session_day) + '</span><b>' + fmt(pl.from_sessions) + '</b></div>' +
+      '<div class="kv"><span><span class="kind m">Measured</span> Everyday movement</span><b>' + fmt(pl.from_everyday) + '</b></div>' +
+      '<div class="kv"><span>With this plan</span><b style="color:var(--model)">' + fmt(pl.value) + '</b></div>';
+    else rows += '<div class="needs">' + esc(D.reason || 'Press Run to project the week.') + '</div>';
+    if (rng) rows += '<div class="kv"><span><span class="sw"></span>' + esc(rng.label) + ' <span class="badge">Placeholder value</span></span><b>' + fmt(rng.low) + '–' + fmt(rng.high) + '</b></div>';
+    $('doseRows').innerHTML = rows;
+    $('habitRule').textContent = cur ? cur.rule : '';
+
+    // Risk
+    $('risks').innerHTML = A.results.map(function (r) {
+      var body;
+      if (r.not_applicable) body = '<div class="needs">' + esc(r.not_applicable) + '</div>';
+      else if (r.now === null) body = '<div class="needs"><b>Needs:</b> ' + (r.needs.now.length ? r.needs.now.map(function (n) { return esc(n.label); }).join(', ') : esc(r.reason || 'could not be computed')) + '</div>';
+      else {
+        var ch = r.change, cls = ch ? (ch.points < 0 ? 'down' : ch.points > 0 ? 'up' : '') : '';
+        body = '<div class="pair"><div class="fig"><span>Now</span><b>' + fmt(r.now) + '<small style="font-size:16px"> ' + esc(r.unit) + '</small></b></div>' +
+          (r.planned !== null ? '<div class="fig plan"><span>With this plan</span><b>' + fmt(r.planned) + '<small style="font-size:16px"> ' + esc(r.unit) + '</small></b></div>' +
+            '<span class="delta ' + cls + '">' + (ch.points < 0 ? '▼ ' : ch.points > 0 ? '▲ ' : '') + (ch.points > 0 ? '+' : '') + fmt(ch.points, 2) + ' points · ' + (ch.relative_pct > 0 ? '+' : '') + fmt(ch.relative_pct) + '%</span>'
+            : '<div class="needs" style="margin:0"><b>With a plan:</b> press Run</div>') + '</div>';
+      }
+      return '<div class="risk"><div class="row" style="justify-content:space-between"><h3>' + esc(r.label) + ' <span class="small">' + esc(r.period) + '</span></h3>' + statusBadge(r.status) + '</div>' + body +
+        '<details><summary>What stands behind it (' + r.models.length + ' steps)</summary>' + r.models.map(function (m) {
+          return '<div class="kv"><span>' + esc(m.name) + '<br><span class="small">' + esc(m.source || '') + '</span></span><b>' + esc(m.status || '–') + '</b></div>';
+        }).join('') + '</details></div>';
+    }).join('');
+
+    // Flags
+    $('flags').innerHTML = A.flags.map(function (f) {
+      if (f.state === 'raised') return '<div class="flag raised"><span class="ic">▲</span><div><b>' + esc(f.label) + '</b>' + esc(f.text) + '<br>' + statusBadge(f.status) + '</div></div>';
+      if (f.state === 'clear') return '<div class="flag clear"><span class="ic">✓</span><div><b>' + esc(f.topic) + '</b>No flag from what you entered.</div></div>';
+      return '<div class="flag na"><span class="ic">?</span><div><b>' + esc(f.topic) + '</b>Not answered. Needs: ' + f.needs.map(function (n) { return esc(n.label); }).join(', ') + '</div></div>';
+    }).join('');
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-state]'), function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.state === state));
+    });
+  }
+
+  document.addEventListener('click', function (ev) {
+    var b = ev.target.closest('button'); if (!b) return;
+    if (b.dataset.state) { state = b.dataset.state; render(); }
+    if (b.id === 'fillExample') { state = 'example'; render(); }
+    if (b.id === 'editHealth' || b.id === 'toggleDrawer') $('drawer').classList.toggle('open');
+    if (b.id === 'closeDrawer') $('drawer').classList.remove('open');
+  });
+  if (location.hash.indexOf('drawer') >= 0) $('drawer').classList.add('open');
+  var m = /state=(\w+)/.exec(location.hash); if (m && M.states[m[1]]) state = m[1];
+  render();
+})();
+</script>
+</body>
+</html>

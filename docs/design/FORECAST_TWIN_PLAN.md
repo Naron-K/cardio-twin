@@ -319,6 +319,30 @@ The mockup of phase 0 is `tools/mockups/forecast_template.html`, built from the 
 endpoints by `tools/mockups/build_forecast_mockup.py` (run from `backend/`, as its
 docstring says). The user approved it on 2026-11-17.
 
+### 7.2 Frontend: where it stands (2026-11-17)
+
+Done and committed (F1, pure logic, no component yet):
+- `frontend/src/twin/assessment.ts`: types, the two parsers, and the pure helpers the
+  page needs (typing a value, progress per group, the example, the request body, the
+  status and change wording, the axis top).
+- `frontend/src/utils/api.ts`: `findAssessmentLamina`, `fetchAssessmentOptions`,
+  `runAssessment`, `EntryRefusedError`. Entered values travel in the request body only.
+- `frontend/scripts/assessment-check.ts`: 82 checks. Real answers from the endpoints
+  parse; lint and build are clean.
+
+Not started (nothing on screen has changed yet):
+1. **F2a**: `HealthColumn`, `HealthDrawer`, `WeekRisk`, from the approved mockup.
+2. **F2b**: wiring into `PlanPage`, `PlanEditor`, `PlanResult`: the health column, the
+   days-a-week stepper, Run through `POST /api/assessment`, the two result tabs, the
+   banner. With no assessment lamina the page must stay exactly as it is today.
+3. Drive every state in a real browser and compare with the mockup at 1920×1080 and phone
+   width. Then commit.
+
+The two delegation specs are in `FORECAST_FRONTEND_SPECS.md`, ready to run.
+
+Nothing has been pushed. Pushing this branch redeploys the public Render service; the page
+there would look the same until F2b lands, but the new endpoints would be reachable.
+
 ## 8. Not in this plan
 
 People without recordings; diagnosis; advice to start, stop or change a medicine;

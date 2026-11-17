@@ -25,6 +25,7 @@ import contextlib
 import functools
 import json
 import math
+from datetime import date
 from pathlib import Path
 
 import universal_twin
@@ -196,6 +197,85 @@ def _habit_block(data: dict, path: Path) -> None:
                 )
 
 
+def _fitness_block(data: dict, path: Path) -> None:
+    """Validate templates['fitness'] when a file built from recordings has it."""
+    if "fitness" not in data or data["fitness"] is None:
+        return
+    fitness = data["fitness"]
+    if not isinstance(fitness, dict):
+        raise ValueError(
+            f"{path}: templates['fitness'] must be a JSON object or null, got "
+            f"{type(fitness).__name__}."
+        )
+    period = fitness.get("period")
+    if (
+        not isinstance(period, list)
+        or len(period) != 2
+        or not all(isinstance(item, str) and item for item in period)
+    ):
+        raise ValueError(
+            f"{path}: templates fitness['period'] must be a [first, last] "
+            f"list of YYYY-MM-DD strings, got {period!r}."
+        )
+    try:
+        first = date.fromisoformat(period[0])
+        last = date.fromisoformat(period[1])
+    except ValueError as exc:
+        raise ValueError(
+            f"{path}: templates fitness['period'] must be YYYY-MM-DD dates, "
+            f"got {period!r}."
+        ) from exc
+    if first > last:
+        raise ValueError(
+            f"{path}: templates fitness['period'] starts {period[0]} after "
+            f"it ends {period[1]}."
+        )
+    rule = fitness.get("rule")
+    if not isinstance(rule, str) or not rule:
+        raise ValueError(
+            f"{path}: templates fitness['rule']={rule!r} must be a non-empty "
+            f"string."
+        )
+    values = fitness.get("values")
+    if not isinstance(values, dict):
+        raise ValueError(
+            f"{path}: templates fitness['values'] must be a JSON object, got "
+            f"{type(values).__name__}."
+        )
+    for key, entry in values.items():
+        if not isinstance(key, str) or not key:
+            raise ValueError(
+                f"{path}: templates fitness['values'] keys must be non-empty "
+                f"strings, got {key!r}."
+            )
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f"{path}: templates fitness values['{key}'] must be a JSON "
+                f"object, got {type(entry).__name__}."
+            )
+        where = f"fitness values['{key}']"
+        median = _finite_field(entry, "median", path, where)
+        p10 = _finite_field(entry, "p10", path, where)
+        p90 = _finite_field(entry, "p90", path, where)
+        days = _finite_field(entry, "days", path, where)
+        if days < 3.0 or days != int(days):
+            raise ValueError(
+                f"{path}: templates {where}['days']={days:g} must be an "
+                f"integer of at least 3."
+            )
+        if not p10 <= median <= p90:
+            raise ValueError(
+                f"{path}: templates {where} has p10={p10:g}, median={median:g}, "
+                f"p90={p90:g}; p10 <= median <= p90 is required."
+            )
+        unit = entry.get("unit")
+        if not isinstance(unit, str) or not unit:
+            raise ValueError(
+                f"{path}: templates {where}['unit']={unit!r} must be a "
+                f"non-empty string."
+            )
+
+
 def load_templates(subject: str) -> dict | None:
     """
     Read and shape-check a subject's ``templates.json``, when it exists.
@@ -245,6 +325,7 @@ def load_templates(subject: str) -> dict | None:
         _finite_field(data["awake"], key, path, "awake")
 
     _habit_block(data, path)
+    _fitness_block(data, path)
 
     for group_id, entry in data["groups"].items():
         if not isinstance(group_id, str) or not isinstance(entry, dict):

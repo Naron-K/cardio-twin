@@ -76,12 +76,12 @@ def _refused(tmp_path: Path, function_attrs: str, extra: str,
 def test_the_health_lamina_declares_function_provenance():
     twin = load_twin(HEALTH)
 
-    body_mass_index = twin.functions["body_mass_index"]
+    body_mass_index = twin.functions["body_mass_index_now"]
     assert body_mass_index.status == "draft"
     assert body_mass_index.source == "Standard definition."
     assert body_mass_index.reviewed_by == ""
 
-    assert twin.functions["cvd_score"].status == "placeholder"
+    assert twin.functions["cvd_score_now"].status == "placeholder"
     assert twin.functions["flag_medicine"].status == "draft"
 
 
@@ -140,10 +140,10 @@ def test_the_schema_serves_function_provenance_and_the_assessment_view():
 
     assert health["assessment_view"] is not None
     functions = {f["id"]: f for f in health["functions"]}
-    assert functions["body_mass_index"]["status"] == "draft"
-    assert functions["body_mass_index"]["source"] == "Standard definition."
-    assert functions["body_mass_index"]["reviewed_by"] == ""
-    assert functions["cvd_score"]["status"] == "placeholder"
+    assert functions["body_mass_index_now"]["status"] == "draft"
+    assert functions["body_mass_index_now"]["source"] == "Standard definition."
+    assert functions["body_mass_index_now"]["reviewed_by"] == ""
+    assert functions["cvd_score_now"]["status"] == "placeholder"
 
 
 def test_the_wearable_schema_only_gains_the_additive_keys():

@@ -301,6 +301,72 @@ def test_load_templates_accepts_an_older_file_without_habit(
     data = po.load_templates("probe")
     assert data is not None
     assert data.get("habit") is None
+    assert data.get("fitness") is None
+
+
+def _fitness_block() -> dict:
+    return {
+        "period": ["2025-01-01", "2025-05-11"],
+        "rule": "Days from the start to the last recording.",
+        "values": {
+            "resting_hr": {
+                "median": 66.0, "p10": 57.0, "p90": 72.0,
+                "days": 108, "unit": "bpm",
+            },
+        },
+    }
+
+
+def test_load_templates_accepts_fitness(tmp_path, monkeypatch):
+    _write_templates(tmp_path, fitness=_fitness_block())
+    _use_probe(tmp_path, monkeypatch)
+
+    data = po.load_templates("probe")
+    assert data["fitness"]["values"]["resting_hr"]["median"] == 66.0
+
+
+def test_load_templates_refuses_fitness_with_too_few_days(
+    tmp_path, monkeypatch
+):
+    block = _fitness_block()
+    block["values"]["resting_hr"]["days"] = 2
+    path = _write_templates(tmp_path, fitness=block)
+    _use_probe(tmp_path, monkeypatch)
+
+    with pytest.raises(ValueError) as exc:
+        po.load_templates("probe")
+    assert str(path) in str(exc.value)
+    assert "fitness" in str(exc.value)
+    assert "days" in str(exc.value)
+
+
+def test_load_templates_refuses_fitness_percentiles_out_of_order(
+    tmp_path, monkeypatch
+):
+    block = _fitness_block()
+    block["values"]["resting_hr"].update({"p10": 70.0, "median": 66.0})
+    path = _write_templates(tmp_path, fitness=block)
+    _use_probe(tmp_path, monkeypatch)
+
+    with pytest.raises(ValueError) as exc:
+        po.load_templates("probe")
+    assert str(path) in str(exc.value)
+    assert "p10" in str(exc.value) and "median" in str(exc.value)
+
+
+def test_load_templates_refuses_a_non_finite_fitness_percentile(
+    tmp_path, monkeypatch
+):
+    block = _fitness_block()
+    block["values"]["resting_hr"]["median"] = float("nan")
+    path = _write_templates(tmp_path, fitness=block)
+    _use_probe(tmp_path, monkeypatch)
+
+    with pytest.raises(ValueError) as exc:
+        po.load_templates("probe")
+    assert str(path) in str(exc.value)
+    assert "fitness" in str(exc.value)
+    assert "median" in str(exc.value)
 
 
 def test_load_templates_accepts_habit(tmp_path, monkeypatch):

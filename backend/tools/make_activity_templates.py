@@ -62,6 +62,7 @@ from bundles import (  # noqa: E402
 )
 from day_summary import summarise_bundle  # noqa: E402
 from plan_options import _quiet, kind_groups  # noqa: E402
+from tools.export_fitness_records import CHANNELS  # noqa: E402
 from tools.fit_hr_model import (  # noqa: E402
     WEARABLE_XML,
     day_inputs,
@@ -87,6 +88,16 @@ HABIT_START_DATE = _date(2025, 1, 1)
 HABIT_MIN_WORN_MINUTES = 300
 HABIT_MIN_WORN_DAYS = 5
 HABIT_WEEK_DAYS = 7
+
+#: A fitness series needs at least this many recorded days to be summarised.
+FITNESS_MIN_DAYS = 3
+#: Fitness values are reported to the two decimals the recordings carry.
+FITNESS_DECIMALS = 2
+#: The plausible range of each fitness series, from the exporter that writes
+#: ``fitness_records.json``, so a unit error is refused here as it is there.
+_FITNESS_RANGES = {
+    key: plausible for key, _unit, plausible in CHANNELS.values()
+}
 
 
 def _r4(value) -> float:
@@ -458,6 +469,172 @@ def _habit_percentiles(values: list[float]) -> dict:
     }
 
 
+def _fitness_period(days: list[dict]) -> tuple[str, str]:
+    """The habit's period: its own start date to the last recorded day."""
+    if not isinstance(days, list) or not days:
+        raise ValueError(
+            "Fitness values need the subject's day bundles, but none were "
+            "supplied."
+        )
+    last = days[-1]
+    if not isinstance(last, dict) or not isinstance(last.get("date"), str):
+        raise ValueError(
+            f"The last day bundle must declare a YYYY-MM-DD 'date', got "
+            f"{last!r}."
+        )
+    try:
+        last_date = _date.fromisoformat(last["date"])
+    except ValueError as exc:
+        raise ValueError(
+            f"The last bundle date {last['date']!r} is not a YYYY-MM-DD date."
+        ) from exc
+    if last_date < HABIT_START_DATE:
+        raise ValueError(
+            f"The last bundle date {last_date.isoformat()} is before the "
+            f"habit's start {HABIT_START_DATE.isoformat()}, so no fitness "
+            f"period can run from the habit's start to it."
+        )
+    return HABIT_START_DATE.isoformat(), last_date.isoformat()
+
+
+def load_fitness_records(path: Path) -> dict | None:
+    """
+    Read and shape-check a subject's ``fitness_records.json``, when it exists.
+
+    None means no recordings file.  A file that is not the exported shape, a
+    day that is not a date, a value that is not finite or one outside the
+    exporter's plausible range is refused by path and key, so a unit error
+    surfaces here rather than as a confident-looking median.
+    """
+    if not path.is_file():
+        return None
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ValueError(
+            f"{path}: cannot read fitness records: {exc}"
+        ) from exc
+    try:
+        data = json.loads(text)
+    except ValueError as exc:
+        raise ValueError(
+            f"{path}: invalid JSON in fitness records: {exc}"
+        ) from exc
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"{path}: fitness records must be a JSON object, got "
+            f"{type(data).__name__}."
+        )
+    series = data.get("series")
+    if not isinstance(series, dict):
+        raise ValueError(
+            f"{path}: fitness records must hold a 'series' object, got "
+            f"{type(series).__name__}."
+        )
+    for key, block in series.items():
+        if not isinstance(key, str) or not key:
+            raise ValueError(
+                f"{path}: a fitness series key must be a non-empty string, "
+                f"got {key!r}."
+            )
+        if not isinstance(block, dict):
+            raise ValueError(
+                f"{path}: fitness series '{key}' must be a JSON object, got "
+                f"{type(block).__name__}."
+            )
+        unit = block.get("unit")
+        if not isinstance(unit, str) or not unit:
+            raise ValueError(
+                f"{path}: fitness series '{key}' must declare a non-empty "
+                f"'unit' string, got {unit!r}."
+            )
+        days = block.get("days")
+        if not isinstance(days, list):
+            raise ValueError(
+                f"{path}: fitness series '{key}' must hold a 'days' list, "
+                f"got {type(days).__name__}."
+            )
+        plausible = _FITNESS_RANGES.get(key)
+        for index, row in enumerate(days):
+            if not isinstance(row, (list, tuple)) or len(row) != 2:
+                raise ValueError(
+                    f"{path}: fitness series '{key}' day {index} must be "
+                    f"[date, value], got {row!r}."
+                )
+            day_text, value = row
+            try:
+                _date.fromisoformat(day_text)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"{path}: fitness series '{key}' day {index} has date "
+                    f"{day_text!r}; expected YYYY-MM-DD."
+                ) from exc
+            try:
+                number = float(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"{path}: fitness series '{key}' value on {day_text} is "
+                    f"{value!r}, not a number."
+                ) from exc
+            if not math.isfinite(number):
+                raise ValueError(
+                    f"{path}: fitness series '{key}' value on {day_text} is "
+                    f"{value!r}, not a finite number."
+                )
+            if plausible is not None:
+                low, high = plausible
+                if number < low or number > high:
+                    raise ValueError(
+                        f"{path}: fitness series '{key}' value {number:g} on "
+                        f"{day_text} lies outside the plausible {low:g}.."
+                        f"{high:g}; check the unit."
+                    )
+    return data
+
+
+def build_fitness(days: list[dict], subject_dir: Path) -> dict | None:
+    """
+    The person's measured fitness over the same days as their habit.
+
+    Reads ``<subject_dir>/fitness_records.json``; None when that file does
+    not exist.  Each series' daily values between the habit's own start date
+    and the last recorded day are summarised by their median and 10th/90th
+    percentiles.  A series with fewer than three values in that period is
+    left out rather than reported from too little.
+    """
+    records = load_fitness_records(Path(subject_dir) / "fitness_records.json")
+    if records is None:
+        return None
+
+    first, last = _fitness_period(days)
+    values: dict[str, dict] = {}
+    for key, block in records["series"].items():
+        in_period = [
+            float(value)
+            for day_text, value in block["days"]
+            if first <= day_text <= last
+        ]
+        if len(in_period) < FITNESS_MIN_DAYS:
+            continue
+        p10, p50, p90 = np.percentile(in_period, [10, 50, 90])
+        values[key] = {
+            "median": round(float(p50), FITNESS_DECIMALS),
+            "p10": round(float(p10), FITNESS_DECIMALS),
+            "p90": round(float(p90), FITNESS_DECIMALS),
+            "days": len(in_period),
+            "unit": block["unit"],
+        }
+
+    return {
+        "period": [first, last],
+        "rule": (
+            f"Days from {first} to {last}; each value is that series' median "
+            f"over those days, with the 10th and 90th percentiles."
+        ),
+        "values": values,
+    }
+
+
 def build_habit(
     days: list[dict],
     params: dict | None,
@@ -685,6 +862,7 @@ def main(argv=None) -> int:
     label = read_subject_label(subject_dir, args.subject)
     params = load_params(args.subject)
     habit = build_habit(days, params, label, LAMINA_ID)
+    fitness = build_fitness(days, subject_dir)
 
     dropped = False
     if out_path.exists():
@@ -706,6 +884,7 @@ def main(argv=None) -> int:
         "made_at": datetime.now(timezone.utc).isoformat(),
         **templates,
         "habit": habit,
+        "fitness": fitness,
     }
     out_path.write_text(
         json.dumps(payload, indent=2, ensure_ascii=False) + "\n",

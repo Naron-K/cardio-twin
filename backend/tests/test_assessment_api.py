@@ -2,9 +2,11 @@
 POST /api/assessment — entered figures read against a planned week.
 
 The reported dose comes from the plan's own day and the subject's recorded
-week; the assessment is the health lamina's own view.  These tests pin the
-endpoint's success shape, the no-plan case, the refusals by field, and the
-privacy rule: no entered value and no entry id may reach the server log.
+week; the assessment is the health lamina's own view, with the person's
+measured fitness read from the activity templates.  These tests pin the
+endpoint's success shape (including the week-by-week series and the
+mediators), the no-plan case, the refusals by field, and the privacy rule: no
+entered value may reach the server log.
 """
 import copy
 
@@ -19,6 +21,8 @@ ASSESS_LAMINA = "lamina_health"
 ACTIVITY_LAMINA = "lamina_wearable"
 SUBJECT = "subject_demo"
 
+FITNESS = {"resting_hr": 66.0, "vo2max": 26.13}
+
 
 @pytest.fixture(scope="module")
 def options() -> dict:
@@ -27,8 +31,15 @@ def options() -> dict:
 
 
 @pytest.fixture(scope="module")
-def example() -> dict:
-    return dict(assessment_options(ASSESS_LAMINA)["example"]["values"])
+def options_view() -> dict:
+    return assessment_options(ASSESS_LAMINA)
+
+
+def _example(view: dict, example_id: str) -> dict:
+    for example in view["examples"]:
+        if example["id"] == example_id:
+            return dict(example["values"])
+    raise AssertionError(f"no example {example_id!r}")
 
 
 def _plan(options: dict) -> dict:
@@ -49,18 +60,23 @@ def _body(options: dict, example: dict, **changes) -> dict:
         "subject": SUBJECT,
         "entries": dict(example),
         "plan": _plan(options),
-        "days_per_week": 5,
+        "days_per_week": 7,
     }
     body.update(changes)
     return body
 
 
-def test_options_without_a_lamina_pick_the_health_lamina():
+def test_options_without_a_lamina_pick_the_health_lamina(options_view):
     response = TestClient(app).get("/api/assessment/options")
 
     assert response.status_code == 200
-    assert response.json()["lamina"] == ASSESS_LAMINA
-    assert response.json()["results"]
+    body = response.json()
+    assert body["lamina"] == ASSESS_LAMINA
+    assert body["results"]
+    assert body["examples"] == options_view["examples"]
+    assert body["measured"] == options_view["measured"]
+    assert body["horizons"] == options_view["horizons"]
+    assert body["mediators"]
 
 
 def test_options_for_a_lamina_without_the_view_is_400():
@@ -72,43 +88,56 @@ def test_options_for_a_lamina_without_the_view_is_400():
     assert response.json()["detail"]["lamina"] == ACTIVITY_LAMINA
 
 
-def test_the_example_with_the_default_plan_reports_now_and_planned(
-    options, example
+def test_the_borderline_example_reports_series_mediators_and_fitness(
+    options, options_view
 ):
+    example = _example(options_view, "borderline")
     response = _post(_body(options, example))
 
     assert response.status_code == 200
     body = response.json()
     assert body["subject"] == SUBJECT
     assert body["subject_label"] == "Subject demo"
+    assert body["dose"]["fitness"] == FITNESS
     assert body["dose"]["planned"]["value"] > 0
-    assert body["dose"]["planned"]["days_per_week"] == 5
+    assert body["dose"]["planned"]["days_per_week"] == 7
     assert set(body["day"]) >= {"pair", "sessions", "kpis", "dose"}
     assert body["day"]["planned"] is True
 
-    results = body["assessment"]["results"]
+    assessment = body["assessment"]
+    assert assessment["horizons"]["values"] == [0.0, 4.0, 8.0, 12.0]
+    assert assessment["mediators"]
+    results = assessment["results"]
     assert {result["id"] for result in results} == {"cvd", "diabetes"}
     for result in results:
         assert result["now"] is not None
         assert result["planned"] is not None
         assert result["change"] is not None
+        assert len(result["series"]) == 4
+        assert result["settled"] is not None
+        assert result["planned"] == result["series"][-1]["value"]
 
 
-def test_without_a_plan_only_the_recorded_week_is_offered(options, example):
+def test_without_a_plan_only_the_recorded_week_is_offered(options, options_view):
+    example = _example(options_view, "borderline")
     response = _post(_body(options, example, plan=None))
 
     assert response.status_code == 200
     body = response.json()
     assert body["day"] is None
     assert body["dose"]["planned"] is None
+    assert body["dose"]["fitness"] == FITNESS
     for result in body["assessment"]["results"]:
         assert result["planned"] is None
+        assert result["settled"] is None
+        assert [point["value"] for point in result["series"]] == [None] * 4
         assert any(
             need.get("link") == "planned" for need in result["needs"]["planned"]
         )
 
 
-def test_a_missing_entry_is_named_in_needs(options, example):
+def test_a_missing_entry_is_named_in_needs(options, options_view):
+    example = _example(options_view, "borderline")
     entries = dict(example)
     del entries["chol_hdl"]
     response = _post(_body(options, example, entries=entries))
@@ -123,7 +152,8 @@ def test_a_missing_entry_is_named_in_needs(options, example):
     assert "chol_hdl" in named
 
 
-def test_an_entry_outside_its_range_names_the_field(options, example):
+def test_an_entry_outside_its_range_names_the_field(options, options_view):
+    example = _example(options_view, "borderline")
     entries = dict(example, sbp=933.7)
     response = _post(_body(options, example, entries=entries))
 
@@ -131,21 +161,24 @@ def test_an_entry_outside_its_range_names_the_field(options, example):
     assert response.json()["detail"]["field"] == "entries.sbp"
 
 
-def test_an_unknown_top_level_key_is_refused(options, example):
+def test_an_unknown_top_level_key_is_refused(options, options_view):
+    example = _example(options_view, "borderline")
     response = _post(_body(options, example, banana=1))
 
     assert response.status_code == 422
     assert response.json()["detail"]["field"] == "banana"
 
 
-def test_an_unknown_subject_is_404(options, example):
+def test_an_unknown_subject_is_404(options, options_view):
+    example = _example(options_view, "borderline")
     response = _post(_body(options, example, subject="nobody_here", plan=None))
 
     assert response.status_code == 404
     assert response.json()["detail"]["subject"] == "nobody_here"
 
 
-def test_a_plan_for_another_subject_is_refused(options, example):
+def test_a_plan_for_another_subject_is_refused(options, options_view):
+    example = _example(options_view, "borderline")
     plan = dict(_plan(options), subject="demo")
     response = _post(_body(options, example, plan=plan))
 
@@ -153,7 +186,8 @@ def test_a_plan_for_another_subject_is_refused(options, example):
     assert response.json()["detail"]["field"] == "plan.subject"
 
 
-def test_nothing_entered_is_printed(options, example, capsys):
+def test_nothing_entered_is_printed(options, options_view, capsys):
+    example = _example(options_view, "borderline")
     valid = dict(example, sbp=133.7)
     refused = dict(example, sbp=933.7)
 
@@ -166,7 +200,8 @@ def test_nothing_entered_is_printed(options, example, capsys):
         assert text not in captured.err
 
 
-def test_the_planned_parts_add_up(options, example):
+def test_the_planned_parts_add_up(options, options_view):
+    example = _example(options_view, "borderline")
     response = _post(_body(options, example))
 
     assert response.status_code == 200

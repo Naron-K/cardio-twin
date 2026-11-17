@@ -74,6 +74,18 @@ What this says:
 | 3 | Body mass as an adapting factor | Declared, with a shift of zero until an expert sets it: exercise alone moves it little and diet is not in this twin |
 | 4 | The expert who replaces the placeholders | Still to be named. The build does not wait; a model's status stays `placeholder` until then |
 
+### 4.1 Answers (the user, 2026-11-18)
+
+1. **Fitness: publish the watch's own values.** Resting heart rate (once a day) and VO2max
+   (after some walks) are exported for the published period into
+   `bundles/subject_demo/fitness_records.json` by `backend/tools/export_fitness_records.py`:
+   date and value only, no device name. Over the published days that is 662 resting values
+   and 45 VO2max values; in 2025 the medians are 66 bpm and 26.1 mL/kg/min. The quiet-minute
+   marker of section 3 is not used.
+2. Horizons 4, 8 and 12 weeks plus settled: agreed.
+3. Body mass declared with a shift of zero: agreed.
+4. The expert is named when they recalibrate; until then every model stays `placeholder`.
+
 ## 5. Design
 
 ### 5.1 Invented profiles
@@ -223,6 +235,54 @@ from a spec per phase and must be gated by tests, a real run and a hand computat
 | 5 | The page of 5.5, with every state: nothing entered, partly entered, each profile, a mediator that does not move, fitness missing, 0 and 7 days a week, refused entry, server failed | every state driven in a real browser with no console error; the no-assessment page still differs from the reference screenshot by 0 pixels |
 | 6, gated | Test the fitness adaptation on the long local record. Rule fixed before the run: from logged sessions, the adaptation must predict the change of the resting marker over the next 4 weeks better than "no change" by 20% on held-out months, for at least two of the three local subjects | the rule passes and the fitness functions move to `draft` with the fitted numbers and the report; or it fails, the result is written here, and they stay `placeholder` |
 | 7, optional | The adapted resting level fed back into the day projection: "the same session after 12 weeks" | only after phase 6 passes |
+
+### 6.1 As built: the backend, phases 1 to 4 (2026-11-18)
+
+Done, tested and committed; the page (phase 5) waits for the mockup of phase 0.
+
+- **Fitness data.** `tools/export_fitness_records.py` wrote
+  `bundles/subject_demo/fitness_records.json` (date and value only). The templates tool
+  adds `fitness` over the habit's period: resting heart rate median 66.0 (108 days),
+  VO2max median 26.13 (11 days).
+- **Engine**, domain-neutral: several `<example id label>`; `<link role="measured"
+  key>`; `<horizons attribute values settled settled_label>`; `<mediator now at
+  [still]>`, whose `at` must reach both `now` and the horizons attribute; a result's
+  `planned` must reach the horizons attribute. The parsed view keeps `example` (the
+  first) and the current/planned `links`, so the page of `FORECAST_TWIN_PLAN.md` keeps
+  working unchanged.
+- **`health_lamina.xml`**: 8 mediators × 4 placeholder numbers in the segment
+  "Adaptation (placeholder)", each with its own note; risk now and risk with the plan are
+  the same two equations (one Python method each) read on the values now and on the
+  adapted values; a fitness term (VO2max, resting heart rate) in both scores; the
+  dose-response multiplier and its coefficients are gone; three invented profiles.
+  The file is generated once from a table and then kept by hand.
+- **Evaluator and endpoint.** One fresh twin per horizon (0, 4, 8, 12 weeks and settled at
+  1000). Each result gains `series` and `settled`; `planned` is the 12-week value.
+  `mediators` lists each factor with its source, value now, series, settled value,
+  `moves` and the `still` sentence. A missing measured value is named in `needs`.
+- **`tools/list_placeholders.py`** prints the expert's sheet: 21 functions and 54
+  numbers for the health lamina. The guideline range (7.5–15) is not on it, because no
+  function reads it; it is still a placeholder.
+
+Checked by hand, independently of the tests:
+
+| | Borderline profile, 7 days a week |
+|---|---|
+| Cardiovascular, now → 4 → 8 → 12 weeks → settled | 14.30 → 12.92 → 12.09 → 11.70 → 10.74 % (14.22 with systolic 133.7) |
+| Type 2 diabetes, same | 19.33 → 17.86 → 16.86 → 16.19 → 14.65 % |
+| Fasting glucose | 6.30 → 6.19 → 6.11 → 6.06 → 5.93 mmol/L |
+| A lighter plan (0 days), settled | cardiovascular 16.84 %, diabetes 22.56 % |
+
+| Profile | Cardiovascular now | Diabetes now | Settled spread, 0 vs 7 days |
+|---|---|---|---|
+| Low | 1.55 % | 2.02 % | 0.61 and 0.93 points |
+| Borderline | 14.30 % | 19.33 % | 6.10 and 7.91 points |
+| High cardiovascular | 36.28 % | 14.12 % | 13.22 and 6.12 points |
+
+Also checked: at week 0 every adapted value equals its value now; total cholesterol and
+body mass do not move; an improvement stops at its limit and a value already past it
+is not moved; without a measured value the risks that read it are absent and say so;
+no entered or measured value reaches the server log. Suite: 1217 passed.
 
 ## 7. Limits to keep on screen
 

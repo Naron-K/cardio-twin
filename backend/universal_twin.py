@@ -2485,7 +2485,8 @@ class UniversalTwin:
             return None
 
         lamina_id = self.lamina_id
-        allowed = ("group", "link", "range", "result", "flag", "example")
+        allowed = ("group", "link", "range", "horizons", "mediator",
+                   "result", "flag", "example")
         for child in av_el:
             if child.tag not in allowed:
                 raise ValueError(
@@ -2650,13 +2651,16 @@ class UniversalTwin:
 
         # ── Links: what arrives from another lamina ──────────────────
         links = {}
+        measured = []
         seen_link_roles = set()
+        seen_measured_keys = set()
         for link_el in av_el.findall("link"):
             role = (link_el.get("role") or "").strip()
-            if role not in ("current", "planned"):
+            if role not in ("current", "planned", "measured"):
                 raise ValueError(
                     f"Lamina '{lamina_id}' <assessment_view><link> declares "
-                    f"role '{role}'; allowed roles are current, planned."
+                    f"role '{role}'; allowed roles are current, planned, "
+                    f"measured."
                 )
             attribute_id = required(
                 link_el, "attribute", f"<link role='{role}'>")
@@ -2671,6 +2675,34 @@ class UniversalTwin:
                     f"be INTER_LAMINA."
                 )
             label = required(link_el, "label", element)
+            key_raw = link_el.get("key")
+            key = (key_raw or "").strip()
+            if role == "measured":
+                if not key:
+                    raise ValueError(
+                        f"Lamina '{lamina_id}' <assessment_view>{element}: a "
+                        f"measured link must declare a non-empty key."
+                    )
+                if key in seen_measured_keys:
+                    raise ValueError(
+                        f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                        f"key '{key}' is declared more than once among "
+                        f"measured links; each key must be unique."
+                    )
+                seen_measured_keys.add(key)
+                measured.append({
+                    "key": key,
+                    "attribute": attr.id,
+                    "label": label,
+                    "unit": attr.unit,
+                })
+                continue
+            if key_raw is not None:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element}: a key "
+                    f"is only allowed on a measured link, not on role "
+                    f"'{role}'."
+                )
             if role in seen_link_roles:
                 raise ValueError(
                     f"Lamina '{lamina_id}' <assessment_view>{element}: role "
@@ -2726,6 +2758,165 @@ class UniversalTwin:
                 "unit": low.unit,
             }
 
+        # ── Horizons: the elapsed time the view is read at ──────────
+        horizon_els = av_el.findall("horizons")
+        if len(horizon_els) > 1:
+            raise ValueError(
+                f"Lamina '{lamina_id}' <assessment_view> declares <horizons> "
+                f"more than once; at most one is allowed."
+            )
+        horizons = None
+        if horizon_els:
+            horizon_el = horizon_els[0]
+            attribute_id = required(horizon_el, "attribute", "<horizons>")
+            element = f"<horizons attribute='{attribute_id}'>"
+            attr = self._day_view_attribute(
+                lamina_id, f"horizons attribute='{attribute_id}'",
+                attribute_id, block="assessment_view")
+            if attr.source != SENSOR:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                    f"attribute '{attr.id}' is {attr.source}; the horizons "
+                    f"attribute must be SENSOR."
+                )
+            if attr.baseline is not None:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                    f"attribute '{attr.id}' declares a <baseline>; the "
+                    f"horizons attribute is set once per run and must have "
+                    f"none."
+                )
+            values_text = required(horizon_el, "values", element)
+            parsed_values = []
+            for raw in values_text.split(","):
+                piece = raw.strip()
+                if not piece:
+                    raise ValueError(
+                        f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                        f"values '{values_text}' contains an empty entry."
+                    )
+                value = number(piece, f"{element} values")
+                if value < attr.physio_min or value > attr.physio_max:
+                    raise ValueError(
+                        f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                        f"value {piece} lies outside attribute '{attr.id}' "
+                        f"range {attr.physio_min}..{attr.physio_max}."
+                    )
+                if parsed_values and value <= parsed_values[-1]:
+                    raise ValueError(
+                        f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                        f"values must be strictly increasing; '{piece}' does "
+                        f"not follow {parsed_values[-1]}."
+                    )
+                parsed_values.append(value)
+            if parsed_values[0] != 0.0:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element}: the "
+                    f"first value must be 0; found {parsed_values[0]}."
+                )
+            settled = number(horizon_el.get("settled"),
+                             f"{element} settled")
+            if settled < attr.physio_min or settled > attr.physio_max:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                    f"settled {settled} lies outside attribute '{attr.id}' "
+                    f"range {attr.physio_min}..{attr.physio_max}."
+                )
+            if settled <= parsed_values[-1]:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                    f"settled {settled} must be greater than the last "
+                    f"horizon value {parsed_values[-1]}."
+                )
+            settled_label = required(horizon_el, "settled_label", element)
+            horizons = {
+                "attribute": attr.id,
+                "unit": attr.unit,
+                "values": parsed_values,
+                "settled": settled,
+                "settled_label": settled_label,
+            }
+
+        # ── Mediators: factors a kept-up plan moves ──────────────────
+        mediator_els = av_el.findall("mediator")
+        mediators = []
+        if mediator_els and horizons is None:
+            raise ValueError(
+                f"Lamina '{lamina_id}' <assessment_view> declares <mediator> "
+                f"but no <horizons>; a mediator is projected over the "
+                f"horizons, so a <horizons> block is required."
+            )
+        seen_mediator_nows = set()
+        measured_by_attribute = {
+            entry["attribute"]: entry for entry in measured
+        }
+        for mediator_el in mediator_els:
+            now_id = required(mediator_el, "now", "<mediator>")
+            element = f"<mediator now='{now_id}'>"
+            at_id = required(mediator_el, "at", element)
+            if now_id in seen_mediator_nows:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element}: the "
+                    f"now attribute '{now_id}' is declared more than once "
+                    f"among mediators."
+                )
+            seen_mediator_nows.add(now_id)
+            now = self._day_view_attribute(
+                lamina_id, f"mediator now='{now_id}'", now_id,
+                block="assessment_view")
+            if now_id in entry_kinds:
+                source = "entered"
+                key = None
+            elif now_id in measured_by_attribute:
+                source = "measured"
+                key = measured_by_attribute[now_id]["key"]
+            else:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                    f"'{now_id}' is neither an entry of a group nor the "
+                    f"attribute of a measured link."
+                )
+            at = self._day_view_attribute(
+                lamina_id, f"mediator now='{now_id}' at='{at_id}'", at_id,
+                block="assessment_view")
+            if at.source != PRELIMINARY:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                    f"attribute '{at.id}' is {at.source}; the at attribute "
+                    f"must be PRELIMINARY."
+                )
+            if not self._plan_settles_reaches(at.id, now_id):
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                    f"'{at.id}' does not reach the now attribute '{now_id}' "
+                    f"through its function inputs."
+                )
+            if not self._plan_settles_reaches(
+                    at.id, horizons["attribute"]):
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                    f"'{at.id}' does not reach the horizons attribute "
+                    f"'{horizons['attribute']}' through its function inputs."
+                )
+            still_raw = mediator_el.get("still")
+            still = None
+            if still_raw is not None:
+                still = still_raw.strip()
+                if not still:
+                    raise ValueError(
+                        f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                        f"still must be non-empty text."
+                    )
+            mediators.append({
+                "now": now.id,
+                "at": at.id,
+                "label": now.name,
+                "unit": now.unit,
+                "source": source,
+                "key": key,
+                "still": still,
+            })
+
         # ── Results: a pair of outputs, now and with the plan ────────
         result_els = av_el.findall("result")
         if not result_els:
@@ -2760,6 +2951,14 @@ class UniversalTwin:
                         f"attribute '{attr.id}' is {attr.source}; the {role} "
                         f"attribute must be PRELIMINARY."
                     )
+            if horizons is not None and not self._plan_settles_reaches(
+                    planned.id, horizons["attribute"]):
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element}: the "
+                    f"planned attribute '{planned.id}' does not reach the "
+                    f"horizons attribute '{horizons['attribute']}' through "
+                    f"its function inputs."
+                )
             when_raw = result_el.get("not_applicable_when")
             when_id = None
             when_text = None
@@ -2834,29 +3033,43 @@ class UniversalTwin:
                 "text": text,
             })
 
-        # ── Example: invented values that fill the form ──────────────
+        # ── Examples: invented values that fill the form ─────────────
         example_els = av_el.findall("example")
-        if len(example_els) > 1:
-            raise ValueError(
-                f"Lamina '{lamina_id}' <assessment_view> declares <example> "
-                f"more than once; at most one is allowed."
-            )
-        example = None
-        if example_els:
-            example_el = example_els[0]
-            label = required(example_el, "label", "<example>")
+        examples = []
+        seen_example_ids = set()
+        for example_el in example_els:
+            example_id = (example_el.get("id") or "").strip()
+            if not example_id:
+                if len(example_els) == 1:
+                    example_id = "example"
+                else:
+                    raise ValueError(
+                        f"Lamina '{lamina_id}' <assessment_view><example> "
+                        f"must declare a non-empty id; several examples each "
+                        f"need one."
+                    )
+            element_root = f"<example id='{example_id}'>"
+            if example_id in seen_example_ids:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element_root} "
+                    f"is declared more than once; example ids must be unique."
+                )
+            seen_example_ids.add(example_id)
+            label = required(example_el, "label", element_root)
             for child in example_el:
                 if child.tag != "value":
                     raise ValueError(
-                        f"Lamina '{lamina_id}' <assessment_view><example> "
-                        f"contains unknown child <{child.tag}>. Allowed "
-                        f"children: <value>."
+                        f"Lamina '{lamina_id}' <assessment_view>"
+                        f"{element_root} contains unknown child "
+                        f"<{child.tag}>. Allowed children: <value>."
                     )
             values = {}
             for value_el in example_el.findall("value"):
                 attribute_id = required(
-                    value_el, "attribute", "<example><value>")
-                element = f"<example><value attribute='{attribute_id}'>"
+                    value_el, "attribute", f"{element_root}<value>")
+                element = (
+                    f"{element_root}<value attribute='{attribute_id}'>"
+                )
                 for child in value_el:
                     raise ValueError(
                         f"Lamina '{lamina_id}' <assessment_view>{element} "
@@ -2895,12 +3108,27 @@ class UniversalTwin:
                         f"for '{attr.id}'."
                     )
                 values[attribute_id] = value
-            example = {"label": label, "values": values}
+            examples.append({
+                "id": example_id,
+                "label": label,
+                "values": values,
+            })
+
+        example = None
+        if examples:
+            example = {
+                "label": examples[0]["label"],
+                "values": examples[0]["values"],
+            }
 
         return {
             "groups": groups,
+            "examples": examples,
             "links": links,
+            "measured": measured,
             "range": range_view,
+            "horizons": horizons,
+            "mediators": mediators,
             "results": results,
             "flags": flags,
             "example": example,

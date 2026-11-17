@@ -81,6 +81,7 @@ backend/bundles/subject_demo/*
 !backend/bundles/subject_demo/params.json
 !backend/bundles/subject_demo/subject.json
 !backend/bundles/subject_demo/templates.json
+!backend/bundles/subject_demo/fitness_records.json
 
 # Mockups built from a real person's day stay local; the synthetic one is tracked.
 docs/design/mockups/*

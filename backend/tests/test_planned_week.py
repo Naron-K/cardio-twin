@@ -17,6 +17,7 @@ from planned_week import habit_only, week_dose
 
 LAMINA = "lamina_wearable"
 SUBJECT = "subject_demo"
+FITNESS = {"resting_hr": 66.0, "vo2max": 26.13}
 
 
 @pytest.fixture(scope="module")
@@ -26,10 +27,31 @@ def options() -> dict:
 
 
 @pytest.fixture(scope="module")
-def habit() -> dict:
+def templates() -> dict:
     data = load_templates(SUBJECT)
-    assert data is not None and data.get("habit") is not None
-    return data["habit"]
+    assert data is not None
+    return data
+
+
+@pytest.fixture(scope="module")
+def habit(templates) -> dict:
+    assert templates.get("habit") is not None
+    return templates["habit"]
+
+
+def test_the_templates_carry_the_recorded_fitness(templates):
+    fitness = templates["fitness"]
+
+    assert fitness["period"] == ["2025-01-01", templates["last_date"]]
+    assert fitness["rule"]
+    assert set(fitness["values"]) >= {"resting_hr", "vo2max"}
+    for key, unit in (("resting_hr", "bpm"), ("vo2max", "mL/kg/min")):
+        entry = fitness["values"][key]
+        assert entry["unit"] == unit
+        assert entry["days"] >= 3
+        assert entry["p10"] <= entry["median"] <= entry["p90"]
+    assert fitness["values"]["resting_hr"]["median"] == 66.0
+    assert fitness["values"]["vo2max"]["median"] == 26.13
 
 
 def _plan(options: dict) -> dict:
@@ -46,6 +68,7 @@ def test_the_planned_week_is_sessions_plus_the_recorded_everyday_part(
 
     expected = (days * in_sessions + 7 * outside_p50) / 60.0
     assert weekly["unit"] == "MET-h/week"
+    assert weekly["fitness"] == FITNESS
     assert weekly["planned"]["value"] == pytest.approx(expected, abs=1e-6)
     assert weekly["planned"]["from_everyday"] == pytest.approx(
         7 * outside_p50 / 60.0, abs=1e-6
@@ -87,6 +110,7 @@ def test_the_current_block_is_the_recorded_weeks_total(habit):
     weekly = habit_only(SUBJECT)
 
     assert weekly["unit"] == "MET-h/week"
+    assert weekly["fitness"] == FITNESS
     assert weekly["current"] == {
         "p10": habit["total"]["p10"],
         "p50": habit["total"]["p50"],

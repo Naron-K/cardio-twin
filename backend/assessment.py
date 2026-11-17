@@ -98,18 +98,22 @@ def _dependency_chain(
     entry_by_id: dict,
     link_by_attribute: dict,
     start_ids: list[str],
-) -> tuple[dict, set, set]:
+    measured_by_attribute: dict | None = None,
+) -> tuple[dict, set, set, set]:
     """
-    The functions, entries and link roles behind a set of output attributes.
+    The functions, entries, link roles and measured inputs behind outputs.
 
     Each PRELIMINARY attribute contributes its ``computed_by`` function and
     that function's declared inputs, recursively.  A sensor, an inter-lamina
     value, a coefficient or any other external input ends that branch; when
-    it is a view entry or a view link it is remembered as a dependency.
+    it is a view entry, a view link or a measured link it is remembered as a
+    dependency.
     """
+    measured_by_attribute = measured_by_attribute or {}
     functions: dict[str, object] = {}
     entries: set[str] = set()
     roles: set[str] = set()
+    measured: set[str] = set()
     seen: set[str] = set()
     pending = list(start_ids)
 
@@ -121,6 +125,8 @@ def _dependency_chain(
 
         if attribute_id in entry_by_id:
             entries.add(attribute_id)
+        if attribute_id in measured_by_attribute:
+            measured.add(attribute_id)
         role = link_by_attribute.get(attribute_id)
         if role is not None:
             roles.add(role)
@@ -135,7 +141,7 @@ def _dependency_chain(
         functions[function.id] = function
         pending.extend(function.inputs)
 
-    return functions, entries, roles
+    return functions, entries, roles, measured
 
 
 def _ordered_models(functions: dict) -> list[object]:
@@ -217,14 +223,18 @@ def assessment_options(lamina_id: str) -> dict:
         )
 
     chain_functions: dict[str, object] = {}
+    measured_by_attribute = {
+        entry["attribute"]: entry for entry in view["measured"]
+    }
 
     results = []
     for result in view["results"]:
-        functions, entries, roles = _dependency_chain(
+        functions, entries, roles, _measured = _dependency_chain(
             twin,
             entry_by_id,
             link_by_attribute,
             [result["now"], result["planned"]],
+            measured_by_attribute,
         )
         chain_functions.update(functions)
         results.append({
@@ -241,11 +251,12 @@ def assessment_options(lamina_id: str) -> dict:
 
     flags = []
     for flag in view["flags"]:
-        functions, entries, roles = _dependency_chain(
+        functions, entries, roles, _measured = _dependency_chain(
             twin,
             entry_by_id,
             link_by_attribute,
             [flag["attribute"]],
+            measured_by_attribute,
         )
         chain_functions.update(functions)
         flags.append({
@@ -256,6 +267,29 @@ def assessment_options(lamina_id: str) -> dict:
             "status": _weakest_status(functions.values()),
             "entries": [item for item in entry_order if item in entries],
             "links": [role for role in link_order if role in roles],
+        })
+
+    mediators = []
+    for mediator in view["mediators"]:
+        functions, _entries, _roles, _measured = _dependency_chain(
+            twin,
+            entry_by_id,
+            link_by_attribute,
+            [mediator["at"]],
+            measured_by_attribute,
+        )
+        chain_functions.update(functions)
+        mediators.append({
+            "now": mediator["now"],
+            "at": mediator["at"],
+            "label": mediator["label"],
+            "unit": mediator["unit"],
+            "source": mediator["source"],
+            "key": mediator["key"],
+            "still": mediator["still"],
+            "status": _weakest_status(functions.values()),
+            "models": [_model(function)
+                       for function in _ordered_models(functions)],
         })
 
     notice = (
@@ -273,6 +307,10 @@ def assessment_options(lamina_id: str) -> dict:
         "range": _range_view(twin, view),
         "results": results,
         "flags": flags,
+        "examples": view["examples"],
+        "measured": view["measured"],
+        "horizons": view["horizons"],
+        "mediators": mediators,
         "example": view["example"],
         "notice": notice,
     }
@@ -394,6 +432,42 @@ def _clean_links(links, view: dict, twin) -> dict[str, float]:
     return cleaned
 
 
+def _clean_measured(measured, view: dict, twin) -> dict[str, float]:
+    """Validate the recorded values, using only the declared measured keys."""
+    if measured is None:
+        return {}
+    if not isinstance(measured, dict):
+        raise EntryRefused(
+            "measured",
+            f"must be an object mapping measured link keys to numbers or be "
+            f"absent, got {type(measured).__name__}.",
+        )
+    by_key = {entry["key"]: entry for entry in view["measured"]}
+    cleaned: dict[str, float] = {}
+    for key, value in measured.items():
+        entry = by_key.get(key)
+        if entry is None:
+            continue
+        attribute = twin.attributes[entry["attribute"]]
+        low = float(attribute.physio_min)
+        high = float(attribute.physio_max)
+        field = f"measured.{key}"
+        if not is_finite_number(value):
+            raise EntryRefused(
+                field,
+                f"must be a finite number from {low:g} to {high:g}, got "
+                f"{value!r}.",
+            )
+        number = float(value)
+        if number < low or number > high:
+            raise EntryRefused(
+                field,
+                f"must be from {low:g} to {high:g}, got {number:g}.",
+            )
+        cleaned[key] = number
+    return cleaned
+
+
 def _raw_value(twin, attribute_id: str) -> float | None:
     """The attribute's value, or None when it did not compute finite."""
     attribute = twin.attributes.get(attribute_id)
@@ -406,23 +480,30 @@ def _raw_value(twin, attribute_id: str) -> float | None:
 
 
 def _missing(
-    chain: tuple[dict, set, set],
+    chain: tuple[dict, set, set, set],
     given: dict,
     given_links: dict,
+    given_measured: dict,
     entry_by_id: dict,
     entry_order: list[str],
     link_order: list[str],
     view: dict,
     include_links: bool,
 ) -> list[dict]:
-    """The chain's view entries and link roles that were not given."""
-    _functions, entries, roles = chain
+    """The chain's view entries, measured links and link roles not supplied."""
+    _functions, entries, roles, measured = chain
     needs = [
         {"attribute": attribute_id,
          "label": entry_by_id[attribute_id]["label"]}
         for attribute_id in entry_order
         if attribute_id in entries and attribute_id not in given
     ]
+    needs.extend(
+        {"measured": entry["key"], "label": entry["label"]}
+        for entry in view["measured"]
+        if entry["attribute"] in measured
+        and entry["key"] not in given_measured
+    )
     if include_links:
         needs.extend(
             {"link": role, "label": view["links"][role]["label"]}
@@ -436,16 +517,22 @@ def assess(
     lamina_id: str,
     entries: dict,
     links: dict | None = None,
+    measured: dict | None = None,
 ) -> dict:
     """
     Run the view's results and flags on the figures a person entered.
 
     A fresh twin is built for every call: declared baselines are seeded, the
-    given entries and links are written, and the lamina's own chain is run
-    with the echo silenced.  Nothing entered is printed by this module.  The
-    result carries the two outcomes of each result, the change between them,
-    what is still needed, and the state of each flag.  Every refusal names the
-    field and the range it accepts.
+    given entries, links and recorded measurements are written, and the
+    lamina's own chain is run with the echo silenced.  Nothing entered or
+    measured is printed by this module.
+
+    When the view declares horizons, one fresh twin is run per horizon value
+    and one at the settled value: each result carries its series and settled
+    value, ``planned`` is the last horizon's value, and the view's mediators
+    are reported the same way.  Without horizons the answer is the pair of
+    outcomes as before.  Every refusal names the field and the range it
+    accepts.
     """
     with _quiet():
         twin = load_twin(resolve_lamina(lamina_id))
@@ -456,34 +543,70 @@ def assess(
         entry_by_id, entry_order, link_by_attribute, link_order = (
             _view_indexes(view)
         )
+        measured_by_attribute = {
+            entry["attribute"]: entry for entry in view["measured"]
+        }
+        measured_by_key = {
+            entry["key"]: entry for entry in view["measured"]
+        }
         given = _clean_entries(entries, entry_by_id, entry_order)
         given_links = _clean_links(links, view, twin)
+        given_measured = _clean_measured(measured, view, twin)
+        horizons = view["horizons"]
 
-        for attribute_id in twin.list_attributes(SENSOR):
-            attribute = twin.attributes[attribute_id]
-            if attribute.baseline is not None:
-                twin.set_sensor(attribute_id, float(attribute.baseline))
-        for attribute_id, value in given.items():
-            twin.set_sensor(attribute_id, value)
-        for role, value in given_links.items():
-            if value is None:
-                continue
-            twin.set_inter_lamina(
-                view["links"][role]["attribute"],
-                value,
-                provenance={"role": role},
-            )
+        def fresh(weeks_value=None):
+            """A fresh, seeded twin at one horizon (or with no horizon)."""
+            fresh_twin = load_twin(resolve_lamina(lamina_id))
+            for attribute_id in fresh_twin.list_attributes(SENSOR):
+                attribute = fresh_twin.attributes[attribute_id]
+                if attribute.baseline is not None:
+                    fresh_twin.set_sensor(
+                        attribute_id, float(attribute.baseline)
+                    )
+            for attribute_id, value in given.items():
+                fresh_twin.set_sensor(attribute_id, value)
+            for role, value in given_links.items():
+                if value is None:
+                    continue
+                fresh_twin.set_inter_lamina(
+                    view["links"][role]["attribute"],
+                    value,
+                    provenance={"role": role},
+                )
+            for key, value in given_measured.items():
+                fresh_twin.set_inter_lamina(
+                    measured_by_key[key]["attribute"],
+                    value,
+                    provenance={"measured": key},
+                )
+            if weeks_value is not None:
+                fresh_twin.set_sensor(
+                    horizons["attribute"], float(weeks_value)
+                )
+            fresh_twin.compute_all()
+            return fresh_twin
 
-        twin.compute_all()
+        if horizons is not None:
+            horizon_twins = {
+                weeks: fresh(weeks) for weeks in horizons["values"]
+            }
+            settled_twin = fresh(horizons["settled"])
+            now_twin = horizon_twins[horizons["values"][0]]
+        else:
+            horizon_twins = {}
+            settled_twin = None
+            now_twin = fresh()
 
         chain_functions: dict[str, object] = {}
         results = []
         for result in view["results"]:
             now_chain = _dependency_chain(
-                twin, entry_by_id, link_by_attribute, [result["now"]]
+                twin, entry_by_id, link_by_attribute, [result["now"]],
+                measured_by_attribute,
             )
             planned_chain = _dependency_chain(
-                twin, entry_by_id, link_by_attribute, [result["planned"]]
+                twin, entry_by_id, link_by_attribute, [result["planned"]],
+                measured_by_attribute,
             )
             functions = dict(now_chain[0])
             functions.update(planned_chain[0])
@@ -495,22 +618,38 @@ def assess(
                 not_applicable = result.get("not_applicable_text")
 
             now_raw = None if not_applicable else _raw_value(
-                twin, result["now"]
+                now_twin, result["now"]
             )
-            planned_raw = None if not_applicable else _raw_value(
-                twin, result["planned"]
-            )
+            if horizons is not None:
+                series_raw = [
+                    None if not_applicable
+                    else _raw_value(horizon_twins[weeks], result["planned"])
+                    for weeks in horizons["values"]
+                ]
+                settled_raw = (
+                    None if not_applicable
+                    else _raw_value(settled_twin, result["planned"])
+                )
+                planned_raw = series_raw[-1]
+            else:
+                series_raw = None
+                settled_raw = None
+                planned_raw = None if not_applicable else _raw_value(
+                    now_twin, result["planned"]
+                )
             if not_applicable:
                 needs_now: list[dict] = []
                 needs_planned: list[dict] = []
             else:
                 needs_now = _missing(
-                    now_chain, given, given_links, entry_by_id, entry_order,
-                    link_order, view, include_links=False,
+                    now_chain, given, given_links, given_measured,
+                    entry_by_id, entry_order, link_order, view,
+                    include_links=False,
                 )
                 needs_planned = _missing(
-                    planned_chain, given, given_links, entry_by_id,
-                    entry_order, link_order, view, include_links=True,
+                    planned_chain, given, given_links, given_measured,
+                    entry_by_id, entry_order, link_order, view,
+                    include_links=True,
                 )
 
             refused = (
@@ -536,7 +675,7 @@ def assess(
                     ),
                 }
 
-            results.append({
+            entry = {
                 "id": result["id"],
                 "label": result["label"],
                 "period": result["period"],
@@ -550,15 +689,23 @@ def assess(
                 "not_applicable": not_applicable,
                 "needs": {"now": needs_now, "planned": needs_planned},
                 "reason": reason,
-            })
+            }
+            if horizons is not None:
+                entry["series"] = [
+                    {"weeks": weeks, "value": _r(value)}
+                    for weeks, value in zip(horizons["values"], series_raw)
+                ]
+                entry["settled"] = _r(settled_raw)
+            results.append(entry)
 
         flags = []
         for flag in view["flags"]:
             chain = _dependency_chain(
-                twin, entry_by_id, link_by_attribute, [flag["attribute"]]
+                twin, entry_by_id, link_by_attribute, [flag["attribute"]],
+                measured_by_attribute,
             )
             chain_functions.update(chain[0])
-            value = _raw_value(twin, flag["attribute"])
+            value = _raw_value(now_twin, flag["attribute"])
             if value is None:
                 state = "not_answered"
             elif value == 1.0:
@@ -573,10 +720,56 @@ def assess(
                 "status": _weakest_status(chain[0].values()),
                 "state": state,
                 "needs": _missing(
-                    chain, given, given_links, entry_by_id, entry_order,
-                    link_order, view, include_links=True,
+                    chain, given, given_links, given_measured, entry_by_id,
+                    entry_order, link_order, view, include_links=True,
                 ),
             })
+
+        mediators = []
+        if horizons is not None:
+            for mediator in view["mediators"]:
+                chain = _dependency_chain(
+                    twin, entry_by_id, link_by_attribute, [mediator["at"]],
+                    measured_by_attribute,
+                )
+                chain_functions.update(chain[0])
+                value_now_raw = _raw_value(now_twin, mediator["now"])
+                series_raw = [
+                    _raw_value(horizon_twins[weeks], mediator["at"])
+                    for weeks in horizons["values"]
+                ]
+                settled_raw = _raw_value(settled_twin, mediator["at"])
+                if value_now_raw is None:
+                    moves = True
+                else:
+                    moves = any(
+                        value is None
+                        or abs(value - value_now_raw) > 1e-9
+                        for value in series_raw + [settled_raw]
+                    )
+                mediators.append({
+                    "now": mediator["now"],
+                    "label": mediator["label"],
+                    "unit": mediator["unit"],
+                    "source": mediator["source"],
+                    "key": mediator["key"],
+                    "still": mediator["still"],
+                    "status": _weakest_status(chain[0].values()),
+                    "value_now": _r(value_now_raw),
+                    "series": [
+                        {"weeks": weeks, "value": _r(value)}
+                        for weeks, value in zip(
+                            horizons["values"], series_raw
+                        )
+                    ],
+                    "settled": _r(settled_raw),
+                    "moves": moves,
+                    "needs": _missing(
+                        chain, given, given_links, given_measured,
+                        entry_by_id, entry_order, link_order, view,
+                        include_links=False,
+                    ),
+                })
 
         notice = (
             PLACEHOLDER_NOTICE
@@ -585,7 +778,7 @@ def assess(
             else None
         )
 
-        return {
+        answer = {
             "lamina": twin.lamina_id,
             "entered": {"given": len(given), "of": len(entry_order)},
             "links": {role: given_links.get(role) for role in link_order},
@@ -594,3 +787,7 @@ def assess(
             "flags": flags,
             "notice": notice,
         }
+        if horizons is not None:
+            answer["mediators"] = mediators
+            answer["horizons"] = horizons
+        return answer

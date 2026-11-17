@@ -72,6 +72,21 @@ def _current(habit: dict | None) -> dict | None:
     }
 
 
+def _fitness(templates: dict) -> dict:
+    """The subject's recorded fitness medians, or {} when none were built."""
+    block = templates.get("fitness")
+    if not isinstance(block, dict):
+        return {}
+    values = block.get("values")
+    if not isinstance(values, dict):
+        return {}
+    return {
+        key: entry["median"]
+        for key, entry in values.items()
+        if isinstance(entry, dict) and "median" in entry
+    }
+
+
 def _reason(day: dict, habit: dict | None) -> str | None:
     """The sentence naming what is missing, or None when both are present."""
     if "dose" in day and habit is not None:
@@ -133,6 +148,7 @@ def week_dose(lamina_id: str, plan: dict, days_per_week: int) -> dict:
 
     return {
         "unit": UNIT,
+        "fitness": _fitness(templates),
         "current": current,
         "planned": planned,
         "reason": reason,
@@ -163,6 +179,7 @@ def habit_only(subject: str) -> dict:
 
     return {
         "unit": UNIT,
+        "fitness": _fitness(templates),
         "current": _current(habit),
         "planned": None,
         "reason": "no plan given",

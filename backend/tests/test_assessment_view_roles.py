@@ -186,7 +186,7 @@ def test_the_health_lamina_assessment_view_parses():
         "label": "Cardiovascular disease",
         "period": "over 10 years",
         "now": "cvd_risk_now",
-        "planned": "cvd_risk_plan",
+        "planned": "cvd_risk_at",
         "unit": "%",
         "not_applicable_when": None,
         "not_applicable_text": None,
@@ -208,12 +208,10 @@ def test_the_health_lamina_assessment_view_parses():
         ),
     }
 
-    assert view["example"]["label"] == (
-        "Invented example values, not a real person"
-    )
-    assert view["example"]["values"]["age"] == 52.0
+    assert view["example"]["label"] == "Low risk · invented example"
+    assert view["example"]["values"]["age"] == 38.0
     assert view["example"]["values"]["sex_male"] == 0.0
-    assert view["example"]["values"]["family_diabetes"] == 1.0
+    assert view["example"]["values"]["family_diabetes"] == 0.0
 
 
 def test_every_attribute_named_in_the_health_view_exists():
@@ -259,7 +257,7 @@ def test_the_schema_serves_the_assessment_view():
     assert view["groups"][0]["entries"][0]["attribute"] == "age"
     assert view["links"]["current"]["attribute"] == "dose_current"
     assert view["flags"][0]["attribute"] == "flag_bp"
-    assert view["example"]["values"]["age"] == 52
+    assert view["example"]["values"]["age"] == 38
 
 
 # ── The valid probe, so a refusal is about the one changed thing ──────
@@ -512,11 +510,15 @@ def test_an_attribute_that_is_a_flag_twice_is_refused(tmp_path):
 
 # ── Example ──────────────────────────────────────────────────────────
 
-def test_a_second_example_is_refused(tmp_path):
-    tail = VALID_TAIL + (
-        '<example label="Again"><value attribute="age">40</value></example>'
+def test_a_duplicate_example_id_is_refused(tmp_path):
+    tail = VALID_TAIL.replace(
+        '<example label="Example">', '<example id="dup" label="Example">', 1
     )
-    _refused(tmp_path, _view(tail=tail), "at most one is allowed")
+    tail += (
+        '<example id="dup" label="Again">'
+        '<value attribute="age">40</value></example>'
+    )
+    _refused(tmp_path, _view(tail=tail), "example ids must be unique")
 
 
 def test_an_example_value_must_be_a_declared_entry(tmp_path):

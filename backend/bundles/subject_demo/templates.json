@@ -4,7 +4,7 @@
   "label": "Subject demo",
   "applies_to": "Subject demo only: from Subject demo's recordings; not a population value",
   "lamina": "lamina_wearable",
-  "made_at": "2026-11-17T01:30:35.728623+00:00",
+  "made_at": "2026-11-17T10:41:23.960240+00:00",
   "workouts": {
     "Walking": {
       "minutes": 1156,
@@ -386,6 +386,29 @@
     },
     "rule": "Days dated 2025-01-01 or later; an ISO week counts when all 7 of its days are recorded and at least 5 of them have more than 300 worn minutes."
   },
+  "fitness": {
+    "period": [
+      "2025-01-01",
+      "2025-05-11"
+    ],
+    "rule": "Days from 2025-01-01 to 2025-05-11; each value is that series' median over those days, with the 10th and 90th percentiles.",
+    "values": {
+      "resting_hr": {
+        "median": 66.0,
+        "p10": 57.0,
+        "p90": 72.0,
+        "days": 108,
+        "unit": "bpm"
+      },
+      "vo2max": {
+        "median": 26.13,
+        "p10": 24.81,
+        "p90": 26.33,
+        "days": 11,
+        "unit": "mL/kg/min"
+      }
+    }
+  },
   "projection_report": {
     "split_date": "2025-04-05",
     "fit_days": 90,
@@ -521,6 +544,6 @@
     "hr_rough": false,
     "test_sessions": 24,
     "test_sessions_with_hr": 24,
-    "made_at": "2026-11-17T01:30:44.786610+00:00"
+    "made_at": "2026-11-17T10:41:36.691904+00:00"
   }
 }

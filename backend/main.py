@@ -1275,7 +1275,10 @@ async def post_assessment(
             "current": current["p50"] if current else None,
             "planned": planned["value"] if planned else None,
         }
-        report = assess(assessment_lamina, entries, links)
+        report = assess(
+            assessment_lamina, entries, links,
+            measured=weekly["fitness"],
+        )
 
         roots = bundle_roots()
         label = read_subject_label(roots[subject], subject)

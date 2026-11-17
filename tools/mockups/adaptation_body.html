@@ -1,0 +1,243 @@
+<style>
+.profiles{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.profiles button{min-height:40px;font-size:13px;padding:0 10px}
+.inventchip{display:inline-block;margin-top:8px;font:600 12px "Hanken Grotesk",sans-serif;border-radius:6px;padding:3px 8px;border:1px solid rgba(240,161,60,.6);background:rgba(240,161,60,.12);color:#ffd08a}
+.horizons{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px}
+.horizons .lbl{font-size:14px;color:var(--ink2)}
+.horizons button[aria-pressed="true"]::before{content:"● ";font-size:9px}
+.lead{font-size:14px;color:var(--ink);margin:10px 0 0;padding:8px 12px;border-left:3px solid var(--model);background:rgba(79,227,247,.06);border-radius:0 8px 8px 0}
+.grid3b{display:grid;grid-template-columns:minmax(0,.95fr) minmax(0,1.05fr) minmax(0,1.3fr);gap:16px;margin-top:12px}
+.at{font-size:12px;color:var(--ink3);display:block}
+.trail{display:flex;gap:4px;margin-top:8px;flex-wrap:wrap}
+.trail span{font:12px "JetBrains Mono",monospace;color:var(--ink2);border:1px solid var(--line);border-radius:6px;padding:2px 6px}
+.trail span.sel{border-color:var(--model);color:var(--model)}
+.med{display:grid;grid-template-columns:minmax(0,1.25fr) 64px minmax(0,1.3fr) 70px;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
+.med:first-of-type{border-top:0}
+.med .nm{line-height:1.25}
+.med .nm small{display:block;font-size:12px;color:var(--ink3)}
+.med b{font:700 14px "JetBrains Mono",monospace;text-align:right}
+.med .still{grid-column:3/5;font-size:13px;color:var(--ink3)}
+.med svg{width:100%;height:34px;overflow:visible}
+.medhead{display:grid;grid-template-columns:minmax(0,1.25fr) 64px minmax(0,1.3fr) 70px;gap:10px;font-size:12px;color:var(--ink3);padding-bottom:4px}
+.medhead span:nth-child(2),.medhead span:nth-child(4){text-align:right}
+.flagrow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.flagrow .flag{border-top:0}
+.recrow{display:grid;grid-template-columns:1fr 190px;gap:4px 14px;align-items:center;padding:8px 0;border-top:1px solid var(--line)}
+.recrow b{font:700 16px "JetBrains Mono",monospace;text-align:right}
+@media (max-width:1100px){.grid3b,.flagrow{grid-template-columns:1fr}.med,.medhead{grid-template-columns:minmax(0,1fr) 56px minmax(0,1fr) 60px}}
+</style>
+</head>
+<body>
+<div class="states row">Mockup only · show state:
+  <button data-state="empty">Nothing entered</button>
+  <button data-state="low">Low risk profile</button>
+  <button data-state="borderline">Borderline profile</button>
+  <button data-state="high_cv">High cardiovascular profile</button>
+  <button data-state="lighter">Borderline, 0 days a week</button>
+  <button data-state="daily">Borderline, 7 days a week</button>
+  <button id="toggleDrawer" class="ghost">Open / close “Your health”</button>
+</div>
+<div class="wrap">
+  <div class="row">
+    <span class="tab" role="tab" aria-selected="true">Plan a day</span>
+    <span class="tab" role="tab" aria-selected="false">Recorded days</span>
+  </div>
+  <div class="demo">Research demonstration · not medical advice · <span id="notice"></span></div>
+
+  <section class="card">
+    <div class="row"><h2>Setup</h2><span class="chip" id="subject"></span></div>
+    <div class="colrow">
+      <div class="col">
+        <div class="row" style="justify-content:space-between;min-height:44px">
+          <h3>Your health</h3><span class="count" id="enteredCount"></span>
+        </div>
+        <div id="groupRows"></div>
+        <div class="row" style="margin-top:10px"><button class="primary" id="editHealth">Enter or edit</button><button class="ghost">Clear</button></div>
+        <div class="small" style="margin-top:8px">Fill with an invented example:</div>
+        <div class="profiles" id="profiles"></div>
+        <div id="invented"></div>
+      </div>
+      <div class="col dim"><h3>Day</h3><p class="note">Awake, temperature, resting level, steps: as today.</p></div>
+      <div class="col dim"><h3>Walk · 07:30</h3><p class="note">As today.</p></div>
+      <div class="col dim"><h3>Strength · 18:00</h3><p class="note">As today.</p></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="primary">Run</button>
+      <span class="note" style="margin:0">Repeat this day</span>
+      <span class="stepper"><button aria-label="One day fewer">−</button><output id="days"></output><button aria-label="One day more">+</button></span>
+      <span class="note" style="margin:0">days a week</span>
+      <button class="ghost">Reset to a typical day</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="row">
+      <span class="tab" role="tab" aria-selected="false">The day</span>
+      <span class="tab" role="tab" aria-selected="true">The week and risk</span>
+      <div class="legend" style="margin:0 0 0 auto">
+        <span class="kind m">Measured from recordings</span>
+        <span class="kind p">Projected by this person’s model</span>
+        <span class="kind pub">Population model applied to you</span>
+      </div>
+    </div>
+    <div class="horizons" role="group" aria-label="Kept up for">
+      <span class="lbl">Plan kept up for</span>
+      <span id="horizonButtons" class="row" style="gap:6px"></span>
+    </div>
+    <p class="lead">Test results do not change after one session. These are the values this plan tends to if it is kept up, and how fast.</p>
+    <div class="grid3b">
+      <div class="panel">
+        <div class="row" style="justify-content:space-between"><h3>Weekly activity</h3><span class="small mono" id="doseUnit"></span></div>
+        <div class="ticks" id="ticks"></div>
+        <div class="scale" id="scale"></div>
+        <div style="margin-top:30px" id="doseRows"></div>
+      </div>
+      <div class="panel">
+        <div class="row" style="justify-content:space-between"><h3>Risk of disease</h3><span class="kind pub">Population model applied to you</span></div>
+        <div id="risks"></div>
+      </div>
+      <div class="panel">
+        <div class="row" style="justify-content:space-between"><h3>What changes, and when</h3><span class="badge">Placeholder model · not validated</span></div>
+        <div class="medhead"><span>Factor</span><span>Now</span><span>Now → settled (marks at 4, 8, 12 weeks)</span><span id="medAt">At</span></div>
+        <div id="meds"></div>
+        <p class="small" id="medScale"></p>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:16px">
+      <h3>Flags</h3>
+      <div class="flagrow" id="flags"></div>
+      <p class="small">A flag repeats what guidance says for what you entered. No flag is not a statement that exercise is safe.</p>
+    </div>
+  </section>
+</div>
+
+<aside class="drawer" id="drawer" aria-label="Your health">
+  <div class="row" style="justify-content:space-between"><h2>Your health</h2><button id="closeDrawer">Done</button></div>
+  <p class="note">Enter what you know. Anything left empty is asked for by the result that needs it; nothing is assumed.</p>
+  <div id="form"></div>
+</aside>
+
+<script>
+(function () {
+  'use strict';
+  var M = window.MOCK, state = 'borderline', sel = 0;
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); };
+  var unit = function (u) { return u === '1' ? '' : u; };
+  var fmt = function (v, d) { return v === null || v === undefined ? '–' : Number(v).toFixed(d === undefined ? 1 : d); };
+  var badge = function (s) { return s === 'reviewed' ? '<span class="badge reviewed">Reviewed model</span>' : s === 'draft' ? '<span class="badge">Draft model · not yet reviewed</span>' : '<span class="badge">Placeholder model · not validated</span>'; };
+  function horizons(A) { var h = A.horizons; return h.values.map(function (w) { return { w: w, label: w === 0 ? 'Now' : w + ' weeks' }; }).concat([{ w: 'settled', label: h.settled_label }]); }
+  function valueAt(item, i, H) { if (H[i].w === 'settled') return item.settled; return item.series[i].value; }
+
+  function render() {
+    var S = M.states[state], O = M.options, R = S.response, A = R.assessment, D = R.dose, given = S.entries, H = horizons(A);
+    if (sel >= H.length) sel = 0;
+    $('subject').textContent = R.subject_label;
+    $('notice').textContent = A.notice || '';
+    $('days').textContent = S.days_per_week;
+    $('enteredCount').textContent = (A.entered.given === A.entered.of ? '✓ ' : '') + A.entered.given + ' of ' + A.entered.of + ' entered';
+    $('enteredCount').className = 'count' + (A.entered.given === A.entered.of ? ' full' : '');
+    $('groupRows').innerHTML = O.groups.map(function (g) {
+      var n = g.entries.filter(function (e) { return given[e.attribute] !== undefined; }).length;
+      return '<div class="grouprow"><span>' + esc(g.label) + '</span><span class="count' + (n === g.entries.length ? ' full' : '') + '">' + (n === g.entries.length ? '✓ ' : '') + n + ' / ' + g.entries.length + '</span></div>';
+    }).join('');
+    $('profiles').innerHTML = O.examples.map(function (e) { return '<button aria-pressed="' + (S.profile === e.id) + '">' + esc(e.label.split(' · ')[0]) + '</button>'; }).join('');
+    var prof = O.examples.filter(function (e) { return e.id === S.profile; })[0];
+    $('invented').innerHTML = prof ? '<span class="inventchip">▲ ' + esc(prof.label) + '</span>' : '';
+
+    $('horizonButtons').innerHTML = H.map(function (h, i) { return '<button data-h="' + i + '" aria-pressed="' + (i === sel) + '">' + esc(h.label) + '</button>'; }).join('');
+    $('medAt').textContent = H[sel].label;
+
+    // form, with the measured values read-only
+    var rec = A.mediators.filter(function (m) { return m.source === 'measured'; });
+    $('form').innerHTML = O.groups.map(function (g) {
+      return '<h3 style="margin-top:18px">' + esc(g.label) + '</h3>' + g.entries.map(function (e) {
+        var v = given[e.attribute], has = v !== undefined, ctl;
+        if (e.kind === 'number') ctl = '<div class="inp' + (has ? '' : ' empty') + '"><input inputmode="decimal" value="' + (has ? v : '') + '" placeholder="' + e.min + ' – ' + e.max + '"><span>' + esc(unit(e.unit)) + '</span></div>';
+        else { var opts = e.kind === 'yesno' ? [{value: 1, label: 'Yes'}, {value: 0, label: 'No'}] : e.options; ctl = '<div class="seg">' + opts.map(function (o) { return '<button aria-pressed="' + (has && Number(v) === Number(o.value)) + '">' + esc(o.label) + '</button>'; }).join('') + '</div>'; }
+        return '<div class="field"><label>' + esc(e.label) + '</label>' + ctl + '<p class="why">' + esc(e.why) + (has ? '' : ' · <b>not entered</b>') + '</p></div>';
+      }).join('');
+    }).join('') + '<h3 style="margin-top:18px">From your recordings</h3><p class="small">Read from your watch, not typed. Shown so you can see what the twin already knows.</p>' +
+      rec.map(function (m) { return '<div class="recrow"><span><span class="kind m">Measured</span> ' + esc(m.label) + '</span><b>' + fmt(m.value_now) + ' <span class="small">' + esc(m.unit) + '</span></b></div>'; }).join('');
+
+    // weekly activity
+    var cur = D.current, pl = D.planned, rng = A.range, top = 25;
+    [cur && cur.p90, pl && pl.value, rng && rng.high].forEach(function (v) { if (v && v * 1.15 > top) top = Math.ceil(v * 1.15 / 5) * 5; });
+    var x = function (v) { return (100 * v / top) + '%'; };
+    var h = '<div class="axis"></div>';
+    if (rng) h += '<div class="guide" style="left:' + x(rng.low) + ';width:' + x(rng.high - rng.low) + '"></div>';
+    if (cur) h += '<div class="whisk" style="left:' + x(cur.p10) + ';width:' + x(cur.p90 - cur.p10) + '"></div><div class="mark" style="left:' + x(cur.p50) + '">Now<b>' + fmt(cur.p50) + '</b><i></i></div>';
+    if (pl) h += '<div class="mark plan" style="left:' + x(pl.value) + '"><i></i><b>' + fmt(pl.value) + '</b>With this plan</div>';
+    $('scale').innerHTML = h;
+    var t = ''; for (var k = 0; k <= top; k += (top > 40 ? 10 : 5)) t += '<span style="left:' + x(k) + '">' + k + '</span>';
+    $('ticks').innerHTML = t; $('doseUnit').textContent = D.unit;
+    var rows = '';
+    if (cur) rows += '<div class="kv"><span><span class="kind m">Measured</span> Now, median of ' + cur.weeks + ' weeks</span><b>' + fmt(cur.p50) + ' <span class="small">(' + fmt(cur.p10) + '–' + fmt(cur.p90) + ')</span></b></div>';
+    if (pl) rows += '<div class="kv"><span><span class="kind p">Projected</span> With this plan (' + pl.days_per_week + ' days)</span><b style="color:var(--model)">' + fmt(pl.value) + '</b></div>' +
+      '<div class="kv"><span>Added over the habit</span><b>' + (pl.value - cur.p50 >= 0 ? '+' : '−') + fmt(Math.abs(pl.value - cur.p50)) + '</b></div>';
+    if (rng) rows += '<div class="kv"><span><span class="sw"></span>' + esc(rng.label) + ' <span class="badge">Placeholder value</span></span><b>' + fmt(rng.low) + '–' + fmt(rng.high) + '</b></div>';
+    $('doseRows').innerHTML = rows;
+
+    // risks at the selected horizon
+    $('risks').innerHTML = A.results.map(function (r) {
+      var body;
+      if (r.not_applicable) body = '<div class="needs">' + esc(r.not_applicable) + '</div>';
+      else if (r.now === null) body = '<div class="needs"><b>Needs:</b> ' + r.needs.now.map(function (n) { return esc(n.label); }).join(', ') + ' <button class="ghost" style="min-height:36px">Enter</button></div>';
+      else {
+        var v = valueAt(r, sel, H), d = v - r.now, cls = d < -0.005 ? 'down' : d > 0.005 ? 'up' : '';
+        var right = sel === 0 ? '<div class="fig plan"><span>After a session</span><b style="font-size:20px;color:var(--ink2)">no change yet</b></div>'
+          : '<div class="fig plan"><span>' + esc(H[sel].label) + '</span><b>' + fmt(v, 2) + '<small style="font-size:16px"> ' + esc(r.unit) + '</small></b></div><span class="delta ' + cls + '">' + (d < 0 ? '▼ ' : d > 0 ? '▲ ' : '') + (d > 0 ? '+' : '') + fmt(d, 2) + ' points</span>';
+        body = '<div class="pair"><div class="fig"><span>Now</span><b>' + fmt(r.now, 2) + '<small style="font-size:16px"> ' + esc(r.unit) + '</small></b></div>' + right + '</div>' +
+          '<div class="trail">' + H.map(function (hh, i) { return '<span class="' + (i === sel ? 'sel' : '') + '">' + esc(hh.label === 'Now' ? 'Now' : hh.label.replace(' weeks', ' wk')) + ' ' + fmt(valueAt(r, i, H), 2) + '</span>'; }).join('') + '</div>';
+      }
+      return '<div class="risk"><div class="row" style="justify-content:space-between"><h3>' + esc(r.label) + ' <span class="small">' + esc(r.period) + '</span></h3>' + badge(r.status) + '</div>' + body + '</div>';
+    }).join('');
+
+    // mediators, all on ONE scale: the change from now as a share of the value now,
+    // so a row that barely moves is drawn as barely moving.
+    var dp = function (v) { return Math.abs(v) < 10 ? 2 : 1; };
+    var shares = [];
+    A.mediators.forEach(function (m) { if (m.moves && m.value_now) H.forEach(function (hh, i) { shares.push(Math.abs((valueAt(m, i, H) - m.value_now) / m.value_now)); }); });
+    var range = Math.max(0.02, Math.max.apply(null, shares.concat([0])));
+    $('medScale').textContent = 'Lines share one scale: the full height is ±' + Math.round(range * 100) + '% of the value now.';
+    $('meds').innerHTML = A.mediators.map(function (m) {
+      var tag = m.source === 'measured' ? '<small>■ Measured from recordings</small>' : '<small>Entered</small>';
+      if (m.value_now === null) return '<div class="med"><span class="nm">' + esc(m.label) + tag + '</span><b>–</b><span class="still">Needs: ' + m.needs.map(function (n) { return esc(n.label); }).join(', ') + '</span></div>';
+      if (!m.moves) return '<div class="med"><span class="nm">' + esc(m.label) + tag + '</span><b>' + fmt(m.value_now, dp(m.value_now)) + '</b><span class="still">' + esc(m.still || 'Does not move with this plan.') + '</span></div>';
+      var vals = H.map(function (hh, i) { return valueAt(m, i, H); });
+      var xs = [4, 26, 48, 70, 96], ys = vals.map(function (v) { return 17 - 14 * ((v - vals[0]) / vals[0]) / range; });
+      var solid = xs.slice(0, 4).map(function (xx, i) { return (i ? 'L' : 'M') + xx + ' ' + ys[i]; }).join(' ');
+      var svg = '<svg viewBox="0 0 100 34" preserveAspectRatio="none" role="img" aria-label="' + esc(m.label) + ' from ' + fmt(vals[0], dp(vals[0])) + ' now to ' + fmt(vals[4], dp(vals[4])) + ' settled">' +
+        '<line x1="0" y1="17" x2="100" y2="17" stroke="rgba(216,227,251,.18)" vector-effect="non-scaling-stroke"/>' +
+        '<path d="' + solid + '" fill="none" stroke="#4fe3f7" stroke-width="1.6" vector-effect="non-scaling-stroke"/>' +
+        '<path d="M70 ' + ys[3] + ' L96 ' + ys[4] + '" fill="none" stroke="#4fe3f7" stroke-width="1.4" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>' +
+        xs.map(function (xx, i) { return '<circle cx="' + xx + '" cy="' + ys[i] + '" r="' + (i === sel ? 3.2 : 1.8) + '" fill="' + (i === sel ? '#4fe3f7' : '#152031') + '" stroke="#4fe3f7" vector-effect="non-scaling-stroke"/>'; }).join('') + '</svg>';
+      var v = vals[sel], d = v - vals[0];
+      return '<div class="med"><span class="nm">' + esc(m.label) + tag + '</span><b>' + fmt(vals[0], dp(vals[0])) + '</b>' + svg + '<b style="color:var(--model)">' + fmt(v, dp(v)) + '<br><span class="small">' + (sel === 0 ? '' : (d > 0 ? '+' : d < 0 ? '−' : '') + fmt(Math.abs(d), dp(v))) + '</span></b></div>';
+    }).join('');
+
+    // flags
+    $('flags').innerHTML = A.flags.map(function (f) {
+      if (f.state === 'raised') return '<div class="flag raised"><span class="ic">▲</span><div><b>' + esc(f.label) + '</b>' + esc(f.text) + '<br>' + badge(f.status) + '</div></div>';
+      if (f.state === 'clear') return '<div class="flag clear"><span class="ic">✓</span><div><b>' + esc(f.topic) + '</b>No flag from what you entered.</div></div>';
+      return '<div class="flag na"><span class="ic">?</span><div><b>' + esc(f.topic) + '</b>Not answered. Needs: ' + f.needs.map(function (n) { return esc(n.label); }).join(', ') + '</div></div>';
+    }).join('');
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-state]'), function (b) { b.setAttribute('aria-pressed', String(b.dataset.state === state)); });
+  }
+  document.addEventListener('click', function (ev) {
+    var b = ev.target.closest('button'); if (!b) return;
+    if (b.dataset.state) { state = b.dataset.state; render(); }
+    if (b.dataset.h !== undefined) { sel = Number(b.dataset.h); render(); }
+    if (b.id === 'editHealth' || b.id === 'toggleDrawer') $('drawer').classList.toggle('open');
+    if (b.id === 'closeDrawer') $('drawer').classList.remove('open');
+  });
+  var hs = location.hash;
+  if (hs.indexOf('drawer') >= 0) $('drawer').classList.add('open');
+  var m1 = /state=(\w+)/.exec(hs); if (m1 && M.states[m1[1]]) state = m1[1];
+  var m2 = /h=(\d)/.exec(hs); if (m2) sel = Number(m2[1]);
+  render();
+})();
+</script>
+</body>
+</html>

@@ -167,7 +167,7 @@ const NO_ROOM_MESSAGE = 'No free 30 min'
 
 // ── Parsing the options endpoint ──────────────────────────────────────────────
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 

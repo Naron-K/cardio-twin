@@ -1,7 +1,9 @@
 import axios from 'axios'
+import { parseAssessmentAnswer, parseAssessmentOptions } from '../twin/assessment'
+import type { AssessmentAnswer, AssessmentOptions } from '../twin/assessment'
 import { parseDaySummary } from '../twin/dayView'
 import type { DaySummary } from '../twin/dayView'
-import { parsePlanOptions, parsePlannedDay } from '../twin/planDay'
+import { isRecord, parsePlanOptions, parsePlannedDay } from '../twin/planDay'
 import type { PlanOptions, PlannedExtras } from '../twin/planDay'
 import { parseSources } from '../twin/sources'
 import type { SourcesResponse } from '../twin/sources'
@@ -75,6 +77,48 @@ export async function findPlanLamina(): Promise<string | null> {
     return typeof roles === 'object' && roles !== null
   })
   return index >= 0 ? ordered[index] : null
+}
+
+/**
+ * The lamina whose XML declares an `<assessment_view>`, or null when none
+ * does.  The options endpoint with no lamina names the first one that can
+ * describe an assessment, so the page names no lamina itself.
+ */
+export async function findAssessmentLamina(): Promise<string | null> {
+  try {
+    const { data } = await axios.get<unknown>('/api/assessment/options')
+    if (!isRecord(data)) {
+      throw new Error('assessment options: the response must be an object')
+    }
+    const lamina = data.lamina
+    if (typeof lamina !== 'string' || lamina.length === 0) {
+      throw new Error('assessment options: lamina must be a non-empty string')
+    }
+    return lamina
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      const status = error.response?.status
+      if (status === 400 || status === 404) return null
+    }
+    throw error
+  }
+}
+
+/**
+ * Everything the assessment form draws, checked field by field.  A 400 or a
+ * 404 means no lamina declares the view, so there is nothing to draw.
+ */
+export async function fetchAssessmentOptions(): Promise<AssessmentOptions | null> {
+  try {
+    const res = await axios.get<unknown>('/api/assessment/options')
+    return parseAssessmentOptions(res.data)
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      const status = error.response?.status
+      if (status === 400 || status === 404) return null
+    }
+    throw error
+  }
 }
 
 /** The recorded days one lamina can replay, checked field by field. */
@@ -228,6 +272,71 @@ export async function runPlan(
       if (status === 400 || status === 404) {
         throw new PlanRunError(
           dayMessage(data) ?? `The plan could not be run (${status}).`,
+        )
+      }
+    }
+    throw error
+  }
+}
+
+/** An entered value this lamina's assessment view cannot accept. */
+export class EntryRefusedError extends Error {
+  readonly field: string | null
+
+  constructor(message: string, field: string | null) {
+    super(message)
+    this.name = 'EntryRefusedError'
+    this.field = field
+  }
+}
+
+/**
+ * Run one assessment and return the answer, checked field by field, with the
+ * planned day passed through untouched.  Entered values travel in the body
+ * only; the URL names the activity lamina and nothing the person typed.
+ *
+ * A 422 that names `entries.…` is an EntryRefusedError; a 422 naming anything
+ * else is a PlanRefusedError; a 400 or 404 keeps the server's own sentence;
+ * anything else is rethrown for the page's failed state.
+ */
+export async function runAssessment(
+  activityLamina: string,
+  body: {
+    subject: string
+    entries: Record<string, number>
+    plan: unknown | null
+    days_per_week: number | null
+  },
+): Promise<{ answer: AssessmentAnswer; day: unknown }> {
+  if (typeof activityLamina !== 'string' || activityLamina.length === 0) {
+    throw new Error('activity_lamina must be a non-empty string')
+  }
+
+  try {
+    const res = await axios.post<unknown>('/api/assessment', body, {
+      params: { activity_lamina: activityLamina },
+    })
+    return parseAssessmentAnswer(res.data)
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      const status = error.response?.status
+      const data = error.response?.data
+      if (status === 422) {
+        const refusal = planRefusal(data)
+        // The server starts its message with the field path ("entries.sbp:
+        // …"); the form already shows it under that field, so drop the path.
+        const text = refusal.message ?? 'The assessment was refused (422).'
+        const prefix = refusal.field ? `${refusal.field}: ` : ''
+        const message =
+          prefix && text.startsWith(prefix) ? text.slice(prefix.length) : text
+        if (refusal.field !== null && refusal.field.startsWith('entries')) {
+          throw new EntryRefusedError(message, refusal.field)
+        }
+        throw new PlanRefusedError(message, refusal.field)
+      }
+      if (status === 400 || status === 404) {
+        throw new PlanRunError(
+          dayMessage(data) ?? `The assessment could not be run (${status}).`,
         )
       }
     }

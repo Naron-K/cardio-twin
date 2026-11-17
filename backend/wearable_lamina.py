@@ -95,6 +95,8 @@ class WearableLamina(UniversalTwin):
         self._function_registry["measured_hr"] = self._calc_measured_hr
         self._function_registry["energy_total"] = self._calc_energy_total
         self._function_registry["vo2_estimate"] = self._calc_vo2_estimate
+        self._function_registry["met_level"] = self._calc_met_level
+        self._function_registry["dose_rate"] = self._calc_dose_rate
         self._function_registry["hr_circadian"] = self._calc_hr_circadian
         self._function_registry["hr_thermal"] = self._calc_hr_thermal
         self._function_registry["activity_gain"] = self._calc_activity_gain
@@ -173,6 +175,58 @@ class WearableLamina(UniversalTwin):
                 f"unit or wiring error."
             )
         return ee_total / 4.86 * 1000.0
+
+    def _calc_met_level(self, inputs: list) -> float:
+        """
+        MET = 1 + AE_rate / BE_ref   (MET)
+
+        How many times the resting rate the minute is spending: one for
+        rest, plus the active energy rate over the person's resting energy
+        rate.  One MET is sitting at rest; a brisk walk is several.
+
+        The divisor is the person's resting rate, a coefficient, and not the
+        minute's recorded basal rate.  That record changes with whether the
+        watch is worn and is now and then a fraction of a minute close to
+        zero, which reported 22 MET for a person sitting still.
+
+        A resting rate of zero or less is refused rather than divided by,
+        and so is a negative active energy rate: neither is a rate, and the
+        quotient would look like a confident answer instead of the unit or
+        wiring error it is.
+        inputs: [AE_rate, BE_ref]
+        """
+        _arity(inputs, 2, "AE_rate, BE_ref")
+        ae_rate, be_ref = inputs[0], inputs[1]
+        _require(AE_rate=ae_rate, BE_ref=be_ref)
+        if be_ref <= 0.0:
+            raise ValueError(
+                f"BE_ref={be_ref} is not positive. The resting energy rate "
+                f"is the denominator of the metabolic equivalent; zero or "
+                f"negative would report a confident-looking MET from a unit "
+                f"or wiring error."
+            )
+        if ae_rate < 0.0:
+            raise ValueError(
+                f"AE_rate={ae_rate} is negative. Active energy is energy "
+                f"spent above rest and cannot be below zero; a negative value "
+                f"is a unit or wiring error, not a metabolic equivalent "
+                f"below one."
+            )
+        return 1.0 + ae_rate / be_ref
+
+    def _calc_dose_rate(self, inputs: list) -> float:
+        """
+        dose_rate = MET when MET >= MET_floor, else 0   (MET)
+
+        Counts the metabolic equivalent towards the activity dose only when
+        it reaches the floor.  Below the floor the minute contributes zero
+        rather than a fraction, so quiet minutes add nothing to the dose.
+        inputs: [MET, MET_floor]
+        """
+        _arity(inputs, 2, "MET, MET_floor")
+        met, met_floor = inputs[0], inputs[1]
+        _require(MET=met, MET_floor=met_floor)
+        return met if met >= met_floor else 0.0
 
     def _calc_hr_circadian(self, inputs: list) -> float:
         """

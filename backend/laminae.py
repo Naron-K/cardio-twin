@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Type
 
 from circulatory_lamina import CirculatoryLamina
+from health_lamina import HealthLamina
 from metabolic_lamina import MetabolicLamina
 from respiratory_lamina import RespiratoryLamina
 from wearable_lamina import WearableLamina
@@ -44,6 +45,7 @@ _IMPLEMENTATIONS: dict[str, Type[UniversalTwin]] = {
     "lamina_respiratory": RespiratoryLamina,
     "lamina_metabolic":   MetabolicLamina,
     "lamina_wearable":    WearableLamina,
+    "lamina_health":      HealthLamina,
 }
 
 

@@ -63,10 +63,18 @@ from signal_source import ReplaySource, ScenarioSource, SimulatedSource
 from streaming_runtime import StreamingRuntime
 from bundles import (
     UnknownBundle,
+    bundle_roots,
     list_bundles,
     load_bundle,
     load_params,
+    read_subject_label,
     subject_labels,
+)
+from assessment import (
+    EntryRefused,
+    NoAssessmentView,
+    assess,
+    assessment_options,
 )
 from day_summary import NoReadings, day_summary, days_without_readings
 from plan_options import (
@@ -76,6 +84,7 @@ from plan_options import (
     plan_options,
 )
 from planned_day import PlanRefused, planned_day
+from planned_week import habit_only, week_dose
 from usage_meter import UsageMeter
 from snapshot import (
     _KSTATE_SEP,
@@ -695,6 +704,9 @@ def get_schema(lamina: Optional[str] = Query(default=None,
             "output": f.output,
             "description": f.description,
             "state": f.state_after_gap,
+            "status": f.status,
+            "source": f.source,
+            "reviewed_by": f.reviewed_by,
         }
         for f in sorted(twin.functions.values(), key=lambda fn: fn.step)
     ]
@@ -774,6 +786,7 @@ def get_schema(lamina: Optional[str] = Query(default=None,
         "segments": segments,
         "day_view": twin.day_view,
         "plan_view": twin.plan_view,
+        "assessment_view": twin.assessment_view,
         "channel_mappings": twin.channel_mappings,
         # Phase A: expose the feedback loop selection so the frontend
         # (Phase F) knows which coupling/solver to render.  Defaults
@@ -1072,6 +1085,255 @@ async def post_day_plan(
         })
     except ValueError as e:
         print(f"[WARN] /api/day/plan refused: {e}")
+        raise HTTPException(status_code=422, detail={
+            "error": str(e),
+            "type": type(e).__name__,
+            "timestamp": datetime.now().isoformat(),
+        })
+
+
+# ── Assessment endpoints ─────────────────────────────────────────────────────
+#
+# An assessment reads entries a person typed and values that arrive from an
+# activity lamina.  These two endpoints join the two: the reported dose comes
+# from ``planned_week`` and is handed to ``assess`` as its two links.  Entry
+# values are never logged; the guard below is deliberate.
+
+_ASSESSMENT_BODY_KEYS = ("subject", "entries", "plan", "days_per_week")
+
+
+def _assessment_lamina_or_400(lamina: Optional[str]) -> str:
+    """
+    The assessment lamina a request means, or 400 when none declares a view.
+
+    A named lamina is resolved exactly like every other endpoint, so an
+    unknown id is the usual 404.  When none is named the first lamina in
+    ``available_laminae`` whose twin declares an ``<assessment_view>`` is
+    chosen, which keeps the default a property of the laminae rather than a
+    list kept here.
+    """
+    if lamina:
+        _resolve_or_400(lamina)
+        return lamina
+
+    for entry in available_laminae():
+        twin = load_twin(resolve_lamina(entry["id"]))
+        if twin.assessment_view is not None:
+            return entry["id"]
+
+    raise HTTPException(status_code=400, detail={
+        "error": (
+            "No lamina declares an <assessment_view>, so there is no "
+            "assessment screen to draw."
+        ),
+        "available": [entry["id"] for entry in available_laminae()],
+        "timestamp": datetime.now().isoformat(),
+    })
+
+
+@app.get("/api/assessment/options")
+def get_assessment_options(
+    lamina: Optional[str] = Query(
+        default=None,
+        description=(
+            "Lamina id; omit for the first lamina that declares an "
+            "assessment view."
+        ),
+    ),
+):
+    """
+    Everything an assessment form needs, read from the lamina's own view.
+
+    The groups, links, range, results, flags and example are the lamina's
+    declaration.  A named lamina without an ``<assessment_view>`` is a 400;
+    omitting the lamina picks the first one that has a view, and a backend
+    with none is a 400 rather than an empty form.
+    """
+    print(
+        f"[LOG] GET /api/assessment/options  "
+        f"lamina={lamina or '(default)'}"
+    )
+    try:
+        return assessment_options(_assessment_lamina_or_400(lamina))
+    except NoAssessmentView as e:
+        print(
+            f"[WARN] /api/assessment/options no assessment view: "
+            f"{e.lamina_id}"
+        )
+        raise HTTPException(status_code=400, detail={
+            "error": str(e),
+            "lamina": e.lamina_id,
+            "timestamp": datetime.now().isoformat(),
+        })
+    except ValueError as e:
+        print(f"[WARN] /api/assessment/options refused: {type(e).__name__}")
+        raise HTTPException(status_code=422, detail={
+            "error": str(e),
+            "type": type(e).__name__,
+            "timestamp": datetime.now().isoformat(),
+        })
+
+
+@app.post("/api/assessment")
+async def post_assessment(
+    request: Request,
+    lamina: Optional[str] = Query(
+        default=None,
+        description=(
+            "Assessment lamina id; omit for the first lamina that declares "
+            "an assessment view."
+        ),
+    ),
+    activity_lamina: Optional[str] = Query(
+        default=None,
+        description=(
+            "Lamina id whose plan the day is run through, as ?lamina= on "
+            "/api/day/plan; omit for the process default."
+        ),
+    ),
+):
+    """
+    Assess entered figures using the weekly dose a plan would give.
+
+    The body is ``{"subject", "entries", "plan", "days_per_week"}``.  With a
+    plan, the plan's day is run through ``activity_lamina``, its session part
+    repeated ``days_per_week`` times and added to the subject's recorded
+    everyday median, and the resulting current/planned weekly doses become
+    the assessment's two links.  Without a plan only the recorded median is
+    offered, so ``planned`` stays None.
+
+    Privacy: the log line names the laminae, the subject, whether a plan was
+    given, the number of days and the NUMBER of entries.  No entered value
+    and no entry id is printed, on success or on error; a refused entry is
+    named only in the HTTP response.
+    """
+    try:
+        body = await request.json()
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail={
+            "error": f"The request body must be JSON: {e}",
+            "field": "body",
+            "timestamp": datetime.now().isoformat(),
+        })
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=422, detail={
+            "error": "The request body must be a JSON object.",
+            "field": "body",
+            "timestamp": datetime.now().isoformat(),
+        })
+
+    subject = body.get("subject")
+    entries = body.get("entries")
+    plan = body.get("plan")
+    days_per_week = body.get("days_per_week")
+
+    print(
+        f"[LOG] POST /api/assessment  lamina={lamina or '(default)'}  "
+        f"activity_lamina={activity_lamina or '(default)'}  "
+        f"subject={subject if isinstance(subject, str) else '(none)'}  "
+        f"plan_given={plan is not None}  days_per_week={days_per_week}  "
+        f"entries={len(entries) if isinstance(entries, dict) else 0}"
+    )
+
+    try:
+        for key in body:
+            if key not in _ASSESSMENT_BODY_KEYS:
+                raise PlanRefused(
+                    key,
+                    f"unknown assessment field; allowed: "
+                    f"{', '.join(_ASSESSMENT_BODY_KEYS)}.",
+                )
+        if not isinstance(subject, str) or not subject:
+            raise PlanRefused("subject", "must be a non-empty string.")
+        if not isinstance(entries, dict):
+            raise PlanRefused(
+                "entries",
+                "must be an object mapping entry attributes to numbers.",
+            )
+        if plan is not None:
+            if not isinstance(plan, dict):
+                raise PlanRefused("plan", "must be a JSON object or null.")
+            if plan.get("subject") != subject:
+                raise PlanRefused(
+                    "plan.subject",
+                    f"must match the body subject {subject!r}, got "
+                    f"{plan.get('subject')!r}.",
+                )
+
+        assessment_lamina = _assessment_lamina_or_400(lamina)
+        if activity_lamina:
+            _resolve_or_400(activity_lamina)
+
+        if plan is not None:
+            weekly = week_dose(activity_lamina or "", plan, days_per_week)
+        else:
+            weekly = habit_only(subject)
+
+        current = weekly["current"]
+        planned = weekly["planned"]
+        links = {
+            "current": current["p50"] if current else None,
+            "planned": planned["value"] if planned else None,
+        }
+        report = assess(assessment_lamina, entries, links)
+
+        roots = bundle_roots()
+        label = read_subject_label(roots[subject], subject)
+        dose = {key: value for key, value in weekly.items()
+                if key != "day"}
+        return {
+            "subject": subject,
+            "subject_label": label,
+            "dose": dose,
+            "day": weekly["day"],
+            "assessment": report,
+        }
+    except EntryRefused as e:
+        # Never log the message: it names the entry id.
+        print("[WARN] /api/assessment entry refused")
+        raise HTTPException(status_code=422, detail={
+            "error": str(e),
+            "field": e.field,
+            "timestamp": datetime.now().isoformat(),
+        })
+    except PlanRefused as e:
+        print("[WARN] /api/assessment plan refused")
+        raise HTTPException(status_code=422, detail={
+            "error": str(e),
+            "field": e.field,
+            "timestamp": datetime.now().isoformat(),
+        })
+    except NoAssessmentView as e:
+        print(f"[WARN] /api/assessment no assessment view: {e.lamina_id}")
+        raise HTTPException(status_code=400, detail={
+            "error": str(e),
+            "lamina": e.lamina_id,
+            "timestamp": datetime.now().isoformat(),
+        })
+    except NoPlanView as e:
+        print(f"[WARN] /api/assessment no plan view: {e.lamina_id}")
+        raise HTTPException(status_code=400, detail={
+            "error": str(e),
+            "lamina": e.lamina_id,
+            "timestamp": datetime.now().isoformat(),
+        })
+    except UnknownSubject as e:
+        print(f"[WARN] /api/assessment unknown subject: {e.subject}")
+        raise HTTPException(status_code=404, detail={
+            "error": str(e),
+            "subject": e.subject,
+            "available": e.available,
+            "timestamp": datetime.now().isoformat(),
+        })
+    except NoTemplates as e:
+        print(f"[WARN] /api/assessment no templates: {e.subject}")
+        raise HTTPException(status_code=404, detail={
+            "error": str(e),
+            "subject": e.subject,
+            "timestamp": datetime.now().isoformat(),
+        })
+    except ValueError as e:
+        print(f"[WARN] /api/assessment refused: {type(e).__name__}")
         raise HTTPException(status_code=422, detail={
             "error": str(e),
             "type": type(e).__name__,

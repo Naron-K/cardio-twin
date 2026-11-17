@@ -288,6 +288,8 @@ def summarise_bundle(
     rate_specs = list(day_view.get("rates", []))
     event_specs = list(day_view.get("events", []))
     worn_id = day_view["worn"]
+    dose_spec = (twin.plan_view or {}).get("dose")
+    dose_id = dose_spec["attribute"] if dose_spec else None
 
     session = Session(lamina=path)
     coefficients = params["coefficients"] if params else None
@@ -307,6 +309,7 @@ def summarise_bundle(
     }
     indicators: list[set] = []
     worn_present: list[bool] = []
+    dose_values: list[float | None] = []
 
     index = 0
     while True:
@@ -327,6 +330,25 @@ def summarise_bundle(
             None if modelled_id in failed
             else twin.attributes[modelled_id].value
         )
+        if dose_id is not None:
+            attr = twin.attributes[dose_id]
+            value = None if dose_id in failed else attr.value
+            if value is not None:
+                if not is_finite_number(value):
+                    raise ValueError(
+                        f"the {dose_spec['label']} attribute '{dose_id}' at "
+                        f"minute {index} computed {value!r}; a dose must be "
+                        f"a finite number. Check the lamina's dose function."
+                    )
+                value = float(value)
+                if value < 0.0 or value > attr.physio_max:
+                    raise ValueError(
+                        f"the {dose_spec['label']} attribute '{dose_id}' at "
+                        f"minute {index} computed {value:g}, outside its "
+                        f"plausible range 0..{attr.physio_max:g}. Check the "
+                        f"lamina's dose function."
+                    )
+            dose_values.append(value)
         for spec in rate_specs:
             attr_id = spec["attribute"]
             rate_values[attr_id].append(
@@ -607,6 +629,38 @@ def summarise_bundle(
     else:
         ending = ""
 
+    dose = None
+    if dose_id is not None:
+        dt_seconds = bundle["grid_s"]
+        dose_minutes = [
+            None if value is None else value * dt_seconds / 60.0
+            for value in dose_values
+        ]
+        total_dose = sum(
+            value for value in dose_minutes if value is not None
+        )
+        in_dose = sum(
+            dose_minutes[minute]
+            for item in sessions
+            for minute in range(item["start"], item["end"])
+            if dose_minutes[minute] is not None
+        )
+        rounded_total = _r(total_dose)
+        rounded_in = _r(in_dose)
+        dose = {
+            "attribute": dose_spec["attribute"],
+            "label": dose_spec["label"],
+            "unit": "MET-min",
+            "total": rounded_total,
+            "in_sessions": rounded_in,
+            "outside_sessions": _r(rounded_total - rounded_in),
+            "minutes_counted": sum(
+                1
+                for value in dose_values
+                if value is not None and value > 0.0
+            ),
+        }
+
     result = {
         "lamina": twin.lamina_id,
         "subject": subject,
@@ -647,6 +701,8 @@ def summarise_bundle(
             or None,
         },
     }
+    if dose is not None:
+        result["dose"] = dose
     _assert_finite(result, "day_summary")
     return result
 

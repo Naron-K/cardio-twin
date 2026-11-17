@@ -157,6 +157,45 @@ def _finite_field(mapping: dict, key: str, path: Path, where: str) -> float:
     return float(value)
 
 
+def _habit_block(data: dict, path: Path) -> None:
+    """Validate templates['habit'] when an upgraded file carries one."""
+    if "habit" not in data or data["habit"] is None:
+        return
+    habit = data["habit"]
+    if not isinstance(habit, dict):
+        raise ValueError(
+            f"{path}: templates['habit'] must be a JSON object or null, got "
+            f"{type(habit).__name__}."
+        )
+    weeks = _finite_field(habit, "weeks", path, "habit")
+    if weeks < 0.0 or weeks != int(weeks):
+        raise ValueError(
+            f"{path}: templates habit['weeks']={weeks!r} must be a "
+            f"non-negative integer."
+        )
+    for key in ("unit", "first_week", "last_week", "rule"):
+        value = habit.get(key)
+        if not isinstance(value, str) or not value:
+            raise ValueError(
+                f"{path}: templates habit['{key}']={value!r} must be a "
+                f"non-empty string."
+            )
+    for block in ("total", "in_sessions", "outside_sessions_per_day"):
+        entry = habit.get(block)
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f"{path}: templates habit['{block}'] must be a JSON object, "
+                f"got {type(entry).__name__}."
+            )
+        for key in ("p10", "p50", "p90"):
+            value = _finite_field(entry, key, path, f"habit {block}")
+            if value < 0.0:
+                raise ValueError(
+                    f"{path}: templates habit {block}['{key}']={value:g} "
+                    f"must not be negative."
+                )
+
+
 def load_templates(subject: str) -> dict | None:
     """
     Read and shape-check a subject's ``templates.json``, when it exists.
@@ -204,6 +243,8 @@ def load_templates(subject: str) -> dict | None:
         _finite_field(data["steps_outside"], key, path, "steps_outside")
     for key in ("start", "end"):
         _finite_field(data["awake"], key, path, "awake")
+
+    _habit_block(data, path)
 
     for group_id, entry in data["groups"].items():
         if not isinstance(group_id, str) or not isinstance(entry, dict):

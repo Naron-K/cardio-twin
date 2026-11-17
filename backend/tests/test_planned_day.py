@@ -156,6 +156,55 @@ def test_the_default_plan_runs_through_the_endpoint(options):
     assert steps_kpi["value"] == pytest.approx(expected_steps, abs=1)
 
 
+def _declared_dose_baselines() -> tuple[float, float]:
+    twin = load_twin(resolve_lamina(LAMINA))
+    return (
+        float(twin.attributes["BE_ref"].baseline),
+        float(twin.attributes["MET_floor"].baseline),
+    )
+
+
+def test_the_default_plan_has_a_positive_activity_dose(options):
+    plan = _base_plan(options)
+    response = _post(plan)
+    assert response.status_code == 200
+
+    assert response.json()["dose"]["total"] > 0
+
+
+def test_the_default_plan_session_dose_is_the_hand_sum(options):
+    plan = _base_plan(options)
+    response = _post(plan)
+    assert response.status_code == 200
+    body = response.json()
+
+    be_ref, floor = _declared_dose_baselines()
+    expected = sum(
+        (1.0 + spec["intensity"] / be_ref) * spec["minutes"]
+        for spec in plan["sessions"]
+        if 1.0 + spec["intensity"] / be_ref >= floor
+    )
+    assert body["dose"]["in_sessions"] == pytest.approx(
+        round(expected, 2), abs=1e-6
+    )
+
+
+def test_a_plan_with_no_sessions_has_no_session_dose(options):
+    plan = dict(_base_plan(options), sessions=[])
+    response = _post(plan)
+    assert response.status_code == 200
+
+    assert response.json()["dose"]["in_sessions"] == 0
+
+
+def test_a_planned_bundle_has_no_recorded_basal_rate(options, templates, groups):
+    bundle = build_planned_bundle(_base_plan(options), templates, groups)
+
+    assert all(
+        row["be_kcal_min"] is None for row in bundle["samples"]
+    )
+
+
 def _seven_sessions(plan: dict) -> None:
     plan["sessions"].extend([
         {"kind": "walk", "start": 500 + 60 * i, "minutes": 20,

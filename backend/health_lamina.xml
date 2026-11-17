@@ -1,0 +1,636 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ==================================================================
+  HEALTH RISK LAMINA: a frame, not yet a model.
+
+  It takes what a person enters about themselves (test results and
+  history the recordings cannot hold), takes the weekly activity dose
+  from the Daily Activity lamina, and reports a risk of disease now and
+  with a plan, plus screening flags.
+
+  EVERY MODEL IN THIS FILE IS A PLACEHOLDER.  The coefficients are
+  invented.  They are not a published equation and must not be read as
+  one.  They exist so the frame runs end to end, so a missing entry
+  fails loudly, and so an expert can replace them without touching the
+  frame.  The shapes are the shapes the real models will have: a
+  weighted sum turned into a probability, and a curve of relative risk
+  against weekly activity.
+
+  HOW TO REPLACE A MODEL
+    1. A different number: change a coefficient's <baseline> below.
+    2. A different formula: rewrite the function's body in
+       health_lamina.py and its <formula> text here.
+    3. A new input: declare the attribute, add it to the function's
+       <inputs>, and list it under a <group> in <assessment_view>.
+    Then set the function's status to "draft" or "reviewed", fill in
+    <source>, and name who reviewed it in <reviewed_by>.
+  The form, the "needs" messages, the endpoints and the page all follow
+  from this file.
+
+  NO CORRECTION, NO GATES, NO TAGS: this lamina reads and reports.
+  ==================================================================
+-->
+<lamina id="lamina_health" name="Health Risk" level="2">
+
+  <description>
+    A frame for disease risk: entered test results and history, the weekly
+    activity dose from the Daily Activity lamina, placeholder risk models
+    and screening flags. Every model is a placeholder until an expert
+    replaces it.
+  </description>
+
+  <behaviour_solver type="algebraic_chain" dt="1.0" unit="second" />
+
+  <attributes>
+
+    <!-- ── What the person enters.  No baseline: an entry that was not
+         given is absent, and everything that needs it is stale. ── -->
+    <attribute id="age">
+      <name>Age</name>
+      <unit>years</unit>
+      <source>SENSOR</source>
+      <physio_min>18</physio_min>
+      <physio_max>100</physio_max>
+      <description>Age in years.</description>
+    </attribute>
+
+    <attribute id="sex_male">
+      <name>Sex</name>
+      <unit>1</unit>
+      <source>SENSOR</source>
+      <physio_min>0</physio_min>
+      <physio_max>1</physio_max>
+      <description>1 for male, 0 for female. Risk models weigh the two differently.</description>
+    </attribute>
+
+    <attribute id="height_cm">
+      <name>Height</name>
+      <unit>cm</unit>
+      <source>SENSOR</source>
+      <physio_min>120</physio_min>
+      <physio_max>220</physio_max>
+      <description>Standing height.</description>
+    </attribute>
+
+    <attribute id="mass_kg">
+      <name>Body mass</name>
+      <unit>kg</unit>
+      <source>SENSOR</source>
+      <physio_min>30</physio_min>
+      <physio_max>250</physio_max>
+      <description>Body mass.</description>
+    </attribute>
+
+    <attribute id="sbp">
+      <name>Systolic blood pressure</name>
+      <unit>mmHg</unit>
+      <source>SENSOR</source>
+      <physio_min>70</physio_min>
+      <physio_max>260</physio_max>
+      <description>Resting systolic blood pressure, seated.</description>
+    </attribute>
+
+    <attribute id="dbp">
+      <name>Diastolic blood pressure</name>
+      <unit>mmHg</unit>
+      <source>SENSOR</source>
+      <physio_min>40</physio_min>
+      <physio_max>160</physio_max>
+      <description>Resting diastolic blood pressure, seated.</description>
+    </attribute>
+
+    <attribute id="chol_total">
+      <name>Total cholesterol</name>
+      <unit>mmol/L</unit>
+      <source>SENSOR</source>
+      <physio_min>2</physio_min>
+      <physio_max>12</physio_max>
+      <description>Total cholesterol from a blood test.</description>
+    </attribute>
+
+    <attribute id="chol_hdl">
+      <name>HDL cholesterol</name>
+      <unit>mmol/L</unit>
+      <source>SENSOR</source>
+      <physio_min>0.3</physio_min>
+      <physio_max>4</physio_max>
+      <description>HDL cholesterol from the same blood test.</description>
+    </attribute>
+
+    <attribute id="glucose_fasting">
+      <name>Fasting glucose</name>
+      <unit>mmol/L</unit>
+      <source>SENSOR</source>
+      <physio_min>2.5</physio_min>
+      <physio_max>25</physio_max>
+      <description>Fasting blood glucose.</description>
+    </attribute>
+
+    <attribute id="smoker">
+      <name>Smokes now</name>
+      <unit>1</unit>
+      <source>SENSOR</source>
+      <physio_min>0</physio_min>
+      <physio_max>1</physio_max>
+      <description>1 if the person smokes now, 0 otherwise.</description>
+    </attribute>
+
+    <attribute id="diabetes">
+      <name>Diagnosed diabetes</name>
+      <unit>1</unit>
+      <source>SENSOR</source>
+      <physio_min>0</physio_min>
+      <physio_max>1</physio_max>
+      <description>1 if diabetes has been diagnosed, 0 otherwise.</description>
+    </attribute>
+
+    <attribute id="bp_treated">
+      <name>Takes blood-pressure medicine</name>
+      <unit>1</unit>
+      <source>SENSOR</source>
+      <physio_min>0</physio_min>
+      <physio_max>1</physio_max>
+      <description>1 if the person takes medicine for blood pressure, 0 otherwise.</description>
+    </attribute>
+
+    <attribute id="family_diabetes">
+      <name>Close relative with diabetes</name>
+      <unit>1</unit>
+      <source>SENSOR</source>
+      <physio_min>0</physio_min>
+      <physio_max>1</physio_max>
+      <description>1 if a parent, brother or sister has diabetes, 0 otherwise.</description>
+    </attribute>
+
+    <attribute id="hr_medicine">
+      <name>Takes a heart-rate-lowering medicine</name>
+      <unit>1</unit>
+      <source>SENSOR</source>
+      <physio_min>0</physio_min>
+      <physio_max>1</physio_max>
+      <description>1 if the person takes a medicine that lowers heart rate, such as a beta blocker; 0 otherwise.</description>
+    </attribute>
+
+    <!-- ── What arrives from the Daily Activity lamina.  No baseline:
+         a dose nobody measured or planned is not a dose of zero. ── -->
+    <attribute id="dose_current">
+      <name>Weekly activity now</name>
+      <unit>MET-h/week</unit>
+      <source>INTER_LAMINA</source>
+      <physio_min>0</physio_min>
+      <physio_max>300</physio_max>
+      <description>The weekly activity dose this person records now: the median week of their recordings, from the Daily Activity lamina.</description>
+    </attribute>
+
+    <attribute id="dose_planned">
+      <name>Weekly activity with the plan</name>
+      <unit>MET-h/week</unit>
+      <source>INTER_LAMINA</source>
+      <physio_min>0</physio_min>
+      <physio_max>300</physio_max>
+      <description>The weekly activity dose the plan would give, projected by the Daily Activity lamina.</description>
+    </attribute>
+
+    <!-- ── Coefficients.  ALL INVENTED.  Change the baselines freely. ── -->
+    <attribute id="c_age"><name>CVD weight: log age</name><unit>1</unit><source>SENSOR</source><physio_min>-10</physio_min><physio_max>10</physio_max><baseline>2.5</baseline><description>Placeholder. Weight on the logarithm of age in the cardiovascular score.</description></attribute>
+    <attribute id="c_sbp"><name>CVD weight: log systolic pressure</name><unit>1</unit><source>SENSOR</source><physio_min>-10</physio_min><physio_max>10</physio_max><baseline>2.5</baseline><description>Placeholder. Weight on the logarithm of systolic blood pressure.</description></attribute>
+    <attribute id="c_tc"><name>CVD weight: log total cholesterol</name><unit>1</unit><source>SENSOR</source><physio_min>-10</physio_min><physio_max>10</physio_max><baseline>1.1</baseline><description>Placeholder. Weight on the logarithm of total cholesterol.</description></attribute>
+    <attribute id="c_hdl"><name>CVD weight: log HDL cholesterol</name><unit>1</unit><source>SENSOR</source><physio_min>-10</physio_min><physio_max>10</physio_max><baseline>-0.8</baseline><description>Placeholder. Weight on the logarithm of HDL cholesterol; negative because more HDL goes with lower risk.</description></attribute>
+    <attribute id="c_smoker"><name>CVD weight: smoking</name><unit>1</unit><source>SENSOR</source><physio_min>-10</physio_min><physio_max>10</physio_max><baseline>0.6</baseline><description>Placeholder. Added to the cardiovascular score for a current smoker.</description></attribute>
+    <attribute id="c_diabetes"><name>CVD weight: diabetes</name><unit>1</unit><source>SENSOR</source><physio_min>-10</physio_min><physio_max>10</physio_max><baseline>0.6</baseline><description>Placeholder. Added to the cardiovascular score for diagnosed diabetes.</description></attribute>
+    <attribute id="c_treated"><name>CVD weight: blood-pressure medicine</name><unit>1</unit><source>SENSOR</source><physio_min>-10</physio_min><physio_max>10</physio_max><baseline>0.3</baseline><description>Placeholder. Added to the cardiovascular score for treated blood pressure.</description></attribute>
+    <attribute id="c_male"><name>CVD weight: male</name><unit>1</unit><source>SENSOR</source><physio_min>-10</physio_min><physio_max>10</physio_max><baseline>0.5</baseline><description>Placeholder. Added to the cardiovascular score for a male.</description></attribute>
+    <attribute id="cvd_S0"><name>CVD baseline survival</name><unit>1</unit><source>SENSOR</source><physio_min>0.5</physio_min><physio_max>0.9999</physio_max><baseline>0.95</baseline><description>Placeholder. Share of reference people free of cardiovascular disease over the period.</description></attribute>
+    <attribute id="cvd_lp_ref"><name>CVD reference score</name><unit>1</unit><source>SENSOR</source><physio_min>0</physio_min><physio_max>60</physio_max><baseline>23.455</baseline><description>Placeholder. The score of the reference person: a 50-year-old woman, systolic 125, total cholesterol 5.2, HDL 1.3, no other factor.</description></attribute>
+
+    <attribute id="d_0"><name>Diabetes score: constant</name><unit>1</unit><source>SENSOR</source><physio_min>-30</physio_min><physio_max>30</physio_max><baseline>-10</baseline><description>Placeholder. Constant of the diabetes score.</description></attribute>
+    <attribute id="d_age"><name>Diabetes weight: age</name><unit>1/year</unit><source>SENSOR</source><physio_min>-1</physio_min><physio_max>1</physio_max><baseline>0.03</baseline><description>Placeholder. Weight on age.</description></attribute>
+    <attribute id="d_bmi"><name>Diabetes weight: body mass index</name><unit>m2/kg</unit><source>SENSOR</source><physio_min>-1</physio_min><physio_max>1</physio_max><baseline>0.09</baseline><description>Placeholder. Weight on body mass index.</description></attribute>
+    <attribute id="d_glucose"><name>Diabetes weight: fasting glucose</name><unit>L/mmol</unit><source>SENSOR</source><physio_min>-5</physio_min><physio_max>5</physio_max><baseline>0.6</baseline><description>Placeholder. Weight on fasting glucose.</description></attribute>
+    <attribute id="d_family"><name>Diabetes weight: family history</name><unit>1</unit><source>SENSOR</source><physio_min>-10</physio_min><physio_max>10</physio_max><baseline>0.5</baseline><description>Placeholder. Added for a close relative with diabetes.</description></attribute>
+    <attribute id="d_treated"><name>Diabetes weight: blood-pressure medicine</name><unit>1</unit><source>SENSOR</source><physio_min>-10</physio_min><physio_max>10</physio_max><baseline>0.4</baseline><description>Placeholder. Added for treated blood pressure.</description></attribute>
+
+    <attribute id="cvd_act_max"><name>CVD: largest reduction from activity</name><unit>1</unit><source>SENSOR</source><physio_min>0</physio_min><physio_max>0.9</physio_max><baseline>0.30</baseline><description>Placeholder. The share by which the relative risk of cardiovascular disease falls at very high weekly activity.</description></attribute>
+    <attribute id="cvd_act_scale"><name>CVD: activity scale</name><unit>MET-h/week</unit><source>SENSOR</source><physio_min>1</physio_min><physio_max>100</physio_max><baseline>12</baseline><description>Placeholder. The weekly dose at which about two thirds of the largest reduction is reached.</description></attribute>
+    <attribute id="dm_act_max"><name>Diabetes: largest reduction from activity</name><unit>1</unit><source>SENSOR</source><physio_min>0</physio_min><physio_max>0.9</physio_max><baseline>0.35</baseline><description>Placeholder. The share by which the relative risk of type 2 diabetes falls at very high weekly activity.</description></attribute>
+    <attribute id="dm_act_scale"><name>Diabetes: activity scale</name><unit>MET-h/week</unit><source>SENSOR</source><physio_min>1</physio_min><physio_max>100</physio_max><baseline>12</baseline><description>Placeholder. The weekly dose at which about two thirds of the largest reduction is reached.</description></attribute>
+
+    <attribute id="sbp_flag"><name>Flag threshold: systolic pressure</name><unit>mmHg</unit><source>SENSOR</source><physio_min>100</physio_min><physio_max>260</physio_max><baseline>160</baseline><description>Placeholder. Resting systolic pressure at or above which the blood-pressure flag is raised.</description></attribute>
+    <attribute id="dbp_flag"><name>Flag threshold: diastolic pressure</name><unit>mmHg</unit><source>SENSOR</source><physio_min>60</physio_min><physio_max>160</physio_max><baseline>100</baseline><description>Placeholder. Resting diastolic pressure at or above which the blood-pressure flag is raised.</description></attribute>
+    <attribute id="dose_jump_ratio"><name>Flag threshold: jump in weekly activity</name><unit>1</unit><source>SENSOR</source><physio_min>1</physio_min><physio_max>10</physio_max><baseline>1.5</baseline><description>Placeholder. A plan whose weekly dose exceeds the current dose by this factor raises the jump flag.</description></attribute>
+    <attribute id="dose_guideline_low"><name>Guideline range: lower end</name><unit>MET-h/week</unit><source>SENSOR</source><physio_min>0</physio_min><physio_max>100</physio_max><baseline>7.5</baseline><description>Placeholder. Lower end of the weekly activity range guidance recommends.</description></attribute>
+    <attribute id="dose_guideline_high"><name>Guideline range: upper end</name><unit>MET-h/week</unit><source>SENSOR</source><physio_min>0</physio_min><physio_max>100</physio_max><baseline>15</baseline><description>Placeholder. Upper end of the weekly activity range guidance recommends.</description></attribute>
+
+    <!-- ── The chain ───────────────────────────────────────────────── -->
+    <attribute id="BMI">
+      <name>Body mass index</name>
+      <unit>kg/m2</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>8</physio_min>
+      <physio_max>90</physio_max>
+      <computed_by>body_mass_index</computed_by>
+      <depends_on>mass_kg, height_cm</depends_on>
+      <description>Body mass divided by the square of height in metres.</description>
+    </attribute>
+
+    <attribute id="cvd_lp">
+      <name>Cardiovascular score</name>
+      <unit>1</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0</physio_min>
+      <physio_max>60</physio_max>
+      <computed_by>cvd_score</computed_by>
+      <depends_on>age, sbp, chol_total, chol_hdl, smoker, diabetes, bp_treated, sex_male, c_age, c_sbp, c_tc, c_hdl, c_smoker, c_diabetes, c_treated, c_male</depends_on>
+      <description>The weighted sum the cardiovascular risk is read from. Placeholder.</description>
+    </attribute>
+
+    <attribute id="cvd_risk_now">
+      <name>Cardiovascular risk now</name>
+      <unit>%</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0</physio_min>
+      <physio_max>100</physio_max>
+      <computed_by>cvd_risk_now</computed_by>
+      <depends_on>cvd_lp, cvd_S0, cvd_lp_ref</depends_on>
+      <description>Chance of cardiovascular disease over the period, on the entered figures. Placeholder.</description>
+    </attribute>
+
+    <attribute id="dm_lp">
+      <name>Diabetes score</name>
+      <unit>1</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>-30</physio_min>
+      <physio_max>30</physio_max>
+      <computed_by>dm_score</computed_by>
+      <depends_on>age, BMI, glucose_fasting, family_diabetes, bp_treated, d_0, d_age, d_bmi, d_glucose, d_family, d_treated</depends_on>
+      <description>The weighted sum the diabetes risk is read from. Placeholder.</description>
+    </attribute>
+
+    <attribute id="dm_risk_now">
+      <name>Type 2 diabetes risk now</name>
+      <unit>%</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0</physio_min>
+      <physio_max>100</physio_max>
+      <computed_by>dm_risk_now</computed_by>
+      <depends_on>dm_lp</depends_on>
+      <description>Chance of type 2 diabetes over the period, on the entered figures. Placeholder.</description>
+    </attribute>
+
+    <attribute id="cvd_rr_current">
+      <name>CVD relative risk at the current activity</name>
+      <unit>1</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0.05</physio_min>
+      <physio_max>1</physio_max>
+      <computed_by>cvd_rr_current</computed_by>
+      <depends_on>dose_current, cvd_act_max, cvd_act_scale</depends_on>
+      <description>Relative risk of cardiovascular disease at the current weekly dose, against no activity. Placeholder.</description>
+    </attribute>
+
+    <attribute id="cvd_rr_planned">
+      <name>CVD relative risk with the plan</name>
+      <unit>1</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0.05</physio_min>
+      <physio_max>1</physio_max>
+      <computed_by>cvd_rr_planned</computed_by>
+      <depends_on>dose_planned, cvd_act_max, cvd_act_scale</depends_on>
+      <description>Relative risk of cardiovascular disease at the planned weekly dose, against no activity. Placeholder.</description>
+    </attribute>
+
+    <attribute id="dm_rr_current">
+      <name>Diabetes relative risk at the current activity</name>
+      <unit>1</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0.05</physio_min>
+      <physio_max>1</physio_max>
+      <computed_by>dm_rr_current</computed_by>
+      <depends_on>dose_current, dm_act_max, dm_act_scale</depends_on>
+      <description>Relative risk of type 2 diabetes at the current weekly dose, against no activity. Placeholder.</description>
+    </attribute>
+
+    <attribute id="dm_rr_planned">
+      <name>Diabetes relative risk with the plan</name>
+      <unit>1</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0.05</physio_min>
+      <physio_max>1</physio_max>
+      <computed_by>dm_rr_planned</computed_by>
+      <depends_on>dose_planned, dm_act_max, dm_act_scale</depends_on>
+      <description>Relative risk of type 2 diabetes at the planned weekly dose, against no activity. Placeholder.</description>
+    </attribute>
+
+    <attribute id="cvd_risk_plan">
+      <name>Cardiovascular risk with the plan</name>
+      <unit>%</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0</physio_min>
+      <physio_max>100</physio_max>
+      <computed_by>cvd_risk_plan</computed_by>
+      <depends_on>cvd_risk_now, cvd_rr_planned, cvd_rr_current</depends_on>
+      <description>The risk now, moved by the ratio of relative risk at the planned dose to that at the current dose. Placeholder.</description>
+    </attribute>
+
+    <attribute id="dm_risk_plan">
+      <name>Type 2 diabetes risk with the plan</name>
+      <unit>%</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0</physio_min>
+      <physio_max>100</physio_max>
+      <computed_by>dm_risk_plan</computed_by>
+      <depends_on>dm_risk_now, dm_rr_planned, dm_rr_current</depends_on>
+      <description>The risk now, moved by the ratio of relative risk at the planned dose to that at the current dose. Placeholder.</description>
+    </attribute>
+
+    <attribute id="flag_bp">
+      <name>Blood pressure flag</name>
+      <unit>1</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0</physio_min>
+      <physio_max>1</physio_max>
+      <computed_by>flag_bp</computed_by>
+      <depends_on>sbp, dbp, sbp_flag, dbp_flag</depends_on>
+      <description>1 when resting blood pressure is at or above either threshold. Placeholder thresholds.</description>
+    </attribute>
+
+    <attribute id="flag_dose_jump">
+      <name>Jump in activity flag</name>
+      <unit>1</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0</physio_min>
+      <physio_max>1</physio_max>
+      <computed_by>flag_dose_jump</computed_by>
+      <depends_on>dose_planned, dose_current, dose_jump_ratio</depends_on>
+      <description>1 when the plan's weekly dose exceeds the current dose by more than the declared factor. Placeholder threshold.</description>
+    </attribute>
+
+    <attribute id="flag_medicine">
+      <name>Heart-rate medicine flag</name>
+      <unit>1</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0</physio_min>
+      <physio_max>1</physio_max>
+      <computed_by>flag_medicine</computed_by>
+      <depends_on>hr_medicine</depends_on>
+      <description>1 when the person takes a heart-rate-lowering medicine, so heart-rate targets do not describe their effort.</description>
+    </attribute>
+
+  </attributes>
+
+  <functions>
+
+    <function id="body_mass_index" step="1" status="draft">
+      <name>Body mass index</name>
+      <formula>BMI = mass_kg / (height_cm / 100)^2</formula>
+      <inputs>mass_kg, height_cm</inputs>
+      <output>BMI</output>
+      <source>Standard definition.</source>
+      <description>Body mass over height squared.</description>
+    </function>
+
+    <function id="cvd_score" step="2" status="placeholder">
+      <name>Cardiovascular score</name>
+      <formula>cvd_lp = c_age*ln(age) + c_sbp*ln(sbp) + c_tc*ln(chol_total) + c_hdl*ln(chol_hdl) + c_smoker*smoker + c_diabetes*diabetes + c_treated*bp_treated + c_male*sex_male</formula>
+      <inputs>age, sbp, chol_total, chol_hdl, smoker, diabetes, bp_treated, sex_male, c_age, c_sbp, c_tc, c_hdl, c_smoker, c_diabetes, c_treated, c_male</inputs>
+      <output>cvd_lp</output>
+      <source>Invented coefficients in the shape of a survival-model risk equation. Not a published equation.</source>
+      <description>A weighted sum of the entered figures. To be replaced by the equation an expert chooses.</description>
+    </function>
+
+    <function id="cvd_risk_now" step="3" status="placeholder">
+      <name>Cardiovascular risk now</name>
+      <formula>cvd_risk_now = 100 * (1 - cvd_S0 ^ exp(cvd_lp - cvd_lp_ref))</formula>
+      <inputs>cvd_lp, cvd_S0, cvd_lp_ref</inputs>
+      <output>cvd_risk_now</output>
+      <source>The usual survival form; the baseline survival and reference score are invented.</source>
+      <description>Turns the score into a chance over the period.</description>
+    </function>
+
+    <function id="dm_score" step="4" status="placeholder">
+      <name>Diabetes score</name>
+      <formula>dm_lp = d_0 + d_age*age + d_bmi*BMI + d_glucose*glucose_fasting + d_family*family_diabetes + d_treated*bp_treated</formula>
+      <inputs>age, BMI, glucose_fasting, family_diabetes, bp_treated, d_0, d_age, d_bmi, d_glucose, d_family, d_treated</inputs>
+      <output>dm_lp</output>
+      <source>Invented coefficients in the shape of a logistic risk score. Not a published equation.</source>
+      <description>A weighted sum of the entered figures. To be replaced by the score an expert chooses.</description>
+    </function>
+
+    <function id="dm_risk_now" step="5" status="placeholder">
+      <name>Type 2 diabetes risk now</name>
+      <formula>dm_risk_now = 100 / (1 + exp(-dm_lp))</formula>
+      <inputs>dm_lp</inputs>
+      <output>dm_risk_now</output>
+      <source>The logistic form.</source>
+      <description>Turns the score into a chance over the period.</description>
+    </function>
+
+    <function id="cvd_rr_current" step="6" status="placeholder">
+      <name>CVD relative risk at the current activity</name>
+      <formula>rr = 1 - act_max * (1 - exp(-dose / act_scale))</formula>
+      <inputs>dose_current, cvd_act_max, cvd_act_scale</inputs>
+      <output>cvd_rr_current</output>
+      <source>Invented curve with the saturating shape dose-response studies report. Not a published curve.</source>
+      <description>Relative risk falls quickly with the first hours of weekly activity and flattens.</description>
+    </function>
+
+    <function id="cvd_rr_planned" step="6a" status="placeholder">
+      <name>CVD relative risk with the plan</name>
+      <formula>rr = 1 - act_max * (1 - exp(-dose / act_scale))</formula>
+      <inputs>dose_planned, cvd_act_max, cvd_act_scale</inputs>
+      <output>cvd_rr_planned</output>
+      <source>Invented curve with the saturating shape dose-response studies report. Not a published curve.</source>
+      <description>The same curve, read at the planned dose.</description>
+    </function>
+
+    <function id="dm_rr_current" step="7" status="placeholder">
+      <name>Diabetes relative risk at the current activity</name>
+      <formula>rr = 1 - act_max * (1 - exp(-dose / act_scale))</formula>
+      <inputs>dose_current, dm_act_max, dm_act_scale</inputs>
+      <output>dm_rr_current</output>
+      <source>Invented curve with the saturating shape dose-response studies report. Not a published curve.</source>
+      <description>Relative risk falls quickly with the first hours of weekly activity and flattens.</description>
+    </function>
+
+    <function id="dm_rr_planned" step="7a" status="placeholder">
+      <name>Diabetes relative risk with the plan</name>
+      <formula>rr = 1 - act_max * (1 - exp(-dose / act_scale))</formula>
+      <inputs>dose_planned, dm_act_max, dm_act_scale</inputs>
+      <output>dm_rr_planned</output>
+      <source>Invented curve with the saturating shape dose-response studies report. Not a published curve.</source>
+      <description>The same curve, read at the planned dose.</description>
+    </function>
+
+    <function id="cvd_risk_plan" step="8" status="placeholder">
+      <name>Cardiovascular risk with the plan</name>
+      <formula>risk_plan = 100 * (1 - (1 - risk_now/100) ^ (rr_planned / rr_current))</formula>
+      <inputs>cvd_risk_now, cvd_rr_planned, cvd_rr_current</inputs>
+      <output>cvd_risk_plan</output>
+      <source>A relative risk applied to a survival probability as a hazard ratio: an approximation.</source>
+      <description>Moves the risk now by the ratio of the two relative risks. A plan below the current activity raises it.</description>
+    </function>
+
+    <function id="dm_risk_plan" step="8a" status="placeholder">
+      <name>Type 2 diabetes risk with the plan</name>
+      <formula>risk_plan = 100 * (1 - (1 - risk_now/100) ^ (rr_planned / rr_current))</formula>
+      <inputs>dm_risk_now, dm_rr_planned, dm_rr_current</inputs>
+      <output>dm_risk_plan</output>
+      <source>A relative risk applied to a survival probability as a hazard ratio: an approximation.</source>
+      <description>Moves the risk now by the ratio of the two relative risks. A plan below the current activity raises it.</description>
+    </function>
+
+    <function id="flag_bp" step="9" status="placeholder">
+      <name>Blood pressure flag</name>
+      <formula>flag_bp = 1 when sbp >= sbp_flag or dbp >= dbp_flag, else 0</formula>
+      <inputs>sbp, dbp, sbp_flag, dbp_flag</inputs>
+      <output>flag_bp</output>
+      <source>Invented thresholds. To be replaced from named guidance.</source>
+      <description>Raised when resting blood pressure is at or above either threshold.</description>
+    </function>
+
+    <function id="flag_dose_jump" step="10" status="placeholder">
+      <name>Jump in activity flag</name>
+      <formula>flag_dose_jump = 1 when dose_planned > dose_jump_ratio * dose_current, else 0</formula>
+      <inputs>dose_planned, dose_current, dose_jump_ratio</inputs>
+      <output>flag_dose_jump</output>
+      <source>Invented threshold. To be replaced from named guidance.</source>
+      <description>Raised when the plan asks for much more weekly activity than the person does now.</description>
+    </function>
+
+    <function id="flag_medicine" step="11" status="draft">
+      <name>Heart-rate medicine flag</name>
+      <formula>flag_medicine = hr_medicine</formula>
+      <inputs>hr_medicine</inputs>
+      <output>flag_medicine</output>
+      <source>A statement of fact about the entered answer.</source>
+      <description>Raised when the person takes a heart-rate-lowering medicine.</description>
+    </function>
+
+  </functions>
+
+  <composites>
+
+    <!-- A grouping for reading, not a feedback address. No tag points at it. -->
+    <composite id="risk_state">
+      <name>Risk State</name>
+      <attributes>cvd_risk_now, dm_risk_now</attributes>
+      <description>The two risks on the entered figures.</description>
+      <absorption_vector>
+        <weight attribute="cvd_risk_now">0.5</weight>
+        <weight attribute="dm_risk_now">0.5</weight>
+      </absorption_vector>
+      <distribution_vector>
+        <weight attribute="cvd_risk_now">0.5</weight>
+        <weight attribute="dm_risk_now">0.5</weight>
+      </distribution_vector>
+    </composite>
+
+  </composites>
+
+  <segments>
+
+    <segment name="Entered by the person" id="seg_entries">
+      <description>Test results and history the recordings cannot hold</description>
+      <attributes>age, sex_male, height_cm, mass_kg, sbp, dbp, chol_total, chol_hdl, glucose_fasting, smoker, diabetes, bp_treated, family_diabetes, hr_medicine</attributes>
+      <functions></functions>
+      <behavioural_outcomes>
+      </behavioural_outcomes>
+    </segment>
+
+    <segment name="From the activity twin" id="seg_links">
+      <description>The weekly activity dose, measured and planned</description>
+      <attributes>dose_current, dose_planned</attributes>
+      <functions></functions>
+      <behavioural_outcomes>
+      </behavioural_outcomes>
+    </segment>
+
+    <segment name="Model Coefficients" id="seg_coefficients">
+      <description>Every number the placeholder models read. All invented; an expert replaces them here.</description>
+      <attributes>c_age, c_sbp, c_tc, c_hdl, c_smoker, c_diabetes, c_treated, c_male, cvd_S0, cvd_lp_ref, d_0, d_age, d_bmi, d_glucose, d_family, d_treated, cvd_act_max, cvd_act_scale, dm_act_max, dm_act_scale, sbp_flag, dbp_flag, dose_jump_ratio, dose_guideline_low, dose_guideline_high</attributes>
+      <functions></functions>
+      <behavioural_outcomes>
+      </behavioural_outcomes>
+    </segment>
+
+    <segment name="Risk and Flags" id="seg_risk">
+      <description>The chain from entered figures and weekly activity to risk and flags</description>
+      <attributes>BMI, cvd_lp, cvd_risk_now, dm_lp, dm_risk_now, cvd_rr_current, cvd_rr_planned, dm_rr_current, dm_rr_planned, cvd_risk_plan, dm_risk_plan, flag_bp, flag_dose_jump, flag_medicine</attributes>
+      <composites>risk_state</composites>
+      <functions>body_mass_index, cvd_score, cvd_risk_now, dm_score, dm_risk_now, cvd_rr_current, cvd_rr_planned, dm_rr_current, dm_rr_planned, cvd_risk_plan, dm_risk_plan, flag_bp, flag_dose_jump, flag_medicine</functions>
+      <behavioural_outcomes>
+      </behavioural_outcomes>
+    </segment>
+
+  </segments>
+
+  <!--
+    <assessment_view> names the roles an attribute plays on an "enter what
+    is known, read what follows" screen.  It introduces no new quantity:
+    every id below is an attribute already declared in this file.
+
+      <group>/<entry>  what the person enters, and how the field is drawn
+                       (kind: number | yesno | choice)
+      <link>           what arrives from another lamina (role: current | planned)
+      <range>          a declared range the links are drawn against
+      <result>         a pair of outputs: now, and with the plan
+      <flag>           an output that is 0 or 1: its topic, and the headline and
+                       sentence shown when it is raised
+      <example>        INVENTED values that fill the form for a demonstration
+  -->
+  <assessment_view>
+
+    <group id="about" label="About you">
+      <entry attribute="age" kind="number" why="Risk rises with age in every model."/>
+      <entry attribute="sex_male" kind="choice" options="0:Female,1:Male" why="Risk models weigh the sexes differently."/>
+      <entry attribute="height_cm" kind="number" why="With body mass, gives body mass index."/>
+      <entry attribute="mass_kg" kind="number" why="With height, gives body mass index."/>
+    </group>
+
+    <group id="tests" label="Test results">
+      <entry attribute="sbp" kind="number" why="Resting blood pressure, from a recent reading."/>
+      <entry attribute="dbp" kind="number" why="Resting blood pressure, from a recent reading."/>
+      <entry attribute="chol_total" kind="number" why="From a blood test."/>
+      <entry attribute="chol_hdl" kind="number" why="From the same blood test."/>
+      <entry attribute="glucose_fasting" kind="number" why="From a fasting blood test."/>
+    </group>
+
+    <group id="history" label="History">
+      <entry attribute="smoker" kind="yesno" why="Smoking raises cardiovascular risk."/>
+      <entry attribute="diabetes" kind="yesno" why="Diabetes raises cardiovascular risk."/>
+      <entry attribute="bp_treated" kind="yesno" why="Treated pressure is read differently from untreated."/>
+      <entry attribute="family_diabetes" kind="yesno" why="A parent, brother or sister with diabetes."/>
+      <entry attribute="hr_medicine" kind="yesno" why="Such as a beta blocker: heart-rate targets then do not describe effort."/>
+    </group>
+
+    <link attribute="dose_current" role="current" label="Activity now"/>
+    <link attribute="dose_planned" role="planned" label="Activity with this plan"/>
+    <range low="dose_guideline_low" high="dose_guideline_high" label="Guideline range"/>
+
+    <result id="cvd" label="Cardiovascular disease" period="over 10 years" now="cvd_risk_now" planned="cvd_risk_plan"/>
+    <result id="diabetes" label="Type 2 diabetes" period="over 5 years" now="dm_risk_now" planned="dm_risk_plan" not_applicable_when="diabetes" not_applicable_text="Not shown: diabetes is already diagnosed."/>
+
+    <flag attribute="flag_bp" topic="Resting blood pressure" label="Resting blood pressure is high" text="The blood pressure you entered is at or above the level at which guidance advises seeing a doctor before starting or increasing exercise."/>
+    <flag attribute="flag_dose_jump" topic="Change in weekly activity" label="A large jump in weekly activity" text="This plan asks for much more weekly activity than your recordings show now. Guidance advises building up gradually."/>
+    <flag attribute="flag_medicine" topic="Heart-rate medicine" label="Heart-rate targets do not apply" text="A heart-rate-lowering medicine changes how heart rate responds to effort, so the heart-rate targets on this page do not describe your effort."/>
+
+    <example label="Invented example values, not a real person">
+      <value attribute="age">52</value>
+      <value attribute="sex_male">0</value>
+      <value attribute="height_cm">168</value>
+      <value attribute="mass_kg">74</value>
+      <value attribute="sbp">134</value>
+      <value attribute="dbp">84</value>
+      <value attribute="chol_total">5.6</value>
+      <value attribute="chol_hdl">1.3</value>
+      <value attribute="glucose_fasting">5.4</value>
+      <value attribute="smoker">0</value>
+      <value attribute="diabetes">0</value>
+      <value attribute="bp_treated">0</value>
+      <value attribute="family_diabetes">1</value>
+      <value attribute="hr_medicine">0</value>
+    </example>
+
+  </assessment_view>
+
+</lamina>

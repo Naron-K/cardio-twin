@@ -8,6 +8,8 @@ values and the two are compared.  The remaining tests pin the defaults, the
 shape, the monotonicity of intensity, the +5 level invariant, and the
 endpoint's status codes.
 """
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -266,6 +268,87 @@ def test_kind_groups_is_still_importable_from_the_tool():
     from tools.make_activity_templates import kind_groups as tool_kind_groups
 
     assert tool_kind_groups is po.kind_groups
+
+
+def _minimal_templates() -> dict:
+    return {
+        "level": {"median": 60.0},
+        "t_app": {"p5": 5.0, "p50": 20.0, "p95": 35.0},
+        "awake": {"start": 0, "end": 1440},
+        "steps_outside": {"p10": 1, "p50": 2, "p90": 3},
+        "groups": {},
+    }
+
+
+def _write_templates(tmp_path, **blocks):
+    data = _minimal_templates()
+    data.update(blocks)
+    path = tmp_path / "templates.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return path
+
+
+def _use_probe(tmp_path, monkeypatch):
+    monkeypatch.setattr(po, "bundle_roots", lambda: {"probe": tmp_path})
+
+
+def test_load_templates_accepts_an_older_file_without_habit(
+    tmp_path, monkeypatch
+):
+    _write_templates(tmp_path)
+    _use_probe(tmp_path, monkeypatch)
+
+    data = po.load_templates("probe")
+    assert data is not None
+    assert data.get("habit") is None
+
+
+def test_load_templates_accepts_habit(tmp_path, monkeypatch):
+    _write_templates(
+        tmp_path,
+        habit={
+            "unit": "MET-h/week",
+            "weeks": 1,
+            "first_week": "2025-W02",
+            "last_week": "2025-W02",
+            "total": {"p10": 1.0, "p50": 2.0, "p90": 3.0},
+            "in_sessions": {"p10": 0.1, "p50": 0.2, "p90": 0.3},
+            "outside_sessions_per_day": {
+                "p10": 10.0, "p50": 20.0, "p90": 30.0,
+            },
+            "rule": "A rule.",
+        },
+    )
+    _use_probe(tmp_path, monkeypatch)
+
+    data = po.load_templates("probe")
+    assert data["habit"]["weeks"] == 1
+
+
+def test_load_templates_refuses_a_non_finite_habit_percentile(
+    tmp_path, monkeypatch
+):
+    path = _write_templates(
+        tmp_path,
+        habit={
+            "unit": "MET-h/week",
+            "weeks": 1,
+            "first_week": "2025-W02",
+            "last_week": "2025-W02",
+            "total": {"p10": 1.0, "p50": float("nan"), "p90": 3.0},
+            "in_sessions": {"p10": 0.1, "p50": 0.2, "p90": 0.3},
+            "outside_sessions_per_day": {
+                "p10": 10.0, "p50": 20.0, "p90": 30.0,
+            },
+            "rule": "A rule.",
+        },
+    )
+    _use_probe(tmp_path, monkeypatch)
+
+    with pytest.raises(ValueError) as exc:
+        po.load_templates("probe")
+    assert str(path) in str(exc.value)
+    assert "habit" in str(exc.value)
 
 
 def test_a_kind_without_measured_test_sessions_is_left_out_of_the_peaks_line(templates):

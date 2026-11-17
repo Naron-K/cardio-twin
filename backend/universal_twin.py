@@ -200,6 +200,10 @@ EXTERNAL_SOURCES = frozenset({SENSOR, INTER_LAMINA})
 #: Everything a `<source>` element is allowed to say.
 VALID_SOURCES = frozenset({SENSOR, PRELIMINARY, INTER_LAMINA})
 
+#: Everything a function's optional `status` attribute is allowed to say.
+#: A declared status is provenance, not a behaviour the engine acts on.
+VALID_FUNCTION_STATUSES = ("placeholder", "draft", "reviewed")
+
 # Confidence stamped on an INTER_LAMINA attribute resting at its declared
 # baseline because nothing is coupled to it yet (G9).  Below a sensor's
 # 1.0 and a computed value's 0.9 on purpose: it is a number the domain
@@ -435,6 +439,11 @@ class FunctionDef:
     # output did not compute: "reseed" forgets it, "hold" keeps it.  None
     # means the function is stateless and receives no extra input.
     state_after_gap: Optional[str] = None
+    # Provenance: where the function's model came from and who signed off
+    # on it.  All three are optional in XML; absent means "not declared".
+    status: Optional[str] = None
+    source: str = ""
+    reviewed_by: str = ""
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -1104,6 +1113,11 @@ class UniversalTwin:
         # the counts, ambient context, baseline level and clock that
         # frame it.  None when the lamina declares no such block.
         self.plan_view: Optional[dict] = None
+        # Optional <assessment_view> roles: the groups of entries a person
+        # supplies, the links and declared range a screen draws, the paired
+        # results, the flag outputs and an invented example.  None when the
+        # lamina declares no such block.
+        self.assessment_view: Optional[dict] = None
         self.tags: dict[str, Tag] = {}  # Phase B — feedback tag registry
         self.channel_mappings: dict[str, str] = {}  # attribute_id -> channel_id
         self.gates: list[Gate] = []
@@ -1815,6 +1829,22 @@ class UniversalTwin:
                         f"'hold'."
                     )
 
+            raw_status = func_el.get("status")
+            status = raw_status.strip() if raw_status is not None else None
+            if status is not None and status not in VALID_FUNCTION_STATUSES:
+                raise ValueError(
+                    f"Function '{func_id}' declares status '{status}'. "
+                    f"Allowed values: {', '.join(VALID_FUNCTION_STATUSES)}."
+                )
+            source = (func_el.findtext("source", "") or "").strip()
+            reviewed_by = (func_el.findtext("reviewed_by", "") or "").strip()
+            if status == "reviewed" and not reviewed_by:
+                raise ValueError(
+                    f"Function '{func_id}' declares status 'reviewed' but "
+                    f"names no reviewer in <reviewed_by>. A review nobody "
+                    f"signed is not a review."
+                )
+
             self.functions[func_id] = FunctionDef(
                 id=func_id,
                 name=func_el.findtext("n", func_el.findtext("name", func_id)),
@@ -1824,6 +1854,9 @@ class UniversalTwin:
                 output=func_el.findtext("o", func_el.findtext("output", "")),
                 description=func_el.findtext("description", ""),
                 state_after_gap=state_after_gap,
+                status=status,
+                source=source,
+                reviewed_by=reviewed_by,
             )
 
         # Parse the optional <day_view> roles.  Attributes are all in place
@@ -1835,6 +1868,11 @@ class UniversalTwin:
         # are in place too, so the settles role can be followed through
         # the chain back to the intensity sensor.
         self.plan_view = self._parse_plan_view(root)
+
+        # Parse the optional <assessment_view> roles after it.  Attributes
+        # are all in place, so every id can be checked against what this
+        # lamina actually declares.
+        self.assessment_view = self._parse_assessment_view(root)
 
         # Parse composites
         for comp_el in root.findall(".//composites/composite"):
@@ -2224,11 +2262,12 @@ class UniversalTwin:
         The block says which declared attributes a plan screen reads: the
         session's intensity, where that intensity makes the model settle,
         the count it accumulates, the ambient context, the person's
-        baseline level and the clock it runs against.  Nothing here is a
-        new quantity; every id must already be declared.  A role with the
-        wrong source, a misspelt child, a repeated role, or a settling
-        value that its intensity never reaches is refused rather than
-        skipped.
+        baseline level and the clock it runs against.  It may also name an
+        optional <dose> role for the activity dose a session adds.  Nothing
+        here is a new quantity; every id must already be declared.  A role
+        with the wrong source, a misspelt child, a repeated role, or a
+        settling value that its intensity never reaches is refused rather
+        than skipped.
 
         A plan reuses <day_view>'s events as the kinds of session, so a
         <plan_view> without a <day_view> to borrow them from is refused.
@@ -2248,14 +2287,14 @@ class UniversalTwin:
         role_names = ("intensity", "settles", "count", "ambient",
                       "level", "clock")
         sensor_roles = ("intensity", "count", "ambient", "level", "clock")
-        allowed = set(role_names)
+        allowed = set(role_names) | {"dose"}
         for child in pv_el:
             if child.tag not in allowed:
                 raise ValueError(
                     f"Lamina '{lamina_id}' <plan_view> contains unknown "
                     f"child <{child.tag}>. Allowed children: "
                     f"<intensity>, <settles>, <count>, <ambient>, <level>, "
-                    f"<clock>."
+                    f"<clock>, and the optional <dose>."
                 )
 
         roles = {}
@@ -2277,6 +2316,32 @@ class UniversalTwin:
                 lamina_id, f"{name} attribute='{attr_id}'", attr_id,
                 block="plan_view")
             roles[name] = (el, attr)
+
+        doses = pv_el.findall("dose")
+        if len(doses) > 1:
+            raise ValueError(
+                f"Lamina '{lamina_id}' <plan_view> declares <dose> more than "
+                f"once; a plan view may name at most one dose role."
+            )
+        dose = None
+        if doses:
+            el = doses[0]
+            attr_id = (el.get("attribute") or "").strip()
+            if not attr_id:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <plan_view><dose> must declare an "
+                    f"attribute."
+                )
+            attr = self._day_view_attribute(
+                lamina_id, f"dose attribute='{attr_id}'", attr_id,
+                block="plan_view")
+            if attr.source != PRELIMINARY:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <plan_view><dose "
+                    f"attribute='{attr.id}'>: attribute '{attr.id}' is "
+                    f"{attr.source}; the dose attribute must be PRELIMINARY."
+                )
+            dose = (el, attr)
 
         for name in sensor_roles:
             _, attr = roles[name]
@@ -2318,7 +2383,17 @@ class UniversalTwin:
                 )
             seen_roles[attr.id] = name
 
-        return {
+        if dose is not None:
+            _, dose_attr = dose
+            if dose_attr.id in seen_roles:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <plan_view><dose "
+                    f"attribute='{dose_attr.id}'>: attribute '{dose_attr.id}' "
+                    f"is already used by <{seen_roles[dose_attr.id]}>; the "
+                    f"dose role must name a different attribute."
+                )
+
+        parsed = {
             name: {
                 "attribute": roles[name][1].id,
                 "label": self._day_view_label(roles[name][0],
@@ -2326,6 +2401,509 @@ class UniversalTwin:
                 "unit": roles[name][1].unit,
             }
             for name in role_names
+        }
+        if dose is not None:
+            parsed["dose"] = {
+                "attribute": dose[1].id,
+                "label": self._day_view_label(dose[0], dose[1]),
+                "unit": dose[1].unit,
+            }
+        return parsed
+
+    def _parse_assessment_options(self, lamina_id: str, element: str,
+                                  text: str, attr: Attribute) -> list:
+        """Parse an entry's "value:Label,value:Label" option list."""
+        options = []
+        seen_values = set()
+        for raw in text.split(","):
+            piece = raw.strip()
+            if not piece:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                    f"options '{text}' contains an empty entry."
+                )
+            if ":" not in piece:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                    f"option '{piece}' is not in the form value:Label."
+                )
+            value_text, option_label = piece.split(":", 1)
+            value_text = value_text.strip()
+            option_label = option_label.strip()
+            if not option_label:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                    f"option '{piece}' declares no label."
+                )
+            try:
+                value = float(value_text)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                    f"option value '{value_text}' is not a number."
+                ) from exc
+            if not math.isfinite(value):
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                    f"option value '{value_text}' is not finite."
+                )
+            if value in seen_values:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                    f"option value {value_text} is declared more than once."
+                )
+            seen_values.add(value)
+            if value < attr.physio_min or value > attr.physio_max:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                    f"option value {value_text} lies outside attribute "
+                    f"'{attr.id}' range {attr.physio_min}..{attr.physio_max}."
+                )
+            options.append({"value": value, "label": option_label})
+        if len(options) < 2:
+            raise ValueError(
+                f"Lamina '{lamina_id}' <assessment_view>{element}: a choice "
+                f"needs at least two options; found {len(options)}."
+            )
+        return options
+
+    def _parse_assessment_view(self, root) -> Optional[dict]:
+        """
+        Parse the optional, domain-neutral <assessment_view> role declaration.
+
+        The block says which declared attributes a person enters, how each
+        field is drawn, which values arrive from another lamina, the range
+        they are drawn against, the paired outputs a screen reports, the
+        0-or-1 outputs it raises as flags, and an invented example that
+        fills the form.  Nothing here is a new quantity: every id must
+        already be declared, and a role with the wrong source, a misspelt
+        child, a repeated id or a value outside its attribute's range is
+        refused rather than skipped.
+        """
+        av_el = root.find("assessment_view")
+        if av_el is None:
+            return None
+
+        lamina_id = self.lamina_id
+        allowed = ("group", "link", "range", "result", "flag", "example")
+        for child in av_el:
+            if child.tag not in allowed:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view> contains unknown "
+                    f"child <{child.tag}>. Allowed children: "
+                    f"{', '.join(f'<{name}>' for name in allowed)}."
+                )
+
+        def required(el, name: str, element: str) -> str:
+            value = (el.get(name) or "").strip()
+            if not value:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element} must "
+                    f"declare a {name}."
+                )
+            return value
+
+        def number(text: Optional[str], element: str) -> float:
+            if text is None or not text.strip():
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element} must "
+                    f"declare a numeric value."
+                )
+            try:
+                value = float(text)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element} reads "
+                    f"'{text}', which is not a number."
+                ) from exc
+            if not math.isfinite(value):
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element} reads "
+                    f"'{text}', which is not finite."
+                )
+            return value
+
+        # ── Groups and the entries inside them ───────────────────────
+        group_els = av_el.findall("group")
+        if not group_els:
+            raise ValueError(
+                f"Lamina '{lamina_id}' <assessment_view> must declare at "
+                f"least one <group>."
+            )
+
+        groups = []
+        entry_kinds = {}
+        entry_options = {}
+        seen_group_ids = set()
+        for group_el in group_els:
+            group_id = required(group_el, "id", "<group>")
+            group_element = f"<group id='{group_id}'>"
+            group_label = required(group_el, "label", group_element)
+            if group_id in seen_group_ids:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{group_element} "
+                    f"is declared more than once; group ids must be unique."
+                )
+            seen_group_ids.add(group_id)
+            for child in group_el:
+                if child.tag != "entry":
+                    raise ValueError(
+                        f"Lamina '{lamina_id}' <assessment_view>"
+                        f"{group_element} contains unknown child "
+                        f"<{child.tag}>. Allowed children: <entry>."
+                    )
+            entry_els = group_el.findall("entry")
+            if not entry_els:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{group_element} "
+                    f"must declare at least one <entry>."
+                )
+            entries = []
+            for entry_el in entry_els:
+                attribute_id = required(
+                    entry_el, "attribute", f"{group_element}<entry>")
+                element = (
+                    f"{group_element}<entry attribute='{attribute_id}'>"
+                )
+                for child in entry_el:
+                    raise ValueError(
+                        f"Lamina '{lamina_id}' <assessment_view>{element} "
+                        f"contains unknown child <{child.tag}>. An entry "
+                        f"declares no children."
+                    )
+                attr = self._day_view_attribute(
+                    lamina_id,
+                    f"group id='{group_id}' entry attribute='{attribute_id}'",
+                    attribute_id, block="assessment_view")
+                if attr.source != SENSOR:
+                    raise ValueError(
+                        f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                        f"attribute '{attr.id}' is {attr.source}; an entry "
+                        f"must be SENSOR."
+                    )
+                if attr.baseline is not None:
+                    raise ValueError(
+                        f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                        f"attribute '{attr.id}' declares a <baseline>; an "
+                        f"entry must have none, so an unanswered entry is "
+                        f"absent rather than defaulted."
+                    )
+                kind = required(entry_el, "kind", element)
+                if kind not in ("number", "yesno", "choice"):
+                    raise ValueError(
+                        f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                        f"kind '{kind}' is not one of number, yesno, choice."
+                    )
+                why = required(entry_el, "why", element)
+                options_attr = entry_el.get("options")
+                options = None
+                if kind == "choice":
+                    if options_attr is None or not options_attr.strip():
+                        raise ValueError(
+                            f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                            f"a choice entry must declare options in the form "
+                            f"'value:Label,value:Label'."
+                        )
+                    options = self._parse_assessment_options(
+                        lamina_id, element, options_attr, attr)
+                elif options_attr is not None:
+                    raise ValueError(
+                        f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                        f"options are only allowed on a choice entry, not on "
+                        f"kind '{kind}'."
+                    )
+                if kind == "yesno" and (
+                    attr.physio_min != 0.0 or attr.physio_max != 1.0
+                ):
+                    raise ValueError(
+                        f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                        f"a yesno entry needs an attribute whose range is "
+                        f"exactly 0..1; '{attr.id}' is "
+                        f"{attr.physio_min}..{attr.physio_max}."
+                    )
+                if attribute_id in entry_kinds:
+                    raise ValueError(
+                        f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                        f"attribute '{attr.id}' is already an entry; an "
+                        f"attribute may be an entry only once."
+                    )
+                entry_kinds[attribute_id] = kind
+                if options is not None:
+                    entry_options[attribute_id] = [
+                        option["value"] for option in options
+                    ]
+                entries.append({
+                    "attribute": attr.id,
+                    "label": attr.name,
+                    "unit": attr.unit,
+                    "kind": kind,
+                    "why": why,
+                    "min": attr.physio_min,
+                    "max": attr.physio_max,
+                    "options": options,
+                })
+            groups.append({
+                "id": group_id,
+                "label": group_label,
+                "entries": entries,
+            })
+
+        # ── Links: what arrives from another lamina ──────────────────
+        links = {}
+        seen_link_roles = set()
+        for link_el in av_el.findall("link"):
+            role = (link_el.get("role") or "").strip()
+            if role not in ("current", "planned"):
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view><link> declares "
+                    f"role '{role}'; allowed roles are current, planned."
+                )
+            attribute_id = required(
+                link_el, "attribute", f"<link role='{role}'>")
+            element = f"<link attribute='{attribute_id}' role='{role}'>"
+            attr = self._day_view_attribute(
+                lamina_id, f"link attribute='{attribute_id}'", attribute_id,
+                block="assessment_view")
+            if attr.source != INTER_LAMINA:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                    f"attribute '{attr.id}' is {attr.source}; a link must "
+                    f"be INTER_LAMINA."
+                )
+            label = required(link_el, "label", element)
+            if role in seen_link_roles:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element}: role "
+                    f"'{role}' is declared more than once; each role may "
+                    f"appear at most once."
+                )
+            seen_link_roles.add(role)
+            links[role] = {
+                "attribute": attr.id,
+                "label": label,
+                "unit": attr.unit,
+            }
+
+        # ── Range: a declared span the links are drawn against ───────
+        range_els = av_el.findall("range")
+        if len(range_els) > 1:
+            raise ValueError(
+                f"Lamina '{lamina_id}' <assessment_view> declares <range> "
+                f"more than once; at most one is allowed."
+            )
+        range_view = None
+        if range_els:
+            range_el = range_els[0]
+            low_id = required(range_el, "low", "<range>")
+            high_id = required(
+                range_el, "high", f"<range low='{low_id}'>")
+            range_element = f"<range low='{low_id}' high='{high_id}'>"
+            label = required(range_el, "label", range_element)
+            low = self._day_view_attribute(
+                lamina_id, f"range low='{low_id}'", low_id,
+                block="assessment_view")
+            high = self._day_view_attribute(
+                lamina_id, f"range high='{high_id}'", high_id,
+                block="assessment_view")
+            for role, attr in (("low", low), ("high", high)):
+                if attr.source != SENSOR:
+                    raise ValueError(
+                        f"Lamina '{lamina_id}' <assessment_view>"
+                        f"{range_element}: attribute '{attr.id}' is "
+                        f"{attr.source}; the {role} attribute must be "
+                        f"SENSOR."
+                    )
+                if attr.baseline is None:
+                    raise ValueError(
+                        f"Lamina '{lamina_id}' <assessment_view>"
+                        f"{range_element}: attribute '{attr.id}' declares no "
+                        f"<baseline>; both range endpoints must have one."
+                    )
+            range_view = {
+                "low": low.id,
+                "high": high.id,
+                "label": label,
+                "unit": low.unit,
+            }
+
+        # ── Results: a pair of outputs, now and with the plan ────────
+        result_els = av_el.findall("result")
+        if not result_els:
+            raise ValueError(
+                f"Lamina '{lamina_id}' <assessment_view> must declare at "
+                f"least one <result>."
+            )
+        results = []
+        seen_result_ids = set()
+        for result_el in result_els:
+            result_id = required(result_el, "id", "<result>")
+            element = f"<result id='{result_id}'>"
+            label = required(result_el, "label", element)
+            period = required(result_el, "period", element)
+            now_id = required(result_el, "now", element)
+            planned_id = required(result_el, "planned", element)
+            if result_id in seen_result_ids:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element} is "
+                    f"declared more than once; result ids must be unique."
+                )
+            now = self._day_view_attribute(
+                lamina_id, f"result id='{result_id}' now='{now_id}'",
+                now_id, block="assessment_view")
+            planned = self._day_view_attribute(
+                lamina_id, f"result id='{result_id}' planned='{planned_id}'",
+                planned_id, block="assessment_view")
+            for role, attr in (("now", now), ("planned", planned)):
+                if attr.source != PRELIMINARY:
+                    raise ValueError(
+                        f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                        f"attribute '{attr.id}' is {attr.source}; the {role} "
+                        f"attribute must be PRELIMINARY."
+                    )
+            when_raw = result_el.get("not_applicable_when")
+            when_id = None
+            when_text = None
+            if when_raw is not None:
+                when_id = when_raw.strip()
+                when_element = (
+                    f"<result id='{result_id}' "
+                    f"not_applicable_when='{when_id}'>"
+                )
+                if when_id not in entry_kinds:
+                    raise ValueError(
+                        f"Lamina '{lamina_id}' <assessment_view>"
+                        f"{when_element}: '{when_id}' is not a declared "
+                        f"entry."
+                    )
+                if entry_kinds[when_id] != "yesno":
+                    raise ValueError(
+                        f"Lamina '{lamina_id}' <assessment_view>"
+                        f"{when_element}: '{when_id}' is a "
+                        f"{entry_kinds[when_id]} entry; "
+                        f"not_applicable_when must name a yesno entry."
+                    )
+                when_text = required(
+                    result_el, "not_applicable_text", when_element)
+            results.append({
+                "id": result_id,
+                "label": label,
+                "period": period,
+                "now": now.id,
+                "planned": planned.id,
+                "unit": now.unit,
+                "not_applicable_when": when_id,
+                "not_applicable_text": when_text,
+            })
+            seen_result_ids.add(result_id)
+
+        # ── Flags: 0-or-1 outputs and the sentence they raise ────────
+        flags = []
+        seen_flag_ids = set()
+        for flag_el in av_el.findall("flag"):
+            attribute_id = required(flag_el, "attribute", "<flag>")
+            element = f"<flag attribute='{attribute_id}'>"
+            attr = self._day_view_attribute(
+                lamina_id, f"flag attribute='{attribute_id}'", attribute_id,
+                block="assessment_view")
+            if attr.source != PRELIMINARY:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                    f"attribute '{attr.id}' is {attr.source}; a flag must be "
+                    f"PRELIMINARY."
+                )
+            if attr.physio_min != 0.0 or attr.physio_max != 1.0:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element}: a flag "
+                    f"needs an attribute whose range is exactly 0..1; "
+                    f"'{attr.id}' is {attr.physio_min}..{attr.physio_max}."
+                )
+            topic = required(flag_el, "topic", element)
+            label = required(flag_el, "label", element)
+            text = required(flag_el, "text", element)
+            if attr.id in seen_flag_ids:
+                raise ValueError(
+                    f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                    f"attribute '{attr.id}' is already a flag; an attribute "
+                    f"may be a flag only once."
+                )
+            seen_flag_ids.add(attr.id)
+            flags.append({
+                "attribute": attr.id,
+                "topic": topic,
+                "label": label,
+                "text": text,
+            })
+
+        # ── Example: invented values that fill the form ──────────────
+        example_els = av_el.findall("example")
+        if len(example_els) > 1:
+            raise ValueError(
+                f"Lamina '{lamina_id}' <assessment_view> declares <example> "
+                f"more than once; at most one is allowed."
+            )
+        example = None
+        if example_els:
+            example_el = example_els[0]
+            label = required(example_el, "label", "<example>")
+            for child in example_el:
+                if child.tag != "value":
+                    raise ValueError(
+                        f"Lamina '{lamina_id}' <assessment_view><example> "
+                        f"contains unknown child <{child.tag}>. Allowed "
+                        f"children: <value>."
+                    )
+            values = {}
+            for value_el in example_el.findall("value"):
+                attribute_id = required(
+                    value_el, "attribute", "<example><value>")
+                element = f"<example><value attribute='{attribute_id}'>"
+                for child in value_el:
+                    raise ValueError(
+                        f"Lamina '{lamina_id}' <assessment_view>{element} "
+                        f"contains unknown child <{child.tag}>. A value "
+                        f"declares no children."
+                    )
+                if attribute_id in values:
+                    raise ValueError(
+                        f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                        f"attribute '{attribute_id}' is given more than once."
+                    )
+                if attribute_id not in entry_kinds:
+                    raise ValueError(
+                        f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                        f"attribute '{attribute_id}' is not a declared entry."
+                    )
+                attr = self.attributes[attribute_id]
+                value = number(value_el.text, element)
+                if value < attr.physio_min or value > attr.physio_max:
+                    raise ValueError(
+                        f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                        f"value {value} lies outside attribute '{attr.id}' "
+                        f"range {attr.physio_min}..{attr.physio_max}."
+                    )
+                kind = entry_kinds[attribute_id]
+                if kind == "yesno" and value not in (0.0, 1.0):
+                    raise ValueError(
+                        f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                        f"value {value} is not 0 or 1, but '{attr.id}' is a "
+                        f"yesno entry."
+                    )
+                if kind == "choice" and value not in entry_options[attribute_id]:
+                    raise ValueError(
+                        f"Lamina '{lamina_id}' <assessment_view>{element}: "
+                        f"value {value} is not one of the declared options "
+                        f"for '{attr.id}'."
+                    )
+                values[attribute_id] = value
+            example = {"label": label, "values": values}
+
+        return {
+            "groups": groups,
+            "links": links,
+            "range": range_view,
+            "results": results,
+            "flags": flags,
+            "example": example,
         }
 
     def _parse_tags(self, root):

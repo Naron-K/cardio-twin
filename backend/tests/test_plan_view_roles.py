@@ -48,6 +48,11 @@ EXPECTED_WEARABLE = {
         "label": "Clock hour",
         "unit": "h",
     },
+    "dose": {
+        "attribute": "dose_rate",
+        "label": "Activity dose",
+        "unit": "MET",
+    },
 }
 
 BASE_ATTRIBUTES = """

@@ -28,8 +28,9 @@ OUTPUT
 identity fields, the per-workout, per-group and all-session summaries, 24
 hourly rates (with a fallback when an hour is thinly recorded), the daily steps
 outside sessions, the awake window, the resting level range and the apparent
-temperature range.  Floats are rounded to four decimals; the resting level and
-the temperature use one decimal because that is how they are read.
+temperature range.  It also holds, when a full week qualifies, the current
+weekly activity dose.  Floats are rounded to four decimals; the resting level
+and the temperature use one decimal because that is how they are read.
 
 Run from backend/:
 
@@ -45,6 +46,7 @@ import argparse
 import json
 import math
 import sys
+from datetime import date as _date
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -54,8 +56,12 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from bundles import read_subject_label  # noqa: E402
-from plan_options import kind_groups  # noqa: E402
+from bundles import (  # noqa: E402
+    load_params,
+    read_subject_label,
+)
+from day_summary import summarise_bundle  # noqa: E402
+from plan_options import _quiet, kind_groups  # noqa: E402
 from tools.fit_hr_model import (  # noqa: E402
     WEARABLE_XML,
     day_inputs,
@@ -76,6 +82,11 @@ USED_DAY_MIN_WORN = 720
 AWAKE_ROUND_MINUTES = 5
 ROUND_DECIMALS = 4
 LEVEL_DECIMALS = 1
+
+HABIT_START_DATE = _date(2025, 1, 1)
+HABIT_MIN_WORN_MINUTES = 300
+HABIT_MIN_WORN_DAYS = 5
+HABIT_WEEK_DAYS = 7
 
 
 def _r4(value) -> float:
@@ -430,6 +441,141 @@ def build_templates(days: list[dict], groups: dict[str, dict]) -> dict:
     }
 
 
+def _worn_minutes(bundle: dict) -> int:
+    """Minutes on which the bundle has ae_kcal_min, the tool's worn minute."""
+    return sum(
+        1 for row in bundle["samples"] if row.get("ae_kcal_min") is not None
+    )
+
+
+def _habit_percentiles(values: list[float]) -> dict:
+    """The 10th, 50th and 90th percentile, rounded like the other tables."""
+    p10, p50, p90 = np.percentile(values, [10, 50, 90])
+    return {
+        "p10": _r4(p10),
+        "p50": _r4(p50),
+        "p90": _r4(p90),
+    }
+
+
+def build_habit(
+    days: list[dict],
+    params: dict | None,
+    subject_label: str,
+    lamina_id: str = LAMINA_ID,
+) -> dict | None:
+    """
+    The current weekly activity, from the recordings' own day dose.
+
+    Days dated 2025-01-01 or later are grouped by ISO week.  A week counts
+    when all seven of its days are present as bundles and at least five of
+    them have more than 300 worn minutes.  Each counted day's dose is the
+    one ``day_summary.summarise_bundle`` returns, so this is the lamina's
+    arithmetic rather than a second copy of it.  With no counted week the
+    answer is None.
+    """
+    if not isinstance(days, list):
+        raise ValueError(
+            f"days must be a list of day bundles, got "
+            f"{type(days).__name__}."
+        )
+    if not isinstance(subject_label, str) or not subject_label:
+        raise ValueError(
+            f"subject_label must be a non-empty string, got "
+            f"{subject_label!r}."
+        )
+    if params is not None:
+        if not isinstance(params, dict):
+            raise ValueError(
+                f"params must be a mapping or None, got "
+                f"{type(params).__name__}."
+            )
+        if "coefficients" not in params:
+            raise ValueError(
+                "params has no 'coefficients'; load it with "
+                "bundles.load_params before building the habit."
+            )
+
+    weeks: dict[tuple[int, int], dict[_date, dict]] = {}
+    for bundle in days:
+        if not isinstance(bundle, dict) or "date" not in bundle:
+            raise ValueError(
+                "Every habit day must be a bundle object with a 'date', got "
+                f"{bundle!r}."
+            )
+        try:
+            day = _date.fromisoformat(bundle["date"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Bundle date {bundle['date']!r} is not a YYYY-MM-DD date."
+            ) from exc
+        if day < HABIT_START_DATE:
+            continue
+        iso = day.isocalendar()
+        weeks.setdefault((iso.year, iso.week), {})[day] = bundle
+
+    counted: list[tuple[tuple[int, int], list[dict]]] = []
+    for key in sorted(weeks):
+        week = weeks[key]
+        if len(week) != HABIT_WEEK_DAYS:
+            continue
+        worn_days = sum(
+            1
+            for bundle in week.values()
+            if _worn_minutes(bundle) > HABIT_MIN_WORN_MINUTES
+        )
+        if worn_days < HABIT_MIN_WORN_DAYS:
+            continue
+        counted.append((key, [week[day] for day in sorted(week)]))
+
+    if not counted:
+        return None
+
+    weekly_total: list[float] = []
+    weekly_in_sessions: list[float] = []
+    outside_per_day: list[float] = []
+    with _quiet():
+        for _key, week in counted:
+            total = 0.0
+            in_sessions = 0.0
+            for bundle in week:
+                summary = summarise_bundle(
+                    lamina_id,
+                    bundle,
+                    params,
+                    subject_label,
+                    planned=True,
+                )
+                if "dose" not in summary:
+                    raise ValueError(
+                        f"Lamina '{lamina_id}' has no <dose> role, so a "
+                        f"weekly habit cannot be built from day_summary."
+                    )
+                dose = summary["dose"]
+                total += float(dose["total"])
+                in_sessions += float(dose["in_sessions"])
+                outside_per_day.append(float(dose["outside_sessions"]))
+            weekly_total.append(total / 60.0)
+            weekly_in_sessions.append(in_sessions / 60.0)
+
+    first = counted[0][0]
+    last = counted[-1][0]
+    return {
+        "unit": "MET-h/week",
+        "weeks": len(counted),
+        "first_week": f"{first[0]:04d}-W{first[1]:02d}",
+        "last_week": f"{last[0]:04d}-W{last[1]:02d}",
+        "total": _habit_percentiles(weekly_total),
+        "in_sessions": _habit_percentiles(weekly_in_sessions),
+        "outside_sessions_per_day": _habit_percentiles(outside_per_day),
+        "rule": (
+            "Days dated 2025-01-01 or later; an ISO week counts when all 7 "
+            "of its days are recorded and at least 5 of them have more than "
+            "300 worn minutes."
+        ),
+    }
+
+
 def session_rate(templates: dict, workout: str) -> tuple[float, float]:
     """
     The (AE, steps) rate of one minute in a session with this label.
@@ -537,6 +683,8 @@ def main(argv=None) -> int:
     templates = build_templates(days, groups)
 
     label = read_subject_label(subject_dir, args.subject)
+    params = load_params(args.subject)
+    habit = build_habit(days, params, label, LAMINA_ID)
 
     dropped = False
     if out_path.exists():
@@ -557,6 +705,7 @@ def main(argv=None) -> int:
         "lamina": LAMINA_ID,
         "made_at": datetime.now(timezone.utc).isoformat(),
         **templates,
+        "habit": habit,
     }
     out_path.write_text(
         json.dumps(payload, indent=2, ensure_ascii=False) + "\n",

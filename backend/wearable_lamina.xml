@@ -323,6 +323,28 @@
       <description>Time constant while heart rate falls toward its target. A seeded default until a fitted params.json replaces it.</description>
     </attribute>
 
+    <attribute id="BE_ref">
+      <name>Resting Energy Rate</name>
+      <unit>kcal/min</unit>
+      <source>SENSOR</source>
+      <physio_min>0.5</physio_min>
+      <physio_max>2.5</physio_max>
+      <baseline>1.1</baseline>
+      <noise_sigma>0</noise_sigma>
+      <description>The energy this person spends at rest, the rate that counts as one metabolic equivalent. A seeded default; a person's own value belongs in their params.json. It is a constant on purpose and not the minute's recorded basal rate: that record is about 1.10 while the watch is off, about 1.54 while it is worn, and now and then a fraction of a minute close to zero, so dividing by it reported 22 MET for a person sitting still.</description>
+    </attribute>
+
+    <attribute id="MET_floor">
+      <name>Dose Floor</name>
+      <unit>MET</unit>
+      <source>SENSOR</source>
+      <physio_min>1</physio_min>
+      <physio_max>10</physio_max>
+      <baseline>3.0</baseline>
+      <noise_sigma>0</noise_sigma>
+      <description>Activity below this metabolic equivalent is not counted towards the activity dose. It is a declared default an expert may change: raising it counts only the harder minutes, lowering it counts more of the day.</description>
+    </attribute>
+
     <!-- ── The chain ───────────────────────────────────────────────── -->
     <attribute id="HR_measured">
       <name>Measured Heart Rate</name>
@@ -355,6 +377,28 @@
       <computed_by>vo2_estimate</computed_by>
       <depends_on>EE_total</depends_on>
       <description>Energy rate converted to oxygen consumption. The conversion uses 4.86 kcal per litre of oxygen, which is an approximation: the accepted range is 4.69 to 5.05 depending on substrate, and 4.86 is a single stand-in for that spread.</description>
+    </attribute>
+
+    <attribute id="MET">
+      <name>Metabolic Equivalent</name>
+      <unit>MET</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0.5</physio_min>
+      <physio_max>25</physio_max>
+      <computed_by>met_level</computed_by>
+      <depends_on>AE_rate, BE_ref</depends_on>
+      <description>How many times the resting rate the minute is spending: one for rest, plus the active energy rate over the resting energy rate. One MET is sitting at rest; a brisk walk is several. It reads the active energy only, the same quantity a planned session sets, so a recorded minute and a planned minute at the same activity give the same value.</description>
+    </attribute>
+
+    <attribute id="dose_rate">
+      <name>Activity Dose Rate</name>
+      <unit>MET</unit>
+      <source>PRELIMINARY</source>
+      <physio_min>0</physio_min>
+      <physio_max>25</physio_max>
+      <computed_by>dose_rate</computed_by>
+      <depends_on>MET, MET_floor</depends_on>
+      <description>MET-minutes added per minute: the metabolic equivalent when it is at or above the floor, otherwise zero. Quiet minutes contribute nothing rather than a small amount.</description>
     </attribute>
 
     <attribute id="HR_circ">
@@ -473,6 +517,22 @@
       <description>Converts energy rate to oxygen consumption. 4.86 kcal per litre of oxygen is an approximation; the accepted range is 4.69 to 5.05, so this is an estimate whose error band is wider than the arithmetic suggests.</description>
     </function>
 
+    <function id="met_level" step="3a">
+      <name>Metabolic Equivalent</name>
+      <formula>MET = 1 + AE_rate / BE_ref</formula>
+      <inputs>AE_rate, BE_ref</inputs>
+      <output>MET</output>
+      <description>Rest counts as one; activity adds its energy rate over the resting rate. A resting rate of zero or less is refused rather than divided by, and so is a negative active energy rate: neither is a rate, and the quotient would look like a confident answer.</description>
+    </function>
+
+    <function id="dose_rate" step="3b">
+      <name>Activity Dose Rate</name>
+      <formula>dose_rate = MET when MET >= MET_floor, else 0</formula>
+      <inputs>MET, MET_floor</inputs>
+      <output>dose_rate</output>
+      <description>Counts the metabolic equivalent towards the activity dose only when it reaches the floor. Below the floor the minute contributes zero rather than a fraction, so the dose measures activity worth counting.</description>
+    </function>
+
     <function id="hr_circadian" step="4">
       <name>Circadian Heart Rate Contribution</name>
       <formula>HR_circ = A_circ * cos(2*pi*(hour_local - phi_circ)/24)</formula>
@@ -580,7 +640,7 @@
 
     <segment name="Personal Coefficients" id="seg_coefficients">
       <description>The seeded personal terms the heart-rate model reads. Defaults until a fitted params.json replaces them.</description>
-      <attributes>HR_offset, HR_max, k_I, p_I, g_walk, g_strength, g_cardio, A_circ, phi_circ, k_T, T_ref, tau_on, tau_off</attributes>
+      <attributes>HR_offset, HR_max, k_I, p_I, g_walk, g_strength, g_cardio, A_circ, phi_circ, k_T, T_ref, tau_on, tau_off, BE_ref, MET_floor</attributes>
       <functions></functions>
       <behavioural_outcomes>
       </behavioural_outcomes>
@@ -588,9 +648,9 @@
 
     <segment name="Heart Rate and Energy" id="seg_hr_energy">
       <description>The chain from measurement and energy to a modelled heart rate and the residual it leaves</description>
-      <attributes>HR_measured, EE_total, VO2_est, HR_circ, HR_thermal, g_activity, HR_drive, HR_target, HR_model, HR_residual, kcal_active_cum</attributes>
+      <attributes>HR_measured, EE_total, VO2_est, MET, dose_rate, HR_circ, HR_thermal, g_activity, HR_drive, HR_target, HR_model, HR_residual, kcal_active_cum</attributes>
       <composites>heart_rate_state</composites>
-      <functions>measured_hr, energy_total, vo2_estimate, hr_circadian, hr_thermal, activity_gain, hr_drive, hr_target, hr_model, hr_residual, kcal_cumulative</functions>
+      <functions>measured_hr, energy_total, vo2_estimate, met_level, dose_rate, hr_circadian, hr_thermal, activity_gain, hr_drive, hr_target, hr_model, hr_residual, kcal_cumulative</functions>
       <behavioural_outcomes>
         <outcome id="target_residual" attribute="HR_residual" target="0" tolerance="10"
                  name="Target Heart Rate Residual" unit="bpm">
@@ -634,6 +694,7 @@
     <ambient attribute="T_app" label="Outdoor temperature"/>
     <level attribute="HR_level" label="Resting level"/>
     <clock attribute="hour_local" label="Clock hour"/>
+    <dose attribute="dose_rate" label="Activity dose"/>
   </plan_view>
 
   <!--

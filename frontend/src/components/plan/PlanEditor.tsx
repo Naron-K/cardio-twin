@@ -50,6 +50,7 @@ interface Props {
     entries: Entries
     onEdit: () => void
     onFillExample: () => void
+    onFillProfile: (id: string) => void
     onClear: () => void
   } | null
   /** Session days a week, when the assessment view is available. */
@@ -387,6 +388,7 @@ export function PlanEditor({
             entries={health.entries}
             onEdit={health.onEdit}
             onFillExample={health.onFillExample}
+            onFillProfile={health.onFillProfile}
             onClear={health.onClear}
           />
         )}

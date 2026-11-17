@@ -10,6 +10,10 @@
  * flag state; that a typed entry is read, comma and all, without ever letting
  * a bad value into the form; and that progress, the example, the refused
  * field, the change text, the axis top and the day clamp agree with it.
+ *
+ * The added fields are checked against the shapes the running backend returns:
+ * several examples, measured values, horizons, mediators and fitness, plus the
+ * helpers that pick a horizon, scale the factors and print a profile or a move.
  */
 import assert from 'node:assert/strict'
 import {
@@ -19,18 +23,28 @@ import {
   clampDays,
   clearEntries,
   controlForEntryField,
+  decimalsFor,
+  deltaText,
   displayUnit,
   entriesBody,
   entryText,
   fillExample,
+  fillProfile,
   groupProgress,
+  horizonChoices,
+  horizonShort,
+  mediatorPoint,
+  mediatorScale,
+  needText,
   parseAssessmentAnswer,
   parseAssessmentOptions,
+  profileOf,
   readDaysParam,
   scaleTop,
   setEntry,
   statusText,
   totalProgress,
+  valueAtHorizon,
   writeDaysParam,
 } from '../src/twin/assessment.ts'
 import type {
@@ -264,6 +278,159 @@ const ANSWER_RAW = {
   day: { lamina: 'lamina_wearable', planned: true },
 }
 
+// ── The added fields, as the real answers carry them ─────────────────────────
+
+const ADAPTATION_MODEL = {
+  id: 'adapt_glucose_fasting',
+  name: 'Fasting glucose: adaptation',
+  status: 'placeholder',
+  source: 'Invented numbers in the shape training trials report. Not a published model.',
+  reviewed_by: '',
+}
+
+const NEW_OPTIONS_RAW = {
+  ...OPTIONS_RAW,
+  example: {
+    label: 'Low risk · invented example',
+    values: { age: 38, sex_male: 0, sbp: 112, smoker: 0 },
+  },
+  examples: [
+    {
+      id: 'low',
+      label: 'Low risk · invented example',
+      values: { age: 38, sex_male: 0, sbp: 112, smoker: 0 },
+    },
+    {
+      id: 'borderline',
+      label: 'Borderline / prediabetes · invented example',
+      values: { age: 52, sex_male: 1, sbp: 134, smoker: 0 },
+    },
+  ],
+  measured: [
+    {
+      key: 'resting_hr',
+      attribute: 'resting_hr',
+      label: 'Resting heart rate, from your recordings',
+      unit: 'bpm',
+    },
+  ],
+  horizons: {
+    attribute: 'weeks',
+    unit: 'weeks',
+    values: [0, 4, 8, 12],
+    settled: 1000,
+    settled_label: 'Settled',
+  },
+  mediators: [
+    {
+      now: 'glucose_fasting',
+      at: 'glucose_fasting_at',
+      label: 'Fasting glucose',
+      unit: 'mmol/L',
+      source: 'entered',
+      key: null,
+      still: null,
+      status: 'placeholder',
+      models: [ADAPTATION_MODEL],
+    },
+    {
+      now: 'resting_hr',
+      at: 'resting_hr_at',
+      label: 'Resting heart rate',
+      unit: 'bpm',
+      source: 'measured',
+      key: 'resting_hr',
+      still: null,
+      status: 'placeholder',
+      models: [ADAPTATION_MODEL],
+    },
+  ],
+}
+
+const NEW_ANSWER_RAW = {
+  ...ANSWER_RAW,
+  dose: {
+    ...ANSWER_RAW.dose,
+    fitness: { resting_hr: 66, vo2max: 26.13 },
+  },
+  assessment: {
+    ...ANSWER_RAW.assessment,
+    horizons: {
+      attribute: 'weeks',
+      unit: 'weeks',
+      values: [0, 4, 8, 12],
+      settled: 1000,
+      settled_label: 'Settled',
+    },
+    results: [
+      {
+        ...ANSWER_RAW.assessment.results[0],
+        series: [
+          { weeks: 0, value: 14.3 },
+          { weeks: 4, value: 12.92 },
+          { weeks: 8, value: 12.16 },
+          { weeks: 12, value: 11.7 },
+        ],
+        settled: 10.74,
+      },
+    ],
+    mediators: [
+      {
+        now: 'glucose_fasting',
+        label: 'Fasting glucose',
+        unit: 'mmol/L',
+        source: 'entered',
+        key: null,
+        still: null,
+        status: 'placeholder',
+        value_now: 6.3,
+        series: [
+          { weeks: 0, value: 6.3 },
+          { weeks: 4, value: 6.19 },
+          { weeks: 8, value: 6.11 },
+          { weeks: 12, value: 6.06 },
+        ],
+        settled: 5.93,
+        moves: true,
+        needs: [{ attribute: 'glucose_fasting', label: 'Fasting glucose' }],
+      },
+      {
+        now: 'chol_total',
+        label: 'Total cholesterol',
+        unit: 'mmol/L',
+        source: 'entered',
+        key: null,
+        still: 'Not expected to change with activity alone.',
+        status: 'placeholder',
+        value_now: 5.8,
+        series: [
+          { weeks: 0, value: 5.8 },
+          { weeks: 4, value: 5.8 },
+          { weeks: 8, value: 5.8 },
+          { weeks: 12, value: 5.8 },
+        ],
+        settled: 5.8,
+        moves: false,
+        needs: [],
+      },
+      {
+        now: 'vo2max',
+        label: 'VO2max',
+        unit: 'mL/kg/min',
+        source: 'measured',
+        key: 'vo2max',
+        still: null,
+        status: 'placeholder',
+        value_now: null,
+        series: [],
+        settled: null,
+        moves: true,
+        needs: [{ measured: 'vo2max', label: 'VO2max' }],
+      },
+    ],
+  },
+}
+
 // ── Both parsers accept the real shape ───────────────────────────────────────
 
 const options: AssessmentOptions = parseAssessmentOptions(OPTIONS_RAW)
@@ -286,6 +453,60 @@ equal(parsed.answer.assessment.results[0].change?.points, -0.32, 'answer: change
 equal(parsed.answer.assessment.flags[1].state, 'raised', 'answer: flag state')
 ok(parsed.day === ANSWER_RAW.day, 'answer: day passed through untouched')
 
+// An older server returns none of the added fields: each is empty, not fatal.
+equal(options.examples, [], 'options: absent examples')
+equal(options.measured, [], 'options: absent measured')
+equal(options.horizons, null, 'options: absent horizons')
+equal(options.mediators, [], 'options: absent mediators')
+equal(parsed.answer.dose.fitness, {}, 'answer: absent fitness')
+equal(parsed.answer.assessment.horizons, null, 'answer: absent horizons')
+equal(parsed.answer.assessment.mediators, [], 'answer: absent mediators')
+equal(parsed.answer.assessment.results[0].series, [], 'answer: absent series')
+equal(parsed.answer.assessment.results[0].settled, null, 'answer: absent settled')
+
+const newOptions = parseAssessmentOptions(NEW_OPTIONS_RAW)
+equal(newOptions.examples.length, 2, 'options: examples')
+equal(newOptions.examples[1].id, 'borderline', 'options: example id')
+equal(newOptions.examples[0].values.age, 38, 'options: example profile values')
+equal(newOptions.example?.values.age, 38, 'options: singular example kept')
+equal(newOptions.measured[0].key, 'resting_hr', 'options: measured key')
+equal(newOptions.horizons?.values, [0, 4, 8, 12], 'options: horizons values')
+equal(newOptions.mediators[1].source, 'measured', 'options: mediator source')
+
+const newAnswer = parseAssessmentAnswer(NEW_ANSWER_RAW)
+equal(newAnswer.answer.dose.fitness.vo2max, 26.13, 'answer: fitness')
+equal(
+  newAnswer.answer.assessment.horizons?.settled_label,
+  'Settled',
+  'answer: horizons',
+)
+equal(
+  newAnswer.answer.assessment.results[0].series[2].value,
+  12.16,
+  'answer: result series',
+)
+equal(newAnswer.answer.assessment.results[0].settled, 10.74, 'answer: result settled')
+equal(
+  newAnswer.answer.assessment.mediators[0].value_now,
+  6.3,
+  'answer: mediator value now',
+)
+equal(
+  newAnswer.answer.assessment.mediators[0].moves,
+  true,
+  'answer: mediator moves',
+)
+equal(
+  newAnswer.answer.assessment.mediators[1].still,
+  'Not expected to change with activity alone.',
+  'answer: mediator still',
+)
+equal(
+  newAnswer.answer.assessment.mediators[2].needs[0],
+  { measured: 'vo2max', label: 'VO2max' },
+  'answer: measured need',
+)
+
 // ── Each parser refuses a bad shape, naming the field ────────────────────────
 
 function optionsMangled(change: (raw: typeof OPTIONS_RAW) => void): unknown {
@@ -296,6 +517,22 @@ function optionsMangled(change: (raw: typeof OPTIONS_RAW) => void): unknown {
 
 function answerMangled(change: (raw: typeof ANSWER_RAW) => void): unknown {
   const raw = clone(ANSWER_RAW)
+  change(raw)
+  return raw
+}
+
+function newOptionsMangled(
+  change: (raw: typeof NEW_OPTIONS_RAW) => void,
+): unknown {
+  const raw = clone(NEW_OPTIONS_RAW)
+  change(raw)
+  return raw
+}
+
+function newAnswerMangled(
+  change: (raw: typeof NEW_ANSWER_RAW) => void,
+): unknown {
+  const raw = clone(NEW_ANSWER_RAW)
   change(raw)
   return raw
 }
@@ -369,6 +606,48 @@ throws(
     ),
   /assessment answer: day/,
   'answer: missing day refused',
+)
+throws(
+  () =>
+    parseAssessmentAnswer(
+      newAnswerMangled((raw) => {
+        raw.assessment.results[0].series[0].value =
+          Number.POSITIVE_INFINITY
+      }),
+    ),
+  /assessment\.results\[0\]\.series\[0\]\.value must be a finite number or null/,
+  'answer: non-finite series refused',
+)
+throws(
+  () =>
+    parseAssessmentAnswer(
+      newAnswerMangled((raw) => {
+        raw.assessment.results[0].series.pop()
+      }),
+    ),
+  /assessment\.results\[0\]\.series must have as many entries as the horizons/,
+  'answer: series of the wrong length refused',
+)
+throws(
+  () =>
+    parseAssessmentAnswer(
+      newAnswerMangled((raw) => {
+        ;(raw.assessment.mediators[0] as { source: unknown }).source =
+          'invented'
+      }),
+    ),
+  /assessment\.mediators\[0\]\.source must be 'entered' or 'measured'/,
+  'answer: unknown mediator source refused',
+)
+throws(
+  () =>
+    parseAssessmentOptions(
+      newOptionsMangled((raw) => {
+        ;(raw.examples[1] as { id: unknown }).id = 'low'
+      }),
+    ),
+  /examples\[1\]\.id must be unique/,
+  'options: duplicate example id refused',
 )
 
 // ── Typing an entry ──────────────────────────────────────────────────────────
@@ -534,6 +813,106 @@ equal(readDaysParam(''), 3, 'days: no query is the typical 3')
 equal(writeDaysParam('?plan=x', 5), 'plan=x&days=5', 'days: written beside the plan')
 equal(writeDaysParam('?days=2&plan=x', 4), 'days=4&plan=x', 'days: rewritten in place')
 equal(writeDaysParam('?days=2', 9), 'days=7', 'days: clamped when written')
+
+// ── Horizons, profiles and factor movement ──────────────────────────────────
+
+const horizons = newAnswer.answer.assessment.horizons
+if (horizons === null) throw new Error('fixture: horizons must be present')
+const choices = horizonChoices(horizons)
+equal(choices.length, 5, 'horizons: one per value then settled')
+equal(
+  choices.map((choice) => choice.label),
+  ['Now', '4 weeks', '8 weeks', '12 weeks', 'Settled'],
+  'horizons: labels',
+)
+equal(
+  choices.map((choice) => choice.settled),
+  [false, false, false, false, true],
+  'horizons: settled flag',
+)
+equal(choices[4].weeks, null, 'horizons: settled has no weeks')
+equal(choices[4].index, 4, 'horizons: settled index after the values')
+equal(horizonChoices(null), [], 'horizons: null has no choices')
+
+const seriesResult = newAnswer.answer.assessment.results[0]
+equal(valueAtHorizon(seriesResult, choices[2]), 12.16, 'horizons: value at 8 weeks')
+equal(valueAtHorizon(seriesResult, choices[4]), 10.74, 'horizons: settled value')
+equal(horizonShort(choices[0]), 'Now', 'horizons: short now')
+equal(horizonShort(choices[1]), '4 wk', 'horizons: short 4 wk')
+equal(horizonShort(choices[4]), 'Settled', 'horizons: short settled')
+
+const mediators = newAnswer.answer.assessment.mediators
+const scale = mediatorScale(mediators, choices)
+ok(Math.abs(scale - 0.0587) < 0.001, 'mediators: shared scale from moving factors')
+equal(
+  mediatorScale([mediators[1]], choices),
+  0.02,
+  'mediators: a non-moving factor is ignored',
+)
+equal(mediatorScale([], choices), 0.02, 'mediators: empty scale is at least 0.02')
+equal(mediatorPoint(100, 6.3, scale), 1, 'mediators: point clamps up')
+equal(mediatorPoint(-100, 6.3, scale), -1, 'mediators: point clamps down')
+ok(
+  Math.abs(mediatorPoint(5.93, 6.3, scale) + 1) < 1e-9,
+  'mediators: settled move reaches the scale',
+)
+equal(mediatorPoint(null, 6.3, scale), 0, 'mediators: a missing value is zero')
+
+equal(decimalsFor(9.99), 2, 'decimals: below 10')
+equal(decimalsFor(10), 1, 'decimals: at 10')
+equal(decimalsFor(-12.5), 1, 'decimals: above 10 in size')
+
+const profileEntries = fillProfile(newOptions, 'low')
+equal(
+  profileEntries,
+  { age: 38, sex_male: 0, sbp: 112, smoker: 0 },
+  'profile: fill copies the example',
+)
+equal(profileOf(newOptions, profileEntries), 'low', 'profile: found exactly')
+equal(
+  profileOf(newOptions, { ...profileEntries, age: 39 }),
+  null,
+  'profile: one changed entry is no profile',
+)
+profileEntries.age = 99
+equal(
+  newOptions.examples[0].values.age,
+  38,
+  'profile: mutating the copy leaves the options alone',
+)
+throws(
+  () => fillProfile(newOptions, 'nope'),
+  /examples\.nope is not a declared example/,
+  'profile: unknown id refused',
+)
+
+equal(
+  needText({ attribute: 'sbp', label: 'Systolic blood pressure' }),
+  'Systolic blood pressure',
+  'need: attribute label',
+)
+equal(
+  needText({ link: 'planned', label: 'Activity with this plan' }),
+  'Activity with this plan',
+  'need: link label',
+)
+equal(
+  needText({ measured: 'vo2max', label: 'VO2max' }),
+  'VO2max',
+  'need: measured label',
+)
+
+equal(
+  deltaText(7.4, 10),
+  { text: '\u22122.60 points', direction: 'down' },
+  'delta: down',
+)
+equal(deltaText(12, 10), { text: '+2.00 points', direction: 'up' }, 'delta: up')
+equal(
+  deltaText(10.001, 10),
+  { text: '0.00 points', direction: 'same' },
+  'delta: same',
+)
 
 // ── Display units ────────────────────────────────────────────────────────────
 

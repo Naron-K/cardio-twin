@@ -284,6 +284,40 @@ body mass do not move; an improvement stops at its limit and a value already pas
 is not moved; without a measured value the risks that read it are absent and say so;
 no entered or measured value reaches the server log. Suite: 1217 passed.
 
+### 6.2 As built: the page, phase 5 (2026-11-18)
+
+The user approved the mockup (`tools/mockups/adaptation_body.html`, built from the real
+endpoints by `build_adaptation_mockup.py`) on 2026-11-18.
+
+- `frontend/src/twin/assessment.ts` parses the new fields (examples, measured links,
+  horizons, mediators, each result's series and settled value, measured needs,
+  `dose.fitness`) and holds the pure helpers: horizon choices, the value at a horizon,
+  one shared scale for every factor's line, the profile the entries came from, and the
+  wording of a change. `scripts/assessment-check.ts` has 157 checks.
+- **Your health**: one button per invented profile; the chosen one is marked by a glyph
+  and a border as well as colour, and a chip "▲ <label> · invented example" stays until
+  an entry is edited.
+- **The form** ends with "From your recordings": resting heart rate and VO2max, read-only.
+- **The week and risk**: "Plan kept up for" Now · 4 · 8 · 12 weeks · Settled, starting at
+  Now after every run; the fixed sentence about test results; risk cards with the value
+  at the selected horizon, its change and a row of every horizon; "What changes, and
+  when" with every factor on one shared scale; flags in a full-width row.
+
+Driven on the real page in headless Chrome with no console error or warning: each
+profile; 3 and 7 days a week; Now, 12 weeks and Settled; the form with its recordings
+section; editing an entry (the profile chip goes, the result reads "Setup changed");
+nothing entered (every result and factor names what it needs, with an Enter button); an
+entry refused by the server (the form opens on that field); phone width (no sideways
+scroll). With no assessment lamina the page is pixel-identical to the reference taken
+before the forecast work began. Nothing entered is in the URL or in browser storage.
+
+Fixed by hand after looking at the pixels: the chosen profile button was marked only by
+`aria-pressed`, with no visible difference.
+
+Who wrote what: OpenCode wrote the parsers, the components and the wiring from specs
+written here; the generator of `health_lamina.xml`, the fitness export, the mockup and
+the fix above were written here.
+
 ## 7. Limits to keep on screen
 
 1. Every size and pace is a placeholder until an expert replaces it. A placeholder figure

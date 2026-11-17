@@ -9,13 +9,26 @@
  */
 import { useEffect, useId, useRef, useState } from 'react'
 import type { AssessmentEntry, AssessmentOptions, Entries } from '../../twin/assessment'
-import { displayUnit, entryText, setEntry } from '../../twin/assessment'
+import {
+  decimalsFor,
+  displayUnit,
+  entryText,
+  figureText,
+  setEntry,
+} from '../../twin/assessment'
 import { FOCUS_CLASS } from './PlanEditor'
+
+interface RecordedValue {
+  label: string
+  unit: string
+  value: number | null
+}
 
 interface Props {
   open: boolean
   options: AssessmentOptions
   entries: Entries
+  recorded: RecordedValue[]
   onChange: (entries: Entries) => void
   onClose: () => void
   refused: { attribute: string | null; message: string } | null
@@ -25,6 +38,7 @@ interface Props {
 interface BodyProps {
   options: AssessmentOptions
   entries: Entries
+  recorded: RecordedValue[]
   onChange: (entries: Entries) => void
   refused: { attribute: string | null; message: string } | null
   focusAttribute: string | null
@@ -42,9 +56,21 @@ function isEntered(entries: Entries, entry: AssessmentEntry): boolean {
   return value !== undefined && Number.isFinite(value)
 }
 
+function MeasuredTag() {
+  return (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-white/10 px-2 py-0.5 text-[13px] font-semibold text-ink/70">
+      <span aria-hidden="true" className="text-ink">
+        ■
+      </span>
+      Measured
+    </span>
+  )
+}
+
 function DrawerBody({
   options,
   entries,
+  recorded,
   onChange,
   refused,
   focusAttribute,
@@ -217,6 +243,46 @@ function DrawerBody({
           })}
         </div>
       ))}
+
+      {recorded.length > 0 && (
+        <section>
+          <h3 className="mt-4 font-display text-[16px] font-semibold text-ink">
+            From your recordings
+          </h3>
+          <p className="mt-1 text-[13px] leading-[18px] text-ink/70">
+            Read from your watch, not typed. Shown so you can see what the twin
+            already knows.
+          </p>
+
+          <div>
+            {recorded.map((item, index) => (
+              <div
+                key={`${item.label}-${index}`}
+                className="grid grid-cols-1 gap-x-3 gap-y-1 border-t border-white/10 py-2 min-[1100px]:grid-cols-[1fr_190px] min-[1100px]:items-center"
+              >
+                <span className="flex flex-wrap items-center gap-1.5 text-[15px] font-semibold text-ink">
+                  <MeasuredTag />
+                  {item.label}
+                </span>
+                <b className="font-mono text-[16px] font-bold tabular-nums text-ink min-[1100px]:text-right">
+                  {item.value === null ? (
+                    <span className="font-body text-[13px] font-normal text-ink/70">
+                      not in the recordings
+                    </span>
+                  ) : (
+                    <>
+                      {figureText(item.value, decimalsFor(item.value))}{' '}
+                      <span className="text-[13px] font-normal text-ink/70">
+                        {displayUnit(item.unit)}
+                      </span>
+                    </>
+                  )}
+                </b>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   )
 }
@@ -225,6 +291,7 @@ export function HealthDrawer({
   open,
   options,
   entries,
+  recorded,
   onChange,
   onClose,
   refused,
@@ -318,6 +385,7 @@ export function HealthDrawer({
         <DrawerBody
           options={options}
           entries={entries}
+          recorded={recorded}
           onChange={onChange}
           refused={refused}
           focusAttribute={focusAttribute}

@@ -7,7 +7,7 @@
  */
 import { useId } from 'react'
 import type { AssessmentOptions, Entries } from '../../twin/assessment'
-import { groupProgress, totalProgress } from '../../twin/assessment'
+import { groupProgress, profileOf, totalProgress } from '../../twin/assessment'
 import { FOCUS_CLASS } from './PlanEditor'
 
 interface Props {
@@ -15,6 +15,7 @@ interface Props {
   entries: Entries
   onEdit: () => void
   onFillExample: () => void
+  onFillProfile: (id: string) => void
   onClear: () => void
 }
 
@@ -29,12 +30,18 @@ export function HealthColumn({
   entries,
   onEdit,
   onFillExample,
+  onFillProfile,
   onClear,
 }: Props) {
   const total = totalProgress(options, entries)
   const groups = groupProgress(options, entries)
   const complete = total.given === total.of && total.of > 0
-  const exampleNoteId = useId()
+  const baseId = useId()
+  const profileId = profileOf(options, entries)
+  const filled =
+    profileId === null
+      ? null
+      : options.examples.find((example) => example.id === profileId) ?? null
 
   return (
     <div className="w-[440px] flex-none rounded-xl border border-white/10 bg-surface-mid px-4 pb-2 pt-3 phone:w-full">
@@ -80,21 +87,6 @@ export function HealthColumn({
         >
           Enter or edit
         </button>
-        {options.example && (
-          <>
-            <button
-              type="button"
-              onClick={onFillExample}
-              aria-describedby={exampleNoteId}
-              className={`${SECONDARY} ${FOCUS_CLASS}`}
-            >
-              Fill with invented example
-            </button>
-            <span id={exampleNoteId} className="sr-only">
-              {options.example.label}
-            </span>
-          </>
-        )}
         {total.given > 0 && (
           <button
             type="button"
@@ -105,6 +97,65 @@ export function HealthColumn({
           </button>
         )}
       </div>
+
+      {options.examples.length > 0 ? (
+        <>
+          <p className="mt-2 text-[13px] leading-[18px] text-ink/70">
+            Fill with an invented example:
+          </p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {options.examples.map((example, index) => (
+              <button
+                key={example.id}
+                type="button"
+                aria-pressed={profileId === example.id}
+                aria-describedby={`${baseId}-profile-${index}`}
+                onClick={() => onFillProfile(example.id)}
+                className={`min-h-[44px] rounded-el border px-4 text-[14px] font-semibold transition-colors ${FOCUS_CLASS} ${
+                  profileId === example.id
+                    ? 'border-warn-strong/70 bg-surface-high text-ink shadow-inset1'
+                    : 'border-white/10 bg-surface-low text-ink/70 hover:text-ink'
+                }`}
+              >
+                {profileId === example.id && (
+                  <span aria-hidden="true" className="mr-1.5 text-[11px] text-warn">
+                    ▲
+                  </span>
+                )}
+                {example.label.split(' · ')[0]}
+              </button>
+            ))}
+          </div>
+          <div className="sr-only">
+            {options.examples.map((example, index) => (
+              <p key={example.id} id={`${baseId}-profile-${index}`}>
+                {example.label}
+              </p>
+            ))}
+          </div>
+        </>
+      ) : options.example ? (
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onFillExample}
+            aria-describedby={`${baseId}-example`}
+            className={`${SECONDARY} ${FOCUS_CLASS}`}
+          >
+            Fill with invented example
+          </button>
+          <span id={`${baseId}-example`} className="sr-only">
+            {options.example.label}
+          </span>
+        </div>
+      ) : null}
+
+      {filled && (
+        <p className="mt-2 inline-block rounded-md border border-warn-strong/60 bg-warn-strong/10 px-2 py-0.5 font-body text-[13px] font-semibold text-warn">
+          <span aria-hidden="true">▲ </span>
+          {filled.label}
+        </p>
+      )}
 
       <p className="mt-1 text-[13px] leading-[18px] text-ink/70">
         Held on this device only. Not saved on the server and not part of the link.

@@ -86,6 +86,44 @@ export interface AssessmentExample {
   values: Record<string, number>
 }
 
+export interface AssessmentExampleProfile {
+  id: string
+  label: string
+  values: Entries
+}
+
+export interface AssessmentMeasured {
+  key: string
+  attribute: string
+  label: string
+  unit: string
+}
+
+export interface AssessmentHorizons {
+  attribute: string
+  unit: string
+  values: number[]
+  settled: number
+  settled_label: string
+}
+
+export interface AssessmentSeriesPoint {
+  weeks: number
+  value: number | null
+}
+
+export interface AssessmentMediatorOption {
+  now: string
+  at: string
+  label: string
+  unit: string
+  source: 'entered' | 'measured'
+  key: string | null
+  still: string | null
+  status: string | null
+  models: AssessmentModel[]
+}
+
 export interface AssessmentOptions {
   lamina: string
   name: string
@@ -95,6 +133,10 @@ export interface AssessmentOptions {
   results: AssessmentOptionResult[]
   flags: AssessmentOptionFlag[]
   example: AssessmentExample | null
+  examples: AssessmentExampleProfile[]
+  measured: AssessmentMeasured[]
+  horizons: AssessmentHorizons | null
+  mediators: AssessmentMediatorOption[]
   notice: string | null
 }
 
@@ -116,6 +158,7 @@ export interface AssessmentDosePlanned {
 
 export interface AssessmentDose {
   unit: string
+  fitness: Record<string, number>
   current: AssessmentDoseCurrent | null
   planned: AssessmentDosePlanned | null
   reason: string | null
@@ -124,6 +167,7 @@ export interface AssessmentDose {
 export type AssessmentNeed =
   | { attribute: string; label: string }
   | { link: string; label: string }
+  | { measured: string; label: string }
 
 export interface AssessmentChange {
   points: number
@@ -142,7 +186,24 @@ export interface AssessmentResult {
   change: AssessmentChange | null
   not_applicable: string | null
   needs: { now: AssessmentNeed[]; planned: AssessmentNeed[] }
+  series: AssessmentSeriesPoint[]
+  settled: number | null
   reason: string | null
+}
+
+export interface AssessmentMediatorOutcome {
+  now: string
+  label: string
+  unit: string
+  source: 'entered' | 'measured'
+  key: string | null
+  still: string | null
+  status: string | null
+  value_now: number | null
+  series: AssessmentSeriesPoint[]
+  settled: number | null
+  moves: boolean
+  needs: AssessmentNeed[]
 }
 
 export type AssessmentFlagState = 'raised' | 'clear' | 'not_answered'
@@ -163,6 +224,8 @@ export interface AssessmentOutcome {
   range: AssessmentRange | null
   results: AssessmentResult[]
   flags: AssessmentFlag[]
+  horizons: AssessmentHorizons | null
+  mediators: AssessmentMediatorOutcome[]
   notice: string | null
 }
 
@@ -236,6 +299,7 @@ interface ValueReader {
     path: string,
   ): number | null
   integer(source: Record<string, unknown>, key: string, path: string): number
+  boolean(source: Record<string, unknown>, key: string, path: string): boolean
   stringArray(value: unknown, field: string): string[]
 }
 
@@ -316,6 +380,18 @@ function makeReader(prefix: string): ValueReader {
     return value
   }
 
+  function boolean(
+    source: Record<string, unknown>,
+    key: string,
+    path: string,
+  ): boolean {
+    const value = source[key]
+    if (typeof value !== 'boolean') {
+      bad(fieldPath(path, key), 'must be a boolean')
+    }
+    return value
+  }
+
   function stringArray(value: unknown, field: string): string[] {
     if (!Array.isArray(value)) bad(field, 'must be an array')
     return value.map((entry, index) => {
@@ -332,6 +408,7 @@ function makeReader(prefix: string): ValueReader {
     number,
     nullableNumber,
     integer,
+    boolean,
     stringArray,
   }
 }
@@ -522,21 +599,130 @@ function readOptionFlags(
   })
 }
 
+function readEntryValues(
+  r: ValueReader,
+  raw: unknown,
+  field: string,
+): Entries {
+  if (!isRecord(raw)) r.bad(field, 'must be an object')
+  const values: Entries = {}
+  for (const key of Object.keys(raw)) {
+    values[key] = r.number(raw, key, field)
+  }
+  return values
+}
+
 function readExample(
   r: ValueReader,
   raw: unknown,
 ): AssessmentExample | null {
   if (raw === null) return null
   if (!isRecord(raw)) r.bad('example', 'must be an object or null')
-  const values = r.record(raw, 'values', 'example')
-  const exampleValues: Record<string, number> = {}
-  for (const key of Object.keys(values)) {
-    exampleValues[key] = r.number(values, key, 'example.values')
-  }
   return {
     label: r.string(raw, 'label', 'example'),
-    values: exampleValues,
+    values: readEntryValues(r, raw.values, 'example.values'),
   }
+}
+
+function readExamples(
+  r: ValueReader,
+  raw: unknown,
+): AssessmentExampleProfile[] {
+  if (raw === undefined) return []
+  if (!Array.isArray(raw)) r.bad('examples', 'must be an array')
+  if (raw.length === 0) r.bad('examples', 'must not be empty')
+  const seen = new Set<string>()
+  return raw.map((entry, index) => {
+    const path = `examples[${index}]`
+    if (!isRecord(entry)) r.bad(path, 'must be an object')
+    const id = r.string(entry, 'id', path)
+    if (id === '') r.bad(fieldPath(path, 'id'), 'must not be empty')
+    if (seen.has(id)) r.bad(fieldPath(path, 'id'), 'must be unique')
+    seen.add(id)
+    return {
+      id,
+      label: r.string(entry, 'label', path),
+      values: readEntryValues(r, entry.values, fieldPath(path, 'values')),
+    }
+  })
+}
+
+function readMeasured(
+  r: ValueReader,
+  raw: unknown,
+): AssessmentMeasured[] {
+  if (raw === undefined) return []
+  if (!Array.isArray(raw)) r.bad('measured', 'must be an array')
+  return raw.map((entry, index) => {
+    const path = `measured[${index}]`
+    if (!isRecord(entry)) r.bad(path, 'must be an object')
+    return {
+      key: r.string(entry, 'key', path),
+      attribute: r.string(entry, 'attribute', path),
+      label: r.string(entry, 'label', path),
+      unit: r.string(entry, 'unit', path),
+    }
+  })
+}
+
+function readHorizons(
+  r: ValueReader,
+  raw: unknown,
+  path: string,
+): AssessmentHorizons | null {
+  if (raw === undefined || raw === null) return null
+  if (!isRecord(raw)) r.bad(path, 'must be an object or null')
+  const valuesField = fieldPath(path, 'values')
+  if (!Array.isArray(raw.values)) r.bad(valuesField, 'must be an array')
+  const values = raw.values.map((entry, index) => {
+    if (typeof entry !== 'number' || !Number.isFinite(entry)) {
+      r.bad(`${valuesField}[${index}]`, 'must be a finite number')
+    }
+    return entry
+  })
+  return {
+    attribute: r.string(raw, 'attribute', path),
+    unit: r.string(raw, 'unit', path),
+    values,
+    settled: r.number(raw, 'settled', path),
+    settled_label: r.string(raw, 'settled_label', path),
+  }
+}
+
+function readMediatorSource(
+  r: ValueReader,
+  raw: Record<string, unknown>,
+  path: string,
+): 'entered' | 'measured' {
+  const source = r.string(raw, 'source', path)
+  if (source === 'entered' || source === 'measured') return source
+  return r.bad(
+    fieldPath(path, 'source'),
+    "must be 'entered' or 'measured'",
+  )
+}
+
+function readMediatorOptions(
+  r: ValueReader,
+  raw: unknown,
+): AssessmentMediatorOption[] {
+  if (raw === undefined) return []
+  if (!Array.isArray(raw)) r.bad('mediators', 'must be an array')
+  return raw.map((entry, index) => {
+    const path = `mediators[${index}]`
+    if (!isRecord(entry)) r.bad(path, 'must be an object')
+    return {
+      now: r.string(entry, 'now', path),
+      at: r.string(entry, 'at', path),
+      label: r.string(entry, 'label', path),
+      unit: r.string(entry, 'unit', path),
+      source: readMediatorSource(r, entry, path),
+      key: r.nullableString(entry, 'key', path),
+      still: r.nullableString(entry, 'still', path),
+      status: r.nullableString(entry, 'status', path),
+      models: readModels(r, entry.models, path),
+    }
+  })
 }
 
 /**
@@ -558,6 +744,10 @@ export function parseAssessmentOptions(raw: unknown): AssessmentOptions {
     results: readOptionResults(r, raw.results),
     flags: readOptionFlags(r, raw.flags),
     example: readExample(r, raw.example),
+    examples: readExamples(r, raw.examples),
+    measured: readMeasured(r, raw.measured),
+    horizons: readHorizons(r, raw.horizons, 'horizons'),
+    mediators: readMediatorOptions(r, raw.mediators),
     notice: r.nullableString(raw, 'notice', ''),
   }
 }
@@ -608,10 +798,27 @@ function readDosePlanned(
   }
 }
 
+function readFitness(
+  r: ValueReader,
+  raw: unknown,
+): Record<string, number> {
+  if (raw === undefined) return {}
+  if (!isRecord(raw)) r.bad('dose.fitness', 'must be an object')
+  const fitness: Record<string, number> = {}
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      r.bad(`dose.fitness.${key}`, 'must be a finite number')
+    }
+    fitness[key] = value
+  }
+  return fitness
+}
+
 function readDose(r: ValueReader, raw: unknown): AssessmentDose {
   if (!isRecord(raw)) r.bad('dose', 'must be an object')
   return {
     unit: r.string(raw, 'unit', 'dose'),
+    fitness: readFitness(r, raw.fitness),
     current: readDoseCurrent(r, raw.current),
     planned: readDosePlanned(r, raw.planned),
     reason: r.nullableString(raw, 'reason', 'dose'),
@@ -657,8 +864,42 @@ function readNeeds(
       }
       return { link, label }
     }
-    return r.bad(at, 'must name an attribute or a link')
+    if ('measured' in entry) {
+      const measured = entry.measured
+      if (typeof measured !== 'string') {
+        r.bad(fieldPath(at, 'measured'), 'must be a string')
+      }
+      return { measured, label }
+    }
+    return r.bad(at, 'must name an attribute, a link or a measured value')
   })
+}
+
+function readSeries(
+  r: ValueReader,
+  raw: unknown,
+  path: string,
+): AssessmentSeriesPoint[] {
+  if (raw === undefined) return []
+  if (!Array.isArray(raw)) r.bad(path, 'must be an array')
+  return raw.map((entry, index) => {
+    const at = `${path}[${index}]`
+    if (!isRecord(entry)) r.bad(at, 'must be an object')
+    return {
+      weeks: r.number(entry, 'weeks', at),
+      value: r.nullableNumber(entry, 'value', at),
+    }
+  })
+}
+
+function readOptionalNullableNumber(
+  r: ValueReader,
+  source: Record<string, unknown>,
+  key: string,
+  path: string,
+): number | null {
+  if (source[key] === undefined) return null
+  return r.nullableNumber(source, key, path)
 }
 
 function readChange(
@@ -677,12 +918,24 @@ function readChange(
 function readResults(
   r: ValueReader,
   raw: unknown,
+  horizons: AssessmentHorizons | null,
 ): AssessmentResult[] {
   if (!Array.isArray(raw)) r.bad('assessment.results', 'must be an array')
   return raw.map((entry, index) => {
     const path = `assessment.results[${index}]`
     if (!isRecord(entry)) r.bad(path, 'must be an object')
     const needs = r.record(entry, 'needs', path)
+    const series = readSeries(r, entry.series, fieldPath(path, 'series'))
+    if (
+      entry.series !== undefined &&
+      horizons !== null &&
+      series.length !== horizons.values.length
+    ) {
+      r.bad(
+        fieldPath(path, 'series'),
+        'must have as many entries as the horizons',
+      )
+    }
     return {
       id: r.string(entry, 'id', path),
       label: r.string(entry, 'label', path),
@@ -702,6 +955,8 @@ function readResults(
           fieldPath(fieldPath(path, 'needs'), 'planned'),
         ),
       },
+      series,
+      settled: readOptionalNullableNumber(r, entry, 'settled', path),
       reason: r.nullableString(entry, 'reason', path),
     }
   })
@@ -719,6 +974,32 @@ function readFlags(r: ValueReader, raw: unknown): AssessmentFlag[] {
       text: r.string(entry, 'text', path),
       status: r.nullableString(entry, 'status', path),
       state: readFlagState(r, entry, path),
+      needs: readNeeds(r, entry.needs, fieldPath(path, 'needs')),
+    }
+  })
+}
+
+function readMediatorOutcomes(
+  r: ValueReader,
+  raw: unknown,
+): AssessmentMediatorOutcome[] {
+  if (raw === undefined) return []
+  if (!Array.isArray(raw)) r.bad('assessment.mediators', 'must be an array')
+  return raw.map((entry, index) => {
+    const path = `assessment.mediators[${index}]`
+    if (!isRecord(entry)) r.bad(path, 'must be an object')
+    return {
+      now: r.string(entry, 'now', path),
+      label: r.string(entry, 'label', path),
+      unit: r.string(entry, 'unit', path),
+      source: readMediatorSource(r, entry, path),
+      key: r.nullableString(entry, 'key', path),
+      still: r.nullableString(entry, 'still', path),
+      status: r.nullableString(entry, 'status', path),
+      value_now: r.nullableNumber(entry, 'value_now', path),
+      series: readSeries(r, entry.series, fieldPath(path, 'series')),
+      settled: readOptionalNullableNumber(r, entry, 'settled', path),
+      moves: r.boolean(entry, 'moves', path),
       needs: readNeeds(r, entry.needs, fieldPath(path, 'needs')),
     }
   })
@@ -753,12 +1034,15 @@ function readOutcome(r: ValueReader, raw: unknown): AssessmentOutcome {
     r.bad('assessment.entered', 'must not be negative')
   }
   if (given > of) r.bad('assessment.entered', 'must have given <= of')
+  const horizons = readHorizons(r, raw.horizons, 'assessment.horizons')
   return {
     entered: { given, of },
     links: readAnswerLinks(r, raw.links),
     range: readRange(r, raw.range, 'assessment.range'),
-    results: readResults(r, raw.results),
+    results: readResults(r, raw.results, horizons),
     flags: readFlags(r, raw.flags),
+    horizons,
+    mediators: readMediatorOutcomes(r, raw.mediators),
     notice: r.nullableString(raw, 'notice', 'assessment'),
   }
 }
@@ -793,6 +1077,169 @@ export function parseAssessmentAnswer(raw: unknown): {
     },
     day,
   }
+}
+
+// ── Horizons, profiles and factor movement ──────────────────────────────────
+
+/** One selectable column: a listed horizon or the settled value. */
+export type HorizonChoice = {
+  index: number
+  weeks: number | null
+  label: string
+  settled: boolean
+}
+
+/** One choice per listed horizon, then the settled column; [] for null. */
+export function horizonChoices(h: AssessmentHorizons | null): HorizonChoice[] {
+  if (h === null) return []
+  const choices: HorizonChoice[] = h.values.map((weeks, index) => ({
+    index,
+    weeks,
+    label: weeks === 0 ? 'Now' : `${weeks} weeks`,
+    settled: false,
+  }))
+  choices.push({
+    index: h.values.length,
+    weeks: null,
+    label: h.settled_label,
+    settled: true,
+  })
+  return choices
+}
+
+/** The value a series holds at the choice, or the settled value for the last. */
+export function valueAtHorizon(
+  item: { series: AssessmentSeriesPoint[]; settled: number | null },
+  choice: HorizonChoice,
+): number | null {
+  if (choice.settled) return item.settled
+  const point = item.series[choice.index]
+  return point === undefined ? null : point.value
+}
+
+/** The compact label a risk card's horizon row prints. */
+export function horizonShort(choice: HorizonChoice): string {
+  if (choice.settled) return choice.label
+  if (choice.weeks === null || choice.weeks === 0) return 'Now'
+  return `${choice.weeks} wk`
+}
+
+/**
+ * The largest relative move any moving mediator makes, shared by every factor
+ * so one that barely moves is drawn as barely moving; at least 0.02.
+ */
+export function mediatorScale(
+  mediators: AssessmentMediatorOutcome[],
+  choices: HorizonChoice[],
+): number {
+  let scale = 0
+  for (const mediator of mediators) {
+    if (!mediator.moves) continue
+    const now = mediator.value_now
+    if (now === null || now === 0 || !Number.isFinite(now)) continue
+    for (const choice of choices) {
+      const value = valueAtHorizon(mediator, choice)
+      if (value === null || !Number.isFinite(value)) continue
+      const ratio = Math.abs(value - now) / Math.abs(now)
+      if (ratio > scale) scale = ratio
+    }
+  }
+  return Math.max(0.02, scale)
+}
+
+/** A factor's move from its value now, on the shared scale, clamped to [-1, 1]. */
+export function mediatorPoint(
+  value: number | null,
+  valueNow: number | null,
+  scale: number,
+): number {
+  if (
+    value === null ||
+    valueNow === null ||
+    valueNow === 0 ||
+    !Number.isFinite(value) ||
+    !Number.isFinite(valueNow) ||
+    !Number.isFinite(scale) ||
+    scale <= 0
+  ) {
+    return 0
+  }
+  const point = (value - valueNow) / Math.abs(valueNow) / scale
+  return Math.min(1, Math.max(-1, point))
+}
+
+/** How many decimals a factor's value is printed with. */
+export function decimalsFor(value: number): number {
+  return Math.abs(value) < 10 ? 2 : 1
+}
+
+/** The id of the example whose values equal the entries exactly, else null. */
+export function profileOf(
+  options: AssessmentOptions,
+  entries: Entries,
+): string | null {
+  const entryKeys = Object.keys(entries)
+  for (const profile of options.examples) {
+    const keys = Object.keys(profile.values)
+    if (keys.length !== entryKeys.length) continue
+    let same = true
+    for (const key of keys) {
+      const value = entries[key]
+      if (value === undefined || value !== profile.values[key]) {
+        same = false
+        break
+      }
+    }
+    if (same) return profile.id
+  }
+  return null
+}
+
+/** A fresh copy of the named example's values; throws naming an unknown id. */
+export function fillProfile(options: AssessmentOptions, id: string): Entries {
+  const profile = options.examples.find((example) => example.id === id)
+  if (profile === undefined) {
+    throw new Error(
+      `assessment options: examples.${id} is not a declared example`,
+    )
+  }
+  const entries: Entries = {}
+  for (const key of Object.keys(profile.values)) {
+    const value = profile.values[key]
+    if (!Number.isFinite(value)) {
+      throw new Error(
+        `assessment options: examples.${id}.values.${key} must be a finite number`,
+      )
+    }
+    entries[key] = value
+  }
+  return entries
+}
+
+/** The label of any kind of need. */
+export function needText(need: AssessmentNeed): string {
+  return need.label
+}
+
+/**
+ * How much a value moved from now, printed with two decimals; a move under
+ * 0.005 counts as the same.
+ */
+export function deltaText(
+  value: number,
+  now: number,
+): { text: string; direction: 'down' | 'up' | 'same' } {
+  const delta = value - now
+  const direction =
+    Math.abs(delta) < 0.005 ? 'same' : delta < 0 ? 'down' : 'up'
+  const magnitude = Math.abs(delta).toFixed(2)
+  if (direction === 'down') {
+    return { text: `\u2212${magnitude} points`, direction }
+  }
+  if (direction === 'up') {
+    return { text: `+${magnitude} points`, direction }
+  }
+  return { text: `${magnitude} points`, direction }
 }
 
 // ── Entries the person types ─────────────────────────────────────────────────

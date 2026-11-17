@@ -20,6 +20,7 @@ import {
   controlForEntryField,
   entriesBody,
   fillExample,
+  fillProfile,
   readDaysParam,
   writeDaysParam,
 } from '../../twin/assessment'
@@ -352,6 +353,15 @@ export function PlanPage() {
     setEntries(fillExample(assessmentOptions))
   }, [assessmentOptions, markChanged])
 
+  const fillTheProfile = useCallback(
+    (id: string) => {
+      if (!assessmentOptions) return
+      markChanged()
+      setEntries(fillProfile(assessmentOptions, id))
+    },
+    [assessmentOptions, markChanged],
+  )
+
   const clearTheEntries = useCallback(() => {
     markChanged()
     setEntries(clearEntries())
@@ -521,6 +531,22 @@ export function PlanPage() {
     result !== null && (stale || phase === 'refused' || phase === 'running')
   const overlay = stale && phase !== 'running' && phase !== 'failed'
 
+  const recorded = answer
+    ? answer.assessment.mediators
+        .filter((mediator) => mediator.source === 'measured')
+        .map((mediator) => ({
+          label: mediator.label,
+          unit: mediator.unit,
+          value: mediator.value_now,
+        }))
+    : assessmentOptions
+      ? assessmentOptions.measured.map((measured) => ({
+          label: measured.label,
+          unit: measured.unit,
+          value: null,
+        }))
+      : []
+
   return (
     <>
       {/* The selected tab already reads "Plan a day", and the approved layout
@@ -605,6 +631,7 @@ export function PlanPage() {
                       entries,
                       onEdit: () => openDrawer(null),
                       onFillExample: fillTheExample,
+                      onFillProfile: fillTheProfile,
                       onClear: clearTheEntries,
                     }
                   : null
@@ -677,6 +704,7 @@ export function PlanPage() {
           open={drawerOpen}
           options={assessmentOptions}
           entries={entries}
+          recorded={recorded}
           onChange={changeEntries}
           onClose={closeDrawer}
           refused={entryRefused}
